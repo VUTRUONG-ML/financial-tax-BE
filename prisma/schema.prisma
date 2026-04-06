@@ -1,0 +1,95 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+// 1. Users_Profile (Hồ sơ Hộ kinh doanh)
+model User {
+  id           String   @id @default(cuid())
+  phoneNumber  String   @unique @map("phone_number")
+  passwordHash String   @map("password_hash")
+  role         Role     @default(ADMIN)
+  taxCode      String   @unique @map("tax_code")
+  businessName String   @map("business_name")
+  ownerName    String   @map("owner_name")
+  cccdNumber   String   @unique @map("cccd_number")
+  provinceCity String   @map("province_city")
+  isActive     Boolean  @default(true)
+
+  taxConfig    TaxConfiguration[]
+
+  createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  @@map("users")
+}
+
+model TaxGroup {
+  id                 Int                @id @default(autoincrement())
+  groupName          String             @map("group_name")
+  
+  specificIndustries SpecificIndustry[]
+
+  @@map("tax_groups")
+}
+
+// 3. Specific_Industries (Danh mục Ngành nghề chi tiết)
+model SpecificIndustry {
+  id             Int      @id @default(autoincrement())
+  taxGroupId     Int      @map("tax_group_id")
+  industryCode   String?  @unique @map("industry_code")
+  industryName   String   @map("industry_name")
+  
+  vatRate        Decimal  @map("vat_rate") @db.Decimal(5, 4) 
+  pitRate        Decimal  @map("pit_rate") @db.Decimal(5, 4)
+  isVatReducible Boolean  @default(false) @map("is_vat_reducible")
+
+  taxGroup       TaxGroup @relation(fields: [taxGroupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  taxConfig      TaxConfiguration[]
+
+  @@map("specific_industries")
+}
+
+
+enum RevenueTier {
+  TIER_1 // Dưới 500 triệu
+  TIER_2 // 500 triệu - 3 tỷ
+  TIER_3 // 3 tỷ - 50 tỷ
+  TIER_4 // Trên 50 tỷ
+}
+model TaxConfiguration{
+  id                String        @id @default(cuid())
+  userId            String        @map("user_id")
+  industryId        Int           @map("industry_id")
+
+  revenueTier       RevenueTier   @map("revenue_tier")
+  applyFromDate     DateTime      @map("apply_from_date")
+  applyToDate       DateTime?     @map("apply_to_date")
+
+  vatRateSnapShot   Decimal       @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot   Decimal       @map("pit_rate_snapshot") @db.Decimal(5, 4)
+  isVatReducible    Boolean       @map("is_vat_reducible") @default(false)
+
+  user              User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  industry          SpecificIndustry  @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  @@index([userId, applyToDate])
+  @@map("tax_configurations")
+}
