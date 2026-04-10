@@ -19,7 +19,7 @@ export class TokenService {
    * Sinh ra cặp Access và Refresh Token cùng lúc
    */
   async generateAuthTokens(userId: string, role: string, phone: string) {
-    const payload = { sub: userId, role, phone };
+    const payload: JwtPayload = { sub: userId, role, phone };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {

@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { TokenService } from '../token/token.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
@@ -74,5 +78,11 @@ export class AuthService {
     // 6. Trả về token cho Client
     const { passwordHash, ...userWithoutPassword } = user;
     return { user: userWithoutPassword, accessToken, refreshToken };
+  }
+  async getProfile(phone: string) {
+    const user = await this.usersService.findByPhone(phone);
+    if (!user) throw new NotFoundException('User not found.');
+    const { passwordHash, ...userWithoutPass } = user;
+    return userWithoutPass;
   }
 }
