@@ -18,7 +18,6 @@ export class AuthService {
 
   async register(dto: CreateUserDto) {
     // 1. Cấu hình độ khó của thuật toán băm (Salt Rounds)
-    // 10 là mức tiêu chuẩn hiện nay: Cân bằng giữa bảo mật và hiệu năng server
     const saltRounds = 10;
 
     // 2. Băm mật khẩu (Hash Password)
@@ -38,15 +37,17 @@ export class AuthService {
     const newUser = await this.usersService.create(userPayload);
 
     // 5. Bảo mật dữ liệu đầu ra (Sanitize Output)
-    // Tuyệt đối không trả 'passwordHash' về cho Frontend.
-    // Dùng kỹ thuật Destructuring của ES6 để tách nó ra khỏi object.
     const { passwordHash, ...userWithoutPassword } = newUser;
 
     // 6. Trả về kết quả (Tuỳ chọn: Trả thêm token nếu muốn user đăng nhập luôn)
     return userWithoutPassword;
   }
 
-  async login(dto: LoginDto) {
+  async login(
+    dto: LoginDto,
+    ipAddress?: string | null,
+    userAgent?: string | null,
+  ) {
     // 1. Tìm user theo số điện thoại
     const user = await this.usersService.findByPhone(dto.phoneNumber);
 
@@ -65,7 +66,6 @@ export class AuthService {
       throw new UnauthorizedException('Phone number or password is invalid');
 
     // 4. Khởi tạo Token (Lúc này chứng tỏ user hoàn toàn hợp lệ)
-    // Lưu ý: Đảm bảo hàm generateAuthTokens của em đã được cập nhật để nhận thêm tham số phoneNumber
     const { accessToken, refreshToken } =
       await this.tokenService.generateAuthTokens(
         user.id,
@@ -74,7 +74,12 @@ export class AuthService {
       );
 
     // 5. TODO: Lưu refreshToken vào database
-
+    await this.tokenService.saveRefreshToken(
+      user.id,
+      refreshToken,
+      ipAddress,
+      userAgent,
+    );
     // 6. Trả về token cho Client
     const { passwordHash, ...userWithoutPassword } = user;
     return { user: userWithoutPassword, accessToken, refreshToken };
