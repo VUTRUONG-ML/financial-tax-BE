@@ -109,4 +109,21 @@ export class AuthController {
       data: { accessToken },
     };
   }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(
+    @Res({ passthrough: true }) res: Response,
+    @Cookie('refreshToken') rt: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    await this.authService.logout(rt);
+    this.setRefreshCookie(res, '');
+    return {
+      message: 'Logout success.',
+      data: {
+        userId,
+      },
+    };
+  }
 }

@@ -188,4 +188,28 @@ export class TokenService {
       return newTokens;
     });
   }
+
+  async getToken(rt: string, tx?: Prisma.TransactionClient) {
+    const db = tx || this.prismaService;
+    const hashedToken = this.hashToken(rt);
+    const token = await db.refreshToken.findUnique({
+      where: { tokenHash: hashedToken },
+    });
+    if (!token || token.isRevoked) {
+      throw new UnauthorizedException({
+        errorCode: 'INVALID_REFRESH_TOKEN',
+        message: 'The login session has expired or been disabled.',
+      });
+    }
+    return token;
+  }
+  async markTokenRevoked(rt: string, tx?: Prisma.TransactionClient) {
+    const db = tx || this.prismaService;
+    const hashedToken = this.hashToken(rt);
+    const result = await db.refreshToken.updateMany({
+      where: { tokenHash: hashedToken },
+      data: { isRevoked: true },
+    });
+    return result.count;
+  }
 }

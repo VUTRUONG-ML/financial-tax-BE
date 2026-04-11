@@ -4,16 +4,19 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
-import { TokenService } from '../token/token.service';
+import { TokenService, TokenType } from '../token/token.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
+import { RequestUser } from '../common/interface/request-user.interface';
+import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly tokenService: TokenService,
+    private readonly prismaService: PrismaService,
   ) {}
 
   async register(dto: CreateUserDto) {
@@ -89,5 +92,26 @@ export class AuthService {
     if (!user) throw new NotFoundException('User not found.');
     const { passwordHash, ...userWithoutPass } = user;
     return userWithoutPass;
+  }
+
+  async logout(rt: string) {
+    const decode: RequestUser = await this.tokenService.validateToken(
+      rt,
+      TokenType.REFRESH,
+    );
+    try {
+      const result = await this.prismaService.$transaction(async (tx) => {
+        await this.tokenService.getToken(rt, tx);
+        const count = await this.tokenService.markTokenRevoked(rt, tx);
+        if (count > 0) {
+          // Ghi log người dùng đã đăng xuất thành công
+        }
+        return { success: true };
+      });
+      return result;
+    } catch (error) {
+      // ignore
+      console.log('>>> The login session has expired or been disabled.', error);
+    }
   }
 }
