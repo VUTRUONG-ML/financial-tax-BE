@@ -9,6 +9,8 @@ import { TokenModule } from './token/token.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RequestLoggerMiddleware } from './common/middlewares/request-logger.middleware';
+import { MetadataModule } from './metadata/metadata.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { RequestLoggerMiddleware } from './common/middlewares/request-logger.mid
     UsersModule,
     AuthModule,
     TokenModule,
+    MetadataModule,
+    OnboardingModule,
   ],
   controllers: [AppController],
   providers: [
