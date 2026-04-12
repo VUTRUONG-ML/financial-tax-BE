@@ -4,16 +4,16 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
+import { AppLogger } from '../logger/app-logger.service';
 
 // @Catch() không truyền tham số nghĩa là nó sẽ bắt MỌI loại Exception
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   // Khởi tạo Logger mặc định của NestJS để trace bug trên console
-  private readonly logger = new Logger(AllExceptionsFilter.name);
+  private readonly logger = new AppLogger(AllExceptionsFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -92,12 +92,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `[Runtime Error]: ${exception.message}`,
         exception.stack,
       );
+      // Ghi Log hệ thống (Có thể thay bằng service lưu vào DB Audit Log)
+      this.logger.error(
+        `[${request.method}] ${request.url} - Status: ${status} - Error: ${JSON.stringify(message)}`,
+      );
     }
-
-    // Ghi Log hệ thống (Có thể thay bằng service lưu vào DB Audit Log)
-    this.logger.error(
-      `[${request.method}] ${request.url} - Status: ${status} - Error: ${JSON.stringify(message)}`,
-    );
 
     // Chuẩn hóa định dạng Response trả về cho Frontend
     response.status(status).json({

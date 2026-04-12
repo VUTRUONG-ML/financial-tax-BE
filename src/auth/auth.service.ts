@@ -11,8 +11,14 @@ import { Prisma } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
 import { RequestUser } from '../common/interface/request-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppLogger } from '../common/logger/app-logger.service';
+import {
+  LOG_ACTIONS,
+  LOG_STATUS,
+} from '../common/constants/log-events.constant';
 @Injectable()
 export class AuthService {
+  private readonly logger = new AppLogger(AuthService.name);
   constructor(
     private readonly usersService: UsersService,
     private readonly tokenService: TokenService,
@@ -56,8 +62,15 @@ export class AuthService {
 
     // 2. Kiểm tra sự tồn tại của user
     // Nếu không có user, lập tức báo lỗi chung chung (AUTH_FAILED)
-    if (!user)
+    if (!user) {
+      this.logger.warn('LOGIN', {
+        action: LOG_ACTIONS.AUTH_LOGIN,
+        status: LOG_STATUS.FAILED,
+        phone: dto.phoneNumber,
+        reason: 'PHONE_NUMBER_INVALID',
+      });
       throw new UnauthorizedException('Phone number or password is invalid');
+    }
 
     // 3. So khớp mật khẩu đã hash bằng bcrypt
     const isPasswordMatch = await bcrypt.compare(
@@ -65,8 +78,15 @@ export class AuthService {
       user.passwordHash,
     );
 
-    if (!isPasswordMatch)
+    if (!isPasswordMatch) {
+      this.logger.warn('LOGIN', {
+        action: LOG_ACTIONS.AUTH_LOGIN,
+        status: LOG_STATUS.FAILED,
+        phone: dto.phoneNumber,
+        reason: 'PASSWORD_INVALID',
+      });
       throw new UnauthorizedException('Phone number or password is invalid');
+    }
 
     // 4. Khởi tạo Token (Lúc này chứng tỏ user hoàn toàn hợp lệ)
     const { accessToken, refreshToken } =
@@ -75,7 +95,6 @@ export class AuthService {
         user.role,
         user.phoneNumber,
       );
-
     // 5. TODO: Lưu refreshToken vào database
     await this.tokenService.saveRefreshToken(
       user.id,
@@ -83,14 +102,26 @@ export class AuthService {
       ipAddress,
       userAgent,
     );
+    this.logger.log('LOGIN', {
+      action: LOG_ACTIONS.AUTH_LOGIN,
+      status: LOG_STATUS.SUCCESS,
+      phone: dto.phoneNumber,
+    });
     // 6. Trả về token cho Client
     const { passwordHash, ...userWithoutPassword } = user;
     return { user: userWithoutPassword, accessToken, refreshToken };
   }
   async getProfile(phone: string) {
     const user = await this.usersService.findByPhone(phone);
-    if (!user) throw new NotFoundException('User not found.');
+    if (!user) {
+      this.logger.warn('GET_PROFILE_FAILED', {
+        reason: 'USER_NOT_FOUND',
+        phone,
+      });
+      throw new NotFoundException('User not found.');
+    }
     const { passwordHash, ...userWithoutPass } = user;
+    this.logger.log('GET_PROFILE_SUCCESS', { phone });
     return userWithoutPass;
   }
 

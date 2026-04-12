@@ -116,7 +116,6 @@ export class TokenService {
 
     // 2. Calculate expiration date
     const expiresAt = new Date(Date.now() + this.refreshExpMs);
-    console.log('>>> expires:', expiresAt);
     // 3. Save to database
     const savedToken = await db.refreshToken.create({
       data: {
@@ -128,7 +127,6 @@ export class TokenService {
         userAgent: userAgent,
       },
     });
-
     return savedToken;
   }
 

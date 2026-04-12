@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { TokenModule } from './token/token.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { RequestLoggerMiddleware } from './common/middlewares/request-logger.middleware';
 
 @Module({
   imports: [
@@ -26,4 +27,9 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Áp dụng middleware tạo Request ID cho toàn bộ hệ thống
+    consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+  }
+}
