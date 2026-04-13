@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AppLogger } from '../../common/logger/app-logger.service';
 
 type ActionWrite = 'CREATE' | 'UPDATE' | 'DELETE';
 @Injectable()
@@ -8,6 +9,8 @@ export class AuditLogService {
    * Hàm ghi log dùng chung cho toàn hệ thống.
    * BẮT BUỘC nhận vào tx (TransactionClient) để chạy chung một luồng ACID.
    */
+  private readonly logger = new AppLogger(AuditLogService.name);
+
   async logChange(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -32,5 +35,6 @@ export class AuditLogService {
           : Prisma.JsonNull,
       },
     });
+    this.logger.log('Audit log success.', { userId, action, tableName });
   }
 }

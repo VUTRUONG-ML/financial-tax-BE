@@ -4,6 +4,7 @@ export const LOG_ACTIONS = {
   AUTH_LOGOUT: 'AUTH_LOGOUT',
   TAX_SUBMIT: 'TAX_SUBMIT',
   TAX_CLOSE_PERIOD: 'TAX_CLOSE_PERIOD',
+  SET_ONBOARDING: 'SETUP_ONBOARDING',
 } as const;
 
 // 2. Định nghĩa Trạng thái chuẩn chung cho toàn bộ App
