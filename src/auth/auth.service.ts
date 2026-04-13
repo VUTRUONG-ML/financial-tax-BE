@@ -10,7 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
 import { RequestUser } from '../common/interface/request-user.interface';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../core/prisma/prisma.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
   LOG_ACTIONS,

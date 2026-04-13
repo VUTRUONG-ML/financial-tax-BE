@@ -3,7 +3,7 @@ import { JsonWebTokenError, JwtService, TokenExpiredError } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from '../common/interface/jwt-payload.interface';
 import * as crypto from 'crypto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../core/prisma/prisma.service';
 import { parseTimeToMs, parseTimeToSeconds } from '../common/utils/time.util';
 import { RequestUser } from 'src/common/interface/request-user.interface';
 import { Prisma } from '@prisma/client';
