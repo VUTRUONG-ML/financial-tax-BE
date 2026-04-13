@@ -5,6 +5,7 @@ export const LOG_ACTIONS = {
   TAX_SUBMIT: 'TAX_SUBMIT',
   TAX_CLOSE_PERIOD: 'TAX_CLOSE_PERIOD',
   SET_ONBOARDING: 'SETUP_ONBOARDING',
+  UPDATE_ONBOARDING: 'UPDATE_ONBOARDING',
 } as const;
 
 // 2. Định nghĩa Trạng thái chuẩn chung cho toàn bộ App
