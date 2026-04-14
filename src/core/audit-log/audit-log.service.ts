@@ -3,6 +3,10 @@ import { Prisma } from '@prisma/client';
 import { AppLogger } from '../../common/logger/app-logger.service';
 
 type ActionWrite = 'CREATE' | 'UPDATE' | 'DELETE';
+export enum tableWrite {
+  tax_configurations,
+  users,
+}
 @Injectable()
 export class AuditLogService {
   /**
@@ -13,9 +17,9 @@ export class AuditLogService {
 
   async logChange(
     tx: Prisma.TransactionClient,
-    userId: string,
+    userId: string = 'SYSTEM_AUTO',
     action: ActionWrite,
-    tableName: string,
+    tableName: tableWrite,
     recordId: string | number,
     oldValues: unknown = null,
     newValues: unknown = null,
@@ -24,7 +28,7 @@ export class AuditLogService {
       data: {
         userId,
         action,
-        tableName,
+        tableName: String(tableName),
         recordId: String(recordId),
         // Ép kiểu về JSON của Prisma để tránh lỗi lưu object undefined
         oldValues: oldValues

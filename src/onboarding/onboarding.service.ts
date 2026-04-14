@@ -6,12 +6,16 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
-import { AuditLogService } from '../core/audit-log/audit-log.service';
+import {
+  AuditLogService,
+  tableWrite,
+} from '../core/audit-log/audit-log.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
   LOG_ACTIONS,
   LOG_STATUS,
-} from 'src/common/constants/log-events.constant';
+} from '../common/constants/log-events.constant';
+import { TAX_QUARTER_COOLDOWN_MS } from '../common/constants/tax-period-time.constant';
 
 @Injectable()
 export class OnboardingService {
@@ -93,7 +97,7 @@ export class OnboardingService {
         tx,
         userId,
         'CREATE',
-        'tax_configurations',
+        tableWrite.tax_configurations,
         newConfig.id,
         null,
         newConfig,
@@ -111,7 +115,11 @@ export class OnboardingService {
   }
 
   // update khi doanh thu vượt mức hoặc người dùng muốn update đầu kì thuế
-  async updateTaxConfiguration(userId: string, dto: CreateOnboardingDto) {
+  async updateTaxConfiguration(
+    userId: string,
+    dto: CreateOnboardingDto,
+    options?: { isSystemAutoUpgrade?: boolean },
+  ) {
     const { industryId, taxGroupId } = dto;
     return this.prisma.$transaction(async (tx) => {
       const industry = await tx.specificIndustry.findUnique({
@@ -162,6 +170,24 @@ export class OnboardingService {
         );
       }
 
+      // 2. Kiểm tra xem có phải hệ thống không
+      if (!options?.isSystemAutoUpgrade) {
+        const timeSinceLastChange =
+          now.getTime() - currentActiveConfig.applyFromDate.getTime();
+
+        if (timeSinceLastChange < TAX_QUARTER_COOLDOWN_MS) {
+          this.log.warn(LOG_ACTIONS.UPDATE_ONBOARDING, {
+            status: LOG_STATUS.FAILED,
+            reason: 'USER_UPDATE_BEFORE_PERIOD',
+            userId,
+          });
+          throw new BadRequestException(
+            'You are only allowed to change your tax configuration at the beginning of the period..',
+          );
+        }
+      }
+
+      // 3. Kiểm tra nếu update thì phải update thông tin khác
       if (
         currentActiveConfig.industryId === industryId &&
         currentActiveConfig.taxGroupId === taxGroupId
@@ -178,7 +204,7 @@ export class OnboardingService {
         );
       }
 
-      // 2. KHIÊN BẢO VỆ CHỐNG DOUBLE CLICK (Optimistic Locking)
+      // 4. KHIÊN BẢO VỆ CHỐNG DOUBLE CLICK (Optimistic Locking)
       const closeResult = await tx.taxConfiguration.updateMany({
         where: {
           id: currentActiveConfig.id,
@@ -188,20 +214,29 @@ export class OnboardingService {
       });
 
       if (closeResult.count === 0) {
+        this.log.warn(LOG_ACTIONS.UPDATE_ONBOARDING, {
+          status: LOG_STATUS.FAILED,
+          reason: 'CLICK_MULTIPLE_TIMES',
+          userId,
+        });
         throw new ConflictException('Please do not click multiple times.');
       }
 
+      const actionBy: string = options?.isSystemAutoUpgrade
+        ? 'SYSTEM_AUTO'
+        : userId;
+
       await this.auditLog.logChange(
         tx,
-        userId,
+        actionBy,
         'UPDATE',
-        'tax_configurations',
+        tableWrite.tax_configurations,
         currentActiveConfig.id,
         currentActiveConfig,
         { ...currentActiveConfig, applyToDate: now },
       );
 
-      // 4. Tạo cấu hình mới
+      // 5. Tạo cấu hình mới
       const newConfig = await tx.taxConfiguration.create({
         data: {
           userId: userId,
@@ -216,9 +251,9 @@ export class OnboardingService {
       });
       await this.auditLog.logChange(
         tx,
-        userId,
+        actionBy,
         'CREATE',
-        'tax_configurations',
+        tableWrite.tax_configurations,
         newConfig.id,
         null,
         newConfig,
