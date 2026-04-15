@@ -13,6 +13,7 @@ import { MetadataModule } from './metadata/metadata.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditLogModule } from './core/audit-log/audit-log.module';
 import { ProductsModule } from './products/products.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ProductsModule } from './products/products.module';
     OnboardingModule,
     AuditLogModule,
     ProductsModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [

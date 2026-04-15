@@ -1,43 +1,83 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { LOG_STATUS } from 'src/common/constants/log-events.constant';
 
 @Injectable()
 export class ProductsService {
   private readonly log = new AppLogger(ProductsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   // ─── CREATE ───────────────────────────────────────────────────────────────
-  async create(userId: string, dto: CreateProductDto) {
+  async create(
+    userId: string,
+    dto: CreateProductDto,
+    file: Express.Multer.File,
+  ) {
+    const imageData = { url: '', publicId: '' };
+
+    if (file) {
+      try {
+        const uploadResult = await this.cloudinaryService.uploadFile(file);
+        imageData.url = uploadResult.secure_url as string;
+        imageData.publicId = uploadResult.public_id as string;
+      } catch (error) {
+        // Nếu upload lỗi, quăng exception để dừng toàn bộ flow
+        this.log.warn('CREATE_PRODUCT', {
+          status: LOG_STATUS.FAILED,
+          reason: 'CANNOT_UPLOAD_IMAGE',
+          userId,
+        });
+        throw new BadRequestException(
+          'Unable to load product image, please try again.',
+        );
+      }
+    }
+
     const qty = dto.openingStockQuantity ?? 0;
     const unitCost = dto.openingStockUnitCost ?? 0;
     const openingStockValue = qty * unitCost;
 
-    const product = await this.prisma.product.create({
-      data: {
-        userId,
-        productName: dto.productName,
-        skuCode: dto.skuCode,
-        unit: dto.unit,
-        imageUrl: dto.imageUrl,
-        sellingPrice: dto.sellingPrice,
-        openingStockQuantity: qty,
-        openingStockUnitCost: unitCost,
-        openingStockValue,
-        // Khởi tạo cache tồn kho = số lượng đầu kỳ
-        currentStock: qty,
-      },
-    });
-
-    this.log.log('Product created', { userId, publicId: product.publicId });
-    return product;
+    try {
+      const product = await this.prisma.product.create({
+        data: {
+          userId,
+          productName: dto.productName,
+          skuCode: dto.skuCode,
+          unit: dto.unit,
+          imageUrl: imageData.url,
+          imagePublicId: imageData.publicId,
+          sellingPrice: dto.sellingPrice,
+          openingStockQuantity: qty,
+          openingStockUnitCost: unitCost,
+          openingStockValue,
+          // Khởi tạo cache tồn kho = số lượng đầu kỳ
+          currentStock: qty,
+        },
+      });
+      this.log.log('Product created', { userId, publicId: product.publicId });
+      return product;
+    } catch (dbError) {
+      // TRICK CAO CẤP: Nếu lưu DB lỗi, ta nên xóa ảnh vừa upload trên Cloudinary
+      // để tránh rác server (Rollback ảnh)
+      // if (imageData.publicId) {
+      //   await this.cloudinaryService.deleteFile(imageData.publicId);
+      // }
+      throw new InternalServerErrorException('Database save product error.');
+    }
   }
 
   // ─── FIND ALL ─────────────────────────────────────────────────────────────
@@ -89,7 +129,6 @@ export class ProductsService {
       productName,
       skuCode,
       unit,
-      imageUrl,
       sellingPrice,
       openingStockQuantity,
       openingStockUnitCost,
@@ -106,7 +145,6 @@ export class ProductsService {
         ...(productName !== undefined && { productName }),
         ...(skuCode !== undefined && { skuCode }),
         ...(unit !== undefined && { unit }),
-        ...(imageUrl !== undefined && { imageUrl }),
         ...(sellingPrice !== undefined && { sellingPrice }),
         ...(openingStockQuantity !== undefined && { openingStockQuantity }),
         ...(openingStockUnitCost !== undefined && { openingStockUnitCost }),
@@ -117,7 +155,6 @@ export class ProductsService {
     this.log.log('Product updated', { userId, publicId });
     return updated;
   }
-
 
   // ─── DELETE ───────────────────────────────────────────────────────────────
   async remove(userId: string, publicId: string) {
