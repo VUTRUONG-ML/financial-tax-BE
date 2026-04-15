@@ -12,6 +12,7 @@ import { RequestLoggerMiddleware } from './common/middlewares/request-logger.mid
 import { MetadataModule } from './metadata/metadata.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditLogModule } from './core/audit-log/audit-log.module';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuditLogModule } from './core/audit-log/audit-log.module';
     MetadataModule,
     OnboardingModule,
     AuditLogModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [
