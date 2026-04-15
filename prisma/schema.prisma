@@ -29,8 +29,10 @@ model User {
   provinceCity String   @map("province_city")
   isActive     Boolean  @default(true)
 
-  taxConfigs    TaxConfiguration[]
-  refreshTokens        RefreshToken[]
+  taxConfigs      TaxConfiguration[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  products        Product[]
 
   createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt    DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
@@ -105,4 +107,55 @@ model TaxConfiguration{
 
   @@index([userId, applyToDate])
   @@map("tax_configurations")
+}
+
+enum  ActionWrite{
+  CREATE
+  UPDATE
+  DELETE
+}
+model AuditLog{
+  id              String        @id @default(cuid())
+  userId          String        @map("user_id")
+  action          ActionWrite  
+  tableName       String        @map("table_name")
+  recordId        String        @map("record_id")
+  oldValues       Json          @map("old_values")
+  newValues       Json          @map("new_values")
+
+  createdAt       DateTime      @default(now())   @db.Timestamptz(3)  @map("created_at")
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// 5. Products (Hàng hóa & Dịch vụ)
+model Product {
+  id                   Int      @id @default(autoincrement())
+  publicId             String   @unique @default(cuid()) @map("public_id")
+  userId               String   @map("user_id")
+
+  skuCode              String?  @map("sku_code")
+  productName          String   @map("product_name")
+  unit                 String
+  imageUrl             String?  @map("image_url") @db.Text
+
+  sellingPrice         Decimal  @map("selling_price")          @db.Decimal(18, 4)
+
+  openingStockQuantity Int      @default(0) @map("opening_stock_quantity")
+  openingStockUnitCost Decimal  @default(0) @map("opening_stock_unit_cost") @db.Decimal(18, 4)
+  openingStockValue    Decimal  @default(0) @map("opening_stock_value")     @db.Decimal(18, 4)
+
+  // Cache O(1) — cập nhật qua DB Transaction khi có hóa đơn mua/bán
+  currentStock         Int      @default(0) @map("current_stock")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
+
+  @@index([userId])
+  @@map("products")
 }
