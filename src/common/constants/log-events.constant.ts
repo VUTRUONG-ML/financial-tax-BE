@@ -7,6 +7,7 @@ export const LOG_ACTIONS = {
   SET_ONBOARDING: 'SETUP_ONBOARDING',
   UPDATE_ONBOARDING: 'UPDATE_ONBOARDING',
   UPLOAD_IMG: 'UPLOAD_IMAGE_TO_CLOUDINARY',
+  CREATE_INVOICE: 'CREATE_INVOICE',
 } as const;
 
 // 2. Định nghĩa Trạng thái chuẩn chung cho toàn bộ App

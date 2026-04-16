@@ -4,8 +4,10 @@ import { AppLogger } from '../../common/logger/app-logger.service';
 
 type ActionWrite = 'CREATE' | 'UPDATE' | 'DELETE';
 export enum tableWrite {
-  tax_configurations,
-  users,
+  tax_configurations = 'tax_configurations',
+  users = 'users',
+  invoices = 'invoices',
+  vouchers = 'vouchers',
 }
 @Injectable()
 export class AuditLogService {
