@@ -53,13 +53,15 @@ export class ProductsController {
 
   // PUT /products/:publicId
   @Put(':publicId')
+  @UseInterceptors(FileInterceptor('file'))
   @HttpCode(HttpStatus.OK)
   async update(
     @CurrentUser('id') userId: string,
     @Param('publicId') publicId: string,
     @Body() dto: UpdateProductDto,
+    @UploadedFile(ImageUploadPipe) file: Express.Multer.File,
   ) {
-    const data = await this.productsService.update(userId, publicId, dto);
+    const data = await this.productsService.update(userId, publicId, dto, file);
     return { message: 'Product updated successfully.', data };
   }
 

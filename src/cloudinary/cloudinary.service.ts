@@ -11,6 +11,21 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
+
+interface CloudinaryDeleteResponse {
+  result: 'ok' | 'not found' | (string & {});
+  [key: string]: any;
+}
+interface CloudinaryUploader {
+  destroy(
+    publicId: string,
+    callback: (
+      error: Error | undefined,
+      result: CloudinaryDeleteResponse,
+    ) => void,
+  ): Promise<CloudinaryDeleteResponse>;
+}
+
 @Injectable()
 export class CloudinaryService {
   private readonly logger = new AppLogger(CloudinaryService.name);
@@ -49,6 +64,31 @@ export class CloudinaryService {
       );
       // Đẩy buffer từ multer vào stream của Cloudinary
       streamifier.createReadStream(file.buffer).pipe(upload);
+    });
+  }
+
+  deleteFile(publicId: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const uploader = cloudinary.uploader as CloudinaryUploader;
+      // Gọi SDK Cloudinary
+      void uploader.destroy(
+        publicId,
+        (error: Error | undefined, result: CloudinaryDeleteResponse) => {
+          if (error) {
+            return reject(
+              new Error(error.message || 'Cloudinary Delete Error'),
+            );
+          }
+
+          if (result?.result !== 'ok' && result?.result !== 'not found') {
+            return reject(
+              new Error(`Failed to delete image: ${result?.result}`),
+            );
+          }
+
+          resolve(result);
+        },
+      );
     });
   }
 }

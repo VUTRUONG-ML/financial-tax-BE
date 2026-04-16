@@ -158,5 +158,6 @@ model Product {
   updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
 
   @@index([userId])
+  @@index([publicId])
   @@map("products")
 }

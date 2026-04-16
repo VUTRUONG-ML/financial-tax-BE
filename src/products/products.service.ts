@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
@@ -21,31 +20,44 @@ export class ProductsService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
+  private safeDeleteImage(publicId: string) {
+    this.cloudinaryService.deleteFile(publicId).catch((error: Error) => {
+      this.log.warn(`[Cleanup] IMAGE`, {
+        status: LOG_STATUS.FAILED,
+        reason: error.message,
+        imageId: publicId,
+      });
+    });
+  }
+
+  private async handleImageUpload(userId: string, file?: Express.Multer.File) {
+    if (!file) return { url: undefined, publicId: undefined };
+
+    try {
+      const result = await this.cloudinaryService.uploadFile(file);
+
+      return {
+        url: result.secure_url as string,
+        publicId: result.public_id as string,
+      };
+    } catch (error) {
+      this.log.warn('IMAGE_UPLOAD_FAILED', {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      throw new BadRequestException(
+        'Unable to load product image, please try again.',
+      );
+    }
+  }
+
   // ─── CREATE ───────────────────────────────────────────────────────────────
   async create(
     userId: string,
     dto: CreateProductDto,
-    file: Express.Multer.File,
+    file?: Express.Multer.File,
   ) {
-    const imageData = { url: '', publicId: '' };
-
-    if (file) {
-      try {
-        const uploadResult = await this.cloudinaryService.uploadFile(file);
-        imageData.url = uploadResult.secure_url as string;
-        imageData.publicId = uploadResult.public_id as string;
-      } catch (error) {
-        // Nếu upload lỗi, quăng exception để dừng toàn bộ flow
-        this.log.warn('CREATE_PRODUCT', {
-          status: LOG_STATUS.FAILED,
-          reason: 'CANNOT_UPLOAD_IMAGE',
-          userId,
-        });
-        throw new BadRequestException(
-          'Unable to load product image, please try again.',
-        );
-      }
-    }
+    const imageData = await this.handleImageUpload(userId, file);
 
     const qty = dto.openingStockQuantity ?? 0;
     const unitCost = dto.openingStockUnitCost ?? 0;
@@ -73,10 +85,10 @@ export class ProductsService {
     } catch (dbError) {
       // TRICK CAO CẤP: Nếu lưu DB lỗi, ta nên xóa ảnh vừa upload trên Cloudinary
       // để tránh rác server (Rollback ảnh)
-      // if (imageData.publicId) {
-      //   await this.cloudinaryService.deleteFile(imageData.publicId);
-      // }
-      throw new InternalServerErrorException('Database save product error.');
+      if (imageData.publicId) {
+        this.safeDeleteImage(imageData.publicId);
+      }
+      throw dbError;
     }
   }
 
@@ -120,40 +132,60 @@ export class ProductsService {
   }
 
   // ─── UPDATE ───────────────────────────────────────────────────────────────
-  async update(userId: string, publicId: string, dto: UpdateProductDto) {
+  async update(
+    userId: string,
+    publicId: string,
+    dto: UpdateProductDto,
+    file?: Express.Multer.File,
+  ) {
     // Kiểm tra tồn tại & ownership
     const current = await this.findOneByPublicId(userId, publicId);
+    const oldImage = current.imagePublicId ?? '';
+    const imageData = await this.handleImageUpload(userId, file);
 
     // Spread DTO fields (currentStock không có trong UpdateProductDto)
-    const {
-      productName,
-      skuCode,
-      unit,
-      sellingPrice,
-      openingStockQuantity,
-      openingStockUnitCost,
-    } = dto;
+    const { openingStockQuantity, openingStockUnitCost } = dto;
 
     // Tính lại openingStockValue nếu user cập nhật số lượng hoặc đơn giá vốn
     const qty = openingStockQuantity ?? current.openingStockQuantity;
     const cost = openingStockUnitCost ?? Number(current.openingStockUnitCost);
     const openingStockValue = Number(qty) * Number(cost);
 
-    const updated = await this.prisma.product.update({
-      where: { publicId },
-      data: {
-        ...(productName !== undefined && { productName }),
-        ...(skuCode !== undefined && { skuCode }),
-        ...(unit !== undefined && { unit }),
-        ...(sellingPrice !== undefined && { sellingPrice }),
-        ...(openingStockQuantity !== undefined && { openingStockQuantity }),
-        ...(openingStockUnitCost !== undefined && { openingStockUnitCost }),
-        openingStockValue,
-      },
-    });
+    try {
+      const updated = await this.prisma.product.update({
+        where: { publicId },
+        data: {
+          ...dto,
+          ...(imageData.url && {
+            imageUrl: imageData.url,
+            imagePublicId: imageData.publicId,
+          }),
+          openingStockValue,
+        },
+      });
 
-    this.log.log('Product updated', { userId, publicId });
-    return updated;
+      // Nếu người dùng up ảnh mới thì ta cần phải dọn ảnh cũ trên cloudinary
+      if (imageData.publicId && oldImage) {
+        this.safeDeleteImage(oldImage);
+      }
+      this.log.log('Product updated', { userId, publicId });
+      return updated;
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'SERVER ERROR';
+
+      // Nếu quá trình update sản phẩm gặp lỗi mà trước đó người dùng up ảnh mới thì cần phải dọn dẹp ảnh đã up trên cloudinary
+      if (imageData.publicId) {
+        this.safeDeleteImage(imageData.publicId);
+      }
+      this.log.warn('Product update', {
+        status: LOG_STATUS.FAILED,
+        reason: errorMessage,
+        userId,
+        product: publicId,
+      });
+      throw error;
+    }
   }
 
   // ─── DELETE ───────────────────────────────────────────────────────────────
