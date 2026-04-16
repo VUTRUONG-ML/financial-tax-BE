@@ -191,8 +191,8 @@ export class ProductsService {
   // ─── DELETE ───────────────────────────────────────────────────────────────
   async remove(userId: string, publicId: string) {
     // Kiểm tra tồn tại & ownership
-    await this.findOneByPublicId(userId, publicId);
-
+    const result = await this.findOneByPublicId(userId, publicId);
+    if (result.imagePublicId) this.safeDeleteImage(result.imagePublicId);
     await this.prisma.product.delete({ where: { publicId } });
 
     this.log.log('Product deleted', { userId, publicId });
