@@ -33,6 +33,7 @@ model User {
   refreshTokens   RefreshToken[]
   auditLogs       AuditLog[]
   products        Product[]
+  invoices        Invoice[]
 
   createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt    DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
@@ -152,7 +153,8 @@ model Product {
   // Cache O(1) — cập nhật qua DB Transaction khi có hóa đơn mua/bán
   currentStock         Int      @default(0) @map("current_stock")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoiceDetails InvoiceDetail[]
 
   createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
@@ -161,3 +163,72 @@ model Product {
   @@index([publicId])
   @@map("products")
 }
+
+// ─── INVOICES ────────────────────────────────────────────────────────────────
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  SYNC_FAILED
+  CANCELED
+}
+
+// 6. Invoices (Thông tin chung Hóa đơn Bán ra)
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  // publicId dùng để expose ra API, tránh lộ serial key
+  publicId      String        @unique @default(cuid()) @map("public_id")
+  userId        String        @map("user_id")
+
+  // Ký hiệu hóa đơn — bắt buộc bắt đầu bằng "2" theo pháp lý (VD: 2C26TAA)
+  // Được sinh tự động ở tầng Service; để nullable để Prisma không yêu cầu khi create
+  invoiceSymbol String        @map("invoice_symbol")
+
+  isB2C         Boolean       @default(true)  @map("is_b2c")
+
+  // Thông tin người mua (optional với B2C)
+  buyerName     String?       @map("buyer_name")
+  buyerTaxCode  String?       @map("buyer_tax_code")
+  buyerAddress  String?       @map("buyer_address")
+
+  totalPayment  Decimal       @map("total_payment") @db.Decimal(18, 4)
+
+  status        InvoiceStatus @default(DRAFT)
+
+  // Trạng thái thu tiền — tách biệt với status phát hành
+  isPaid        Boolean       @default(false) @map("is_paid")
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details InvoiceDetail[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
+
+  // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
+  @@index([userId, status])
+  @@index([publicId])
+  @@map("invoices")
+}
+
+// 7. Invoice_Details (Chi tiết Hóa đơn — Weak Entity, không lưu user_id)
+model InvoiceDetail {
+  id         Int     @id @default(autoincrement())
+  invoiceId  Int     @map("invoice_id")
+  productId  Int     @map("product_id")
+
+  // SNAPSHOT — lưu chết tên & đơn giá tại thời điểm bán để bảo vệ tính bất biến chứng từ
+  productNameSnapshot String  @map("product_name_snapshot")
+  unitPrice           Decimal @map("unit_price")  @db.Decimal(18, 4)
+
+  quantity    Int     @default(1)
+  totalAmount Decimal @map("total_amount") @db.Decimal(18, 4)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // Composite index: query toàn bộ line items của một hóa đơn là thao tác thường xuyên nhất
+  @@index([invoiceId])
+  // Phục vụ báo cáo: "sản phẩm này đã xuất hiện trong những hóa đơn nào?"
+  @@index([productId])
+  @@map("invoice_details")
+}
