@@ -29,7 +29,7 @@ export class InvoicesService {
     private readonly taxAuthorityService: TaxAuthorityService,
   ) {}
 
-  private validateInvoice(
+  private validateInvoiceB2C(
     isB2C?: boolean,
     buyerTaxCode?: string,
     buyerAddress?: string,
@@ -42,7 +42,7 @@ export class InvoicesService {
   private async validateInvoiceAccess(
     publicId: string,
     userId: string,
-    action: 'UPDATE' | 'DELETE' | 'VIEW',
+    action: 'UPDATE' | 'VIEW',
   ) {
     // 1. Tìm hóa đơn và kiểm tra quyền sở hữu ngay trong câu query
     const invoice = await this.prisma.invoice.findFirst({
@@ -63,12 +63,24 @@ export class InvoicesService {
     // Như trong tài liệu đặt tả nếu trạng thái đã là ISSUED thì khóa cứng không ghi được nữa
     if (action !== 'VIEW') {
       if (invoice.status === 'ISSUED') {
+        this.log.warn('VALIDATE_ACCESS', {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVOICE_ISSUED',
+          userId,
+          invoicePublicId: publicId,
+        });
         throw new ForbiddenException(
           'The invoice has been issued and assigned a tax authority code.',
         );
       }
 
       if (invoice.status === 'CANCELED') {
+        this.log.warn('VALIDATE_ACCESS', {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVOICE_CANCELED',
+          userId,
+          invoicePublicId: publicId,
+        });
         throw new ForbiddenException('The invoice has been canceled');
       }
     }
@@ -112,7 +124,7 @@ export class InvoicesService {
 
   async createInvoice(userId: string, dto: CreateInvoiceDto) {
     // ─── PRE-FLIGHT CHECKS (Ngoài Transaction để tránh giữ lock DB) ──────────
-    this.validateInvoice(
+    this.validateInvoiceB2C(
       dto.isB2C,
       dto.buyerTaxCode,
       dto.buyerAddress,
@@ -297,5 +309,74 @@ export class InvoicesService {
     return await this.prisma.invoice.findMany({
       where: { userId },
     });
+  }
+
+  async detailInvoice(userId: string, invPublicId: string) {
+    const invoice = await this.validateInvoiceAccess(
+      invPublicId,
+      userId,
+      'VIEW',
+    );
+    const details = await this.prisma.invoiceDetail.findMany({
+      where: { invoiceId: invoice.id },
+    });
+    this.log.log('Get detail invoice.', {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      invoicePublicId: invPublicId,
+    });
+    return {
+      ...invoice,
+      details,
+    };
+  }
+
+  // Huy hoa don
+  async canceledInvoice(invPublicId: string, userId: string) {
+    // Kiem tra own
+    const invoice = await this.validateInvoiceAccess(
+      invPublicId,
+      userId,
+      'UPDATE',
+    );
+    // Lấy ra danh sách sản phẩm của invoice đó thông qua details
+    // duyệt qua toàn bộ thông tin detail hoàn trả lại số lượng
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updatedInvoice = await tx.invoice.updateMany({
+        where: { id: invoice.id, status: { in: ['DRAFT', 'SYNC_FAILED'] } },
+        data: { status: 'CANCELED' },
+      });
+      if (updatedInvoice.count === 0) {
+        this.log.warn(LOG_ACTIONS.CANCEL_INVOICE, {
+          status: LOG_STATUS.FAILED,
+          reason: 'RACE_CONDITION',
+          invoicePublicId: invPublicId,
+          userId,
+        });
+        throw new BadRequestException('Invoice already CANCELED.');
+      }
+      const details = await tx.invoiceDetail.groupBy({
+        by: ['productId'],
+        where: { invoiceId: invoice.id },
+        _sum: { quantity: true },
+      });
+      for (const d of details) {
+        await tx.product.update({
+          where: { id: d.productId },
+          data: {
+            currentStock: { increment: d._sum.quantity ?? 0 },
+          },
+        });
+      }
+      return { ...invoice, status: 'CANCELED' };
+    });
+    // Trừ đi doanh thu trong sổ s01 thông qua invoice.totalPayment---------------------------
+    // Hoàn lại tồn kho trong sổ s05 thong qua details.d._sum.quantity---------------------------
+    this.log.log(LOG_ACTIONS.CANCEL_INVOICE, {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      invoicePublicId: invPublicId,
+    });
+    return result;
   }
 }

@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
@@ -47,6 +48,36 @@ export class InvoicesController {
     const result = await this.invoicesService.findAll(userId);
     return {
       message: 'Get all invoice own success',
+      data: result,
+    };
+  }
+
+  @Get('/:invoicePublicId/details')
+  async getDetailInvoice(
+    @CurrentUser('id') userId: string,
+    @Param('invoicePublicId') invPublicId: string,
+  ) {
+    const result = await this.invoicesService.detailInvoice(
+      userId,
+      invPublicId,
+    );
+    return {
+      message: 'Get detail success.',
+      data: result,
+    };
+  }
+
+  @Patch('/:invoicePublicId/cancel')
+  async cancelInvoice(
+    @Param('invoicePublicId') invPublicId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    const result = await this.invoicesService.canceledInvoice(
+      invPublicId,
+      userId,
+    );
+    return {
+      message: 'Invoice canceled success.',
       data: result,
     };
   }

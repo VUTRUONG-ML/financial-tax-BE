@@ -9,6 +9,7 @@ export const LOG_ACTIONS = {
   UPLOAD_IMG: 'UPLOAD_IMAGE_TO_CLOUDINARY',
   CREATE_INVOICE: 'CREATE_INVOICE',
   UPDATE_INVOICE: 'UPDATE_INVOICE',
+  CANCEL_INVOICE: 'CANCEL_INVOICE',
 } as const;
 
 // 2. Định nghĩa Trạng thái chuẩn chung cho toàn bộ App
