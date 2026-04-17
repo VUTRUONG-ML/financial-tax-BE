@@ -204,6 +204,10 @@ model Invoice {
   createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
 
+  // Thông tin khi cơ quan thuế cấp mã 
+  cqtCode   String?         @map("cqt_code")
+  issuedAt  DateTime?       @map("issued_at")        
+
   // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
   @@index([userId, status])
   @@index([publicId])
@@ -231,4 +235,4 @@ model InvoiceDetail {
   // Phục vụ báo cáo: "sản phẩm này đã xuất hiện trong những hóa đơn nào?"
   @@index([productId])
   @@map("invoice_details")
-}
+}

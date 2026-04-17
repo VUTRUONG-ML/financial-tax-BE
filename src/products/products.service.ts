@@ -81,6 +81,7 @@ export class ProductsService {
         },
       });
       this.log.log('Product created', { userId, publicId: product.publicId });
+      // chèn vào bảng Sổ kho (S05-HKD) với diễn giải là "Kết chuyển số dư đầu kỳ".
       return product;
     } catch (dbError) {
       // TRICK CAO CẤP: Nếu lưu DB lỗi, ta nên xóa ảnh vừa upload trên Cloudinary

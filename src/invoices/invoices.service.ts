@@ -17,6 +17,7 @@ import {
 } from '../common/constants/log-events.constant';
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 
 @Injectable()
 export class InvoicesService {
@@ -25,6 +26,7 @@ export class InvoicesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly taxAuthorityService: TaxAuthorityService,
   ) {}
 
   private validateInvoice(
@@ -35,6 +37,77 @@ export class InvoicesService {
   ) {
     if (!isB2C && (!buyerAddress || !buyerName || !buyerTaxCode))
       throw new BadRequestException('Business information is required.');
+  }
+
+  private async validateInvoiceAccess(
+    publicId: string,
+    userId: string,
+    action: 'UPDATE' | 'DELETE' | 'VIEW',
+  ) {
+    // 1. Tìm hóa đơn và kiểm tra quyền sở hữu ngay trong câu query
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        publicId: publicId,
+        userId: userId,
+      },
+    });
+
+    // Nếu không tìm thấy hoặc không đúng chủ sở hữu
+    if (!invoice) {
+      throw new NotFoundException(
+        'The invoice does not exist or you do not have access to it.',
+      );
+    }
+
+    // 2. Kiểm tra trạng thái nếu là hành động ghi (Update/Delete)
+    // Như trong tài liệu đặt tả nếu trạng thái đã là ISSUED thì khóa cứng không ghi được nữa
+    if (action !== 'VIEW') {
+      if (invoice.status === 'ISSUED') {
+        throw new ForbiddenException(
+          'The invoice has been issued and assigned a tax authority code.',
+        );
+      }
+
+      if (invoice.status === 'CANCELED') {
+        throw new ForbiddenException('The invoice has been canceled');
+      }
+    }
+
+    return invoice;
+  }
+
+  async lockInvoice(publicId: string, userId: string, cqtCode?: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const updatedInvoice = await tx.invoice.update({
+        where: { publicId, userId, status: { in: ['DRAFT', 'SYNC_FAILED'] } },
+        data: {
+          status: 'ISSUED',
+          cqtCode,
+          issuedAt: now,
+        },
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.invoices,
+        updatedInvoice.id,
+        { status: 'DRAFT', cqtCode: null, issuedAt: null },
+        { status: 'ISSUED', cqtCode, issuedAt: now },
+      );
+
+      this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        invoicePublicId: updatedInvoice.publicId,
+      });
+
+      // GHI VAO SỔ S01 (doanh thu) ------------------
+      // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
+      return updatedInvoice;
+    });
   }
 
   async createInvoice(userId: string, dto: CreateInvoiceDto) {
@@ -197,6 +270,32 @@ export class InvoicesService {
           totalAmount: lineTotal,
         })),
       };
+    });
+  }
+
+  // service cấp phát mã
+  async publishInvoice(publicId: string, userId: string) {
+    // Kiểm tra quyền sở hữu và trạng thái (chỉ DRAFT hoặc SYNC_FAILED mới được làm)
+    await this.validateInvoiceAccess(publicId, userId, 'UPDATE');
+
+    // Gọi Mock API
+    const result = await this.taxAuthorityService.requestTaxCode(publicId);
+
+    if (result.success) {
+      // Nếu thành công -> Chạy hàm lockInvoice đã bàn
+      return await this.lockInvoice(publicId, userId, result.cqtCode);
+    } else {
+      // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED để người dùng bấm 'Retry'
+      return await this.prisma.invoice.update({
+        where: { publicId, userId },
+        data: { status: 'SYNC_FAILED' },
+      });
+    }
+  }
+
+  async findAll(userId: string) {
+    return await this.prisma.invoice.findMany({
+      where: { userId },
     });
   }
 }
