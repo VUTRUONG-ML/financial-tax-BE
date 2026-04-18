@@ -163,6 +163,12 @@ export class OnboardingService {
         },
       });
 
+      // 4. Cập nhật thời gian config trên tài khoản của người dùng
+      await tx.user.update({
+        where: { id: userId, setUpCompletedAt: null },
+        data: { setUpCompletedAt: now },
+      });
+
       await this.auditLog.logChange(
         tx,
         userId,
