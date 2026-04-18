@@ -122,8 +122,9 @@ export class OnboardingService {
         );
       }
 
-      // 2. Lấy thông tin ngành nghề từ bảng UiPopularTag
-      // BƯỚC 1: Xác định TaxCategoryId cuối cùng
+      // 2. Lấy thông tin ngành nghề từ bảng UiPopularTag, check tag group
+      // Vì Người dùng có thể có 2 trường hợp chọn trên ui hiển thị là bảng uiPopularTag -> cần map sang ngành nghề để lấy mức thuế của UI hiển thị đó
+      // Nếu người dùng chọn khác thì người dùng sẽ đi tìm ngành nghề trong phần search -> lấy id đó truyền vào nên id đó không phải của uiPopularTag
       let finalCategoryId: number;
 
       // Thử tìm trong bảng Tag gợi ý trước
