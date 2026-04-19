@@ -35,6 +35,7 @@ model User {
   products        Product[]
   invoices        Invoice[]
 
+  setUpCompletedAt  DateTime?   @map("setup_completed_at")
   createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt    DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
 
@@ -136,7 +137,6 @@ enum PitMethod {
   PROFIT_17   // Lợi nhuận 17% (Nhóm 3) 
   PROFIT_20   // Lợi nhuận 20% (Nhóm 4)
 }
-
 
 enum  ActionWrite{
   CREATE
