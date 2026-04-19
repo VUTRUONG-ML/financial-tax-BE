@@ -65,24 +65,43 @@ model TaxGroup {
   maxRevenue         Decimal?           @map("max_revenue") @db.Decimal(18, 4) 
   description        String?            @map("description")
   
+  // Ví dụ: Nhóm 2 -> ["PERCENTAGE", "PROFIT_15"]
+  allowedMethods    PitMethod[] @default([PERCENTAGE]) @map("allowed_methods")
   taxConfigs  TaxConfiguration[]
 
   @@map("tax_groups")
 }
 
 // 3. Specific_Industries (Danh mục Ngành nghề chi tiết)
-model SpecificIndustry {
-  id             Int      @id @default(autoincrement())
-  industryCode   String?  @unique @map("industry_code")
-  industryName   String   @map("industry_name")
-  
-  vatRate        Decimal  @map("vat_rate") @db.Decimal(5, 4) 
-  pitRate        Decimal  @map("pit_rate") @db.Decimal(5, 4)
+model TaxCategory {
+  id           Int      @id @default(autoincrement())
+  categoryName String   @map("category_name")
+  parentId     Int?     @map("parent_id") // Khóa ngoại trỏ về chính mình
+  vatRate      Decimal  @map("vat_rate") @db.Decimal(5, 4)
+  pitRate      Decimal  @map("pit_rate") @db.Decimal(5, 4)
   isVatReducible Boolean  @default(false) @map("is_vat_reducible")
+  xmlIndicator String?  @map("xml_indicator") // VD: <ct28>
+  sortOrder    Int      @default(0) @map("sort_order")
 
+  // Quan hệ Cha - Con (Recursive)
+  parent       TaxCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children     TaxCategory[] @relation("CategoryHierarchy")
+  
+  popularTags  UiPopularTag[]
   taxConfigs   TaxConfiguration[]
 
-  @@map("specific_industries")
+  @@map("tax_categories_dictionary")
+}
+
+model UiPopularTag {
+  id          Int         @id @default(autoincrement())
+  tagName     String      @map("tag_name") // VD: "Quán cơm, đồ ăn nhanh"
+  iconName    String?     @map("icon_name")
+  mappedTaxId Int         @map("mapped_tax_id")
+  
+  taxCategory TaxCategory @relation(fields: [mappedTaxId], references: [id])
+
+  @@map("ui_popular_tags")
 }
 
 
@@ -92,6 +111,7 @@ model TaxConfiguration{
   industryId        Int           @map("industry_id")
   taxGroupId        Int           @map("tax_group_id")
 
+  chosenPitMethod   PitMethod     @map("chosen_pit_method")
   applyFromDate     DateTime      @map("apply_from_date")
   applyToDate       DateTime?     @map("apply_to_date")
 
@@ -100,7 +120,7 @@ model TaxConfiguration{
   isVatReducible    Boolean       @map("is_vat_reducible") @default(false)
 
   user              User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  industry          SpecificIndustry  @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  industry          TaxCategory   @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   taxGroup          TaxGroup         @relation(fields: [taxGroupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   createdAt        DateTime         @default(now()) @db.Timestamptz(3) @map("created_at")
@@ -109,6 +129,14 @@ model TaxConfiguration{
   @@index([userId, applyToDate])
   @@map("tax_configurations")
 }
+enum PitMethod {
+  EXEMPT      // Miễn thuế hoàn toàn (Nhóm 1) 
+  PERCENTAGE  // Tính theo % (doanh thu - 500tr) áp dụng cho nhóm 2 
+  PROFIT_15   // Lợi nhuận 15% (Nhóm 2) 
+  PROFIT_17   // Lợi nhuận 17% (Nhóm 3) 
+  PROFIT_20   // Lợi nhuận 20% (Nhóm 4)
+}
+
 
 enum  ActionWrite{
   CREATE

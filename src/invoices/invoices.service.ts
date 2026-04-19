@@ -294,7 +294,7 @@ export class InvoicesService {
     const result = await this.taxAuthorityService.requestTaxCode(publicId);
 
     if (result.success) {
-      // Nếu thành công -> Chạy hàm lockInvoice đã bàn
+      // Nếu thành công -> Chạy hàm lockInvoice
       return await this.lockInvoice(publicId, userId, result.cqtCode);
     } else {
       // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED để người dùng bấm 'Retry'
