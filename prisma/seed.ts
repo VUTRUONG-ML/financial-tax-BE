@@ -109,22 +109,27 @@ async function main() {
   }
 
   // 3. Seed cho UiPopularTag (Thẻ gợi ý cho User)
+  await prisma.uiPopularTag.deleteMany({});
   const popularTags = [
     {
-      tagName: 'Tạp hóa, Siêu thị mini',
+      tagName: 'Tạp hóa - Siêu thị mini',
       mappedTaxId: 1,
       iconName: 'shopping-cart',
     },
-    { tagName: 'Quán ăn, Nhà hàng', mappedTaxId: 3, iconName: 'utensils' },
-    { tagName: 'Giao hàng, Vận tải', mappedTaxId: 2, iconName: 'truck' },
-    { tagName: 'Phần mềm, Game online', mappedTaxId: 5, iconName: 'code' },
+    { tagName: 'Thời trang', mappedTaxId: 1, iconName: 'shirt' },
+    { tagName: 'Mỹ phẩm', mappedTaxId: 1, iconName: 'sparkles' },
+    { tagName: 'Mẹ và bé', mappedTaxId: 1, iconName: 'baby' },
+    { tagName: 'Gia dụng', mappedTaxId: 1, iconName: 'home' },
+    { tagName: 'Dược phẩm', mappedTaxId: 1, iconName: 'pill' },
+    { tagName: 'Dịch vụ ăn uống', mappedTaxId: 3, iconName: 'utensils' },
   ];
 
   for (const tag of popularTags) {
+    const tagId = popularTags.indexOf(tag) + 1;
     await prisma.uiPopularTag.upsert({
-      where: { id: popularTags.indexOf(tag) + 1 },
+      where: { id: tagId },
       update: tag,
-      create: tag,
+      create: { ...tag, id: tagId },
     });
   }
 

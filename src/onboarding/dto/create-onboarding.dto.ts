@@ -17,7 +17,7 @@ export class CreateOnboardingDto {
   @IsBoolean()
   @IsOptional()
   // Flag để Service biết User chọn "Ngành nghề khác" hay "Tag gợi ý"
-  isOtherIndustry?: boolean;
+  isOtherIndustry?: boolean = false;
 
   @IsBoolean()
   @IsOptional()
