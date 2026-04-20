@@ -29,11 +29,12 @@ model User {
   provinceCity String   @map("province_city")
   isActive     Boolean  @default(true)
 
-  taxConfigs      TaxConfiguration[]
-  refreshTokens   RefreshToken[]
-  auditLogs       AuditLog[]
-  products        Product[]
-  invoices        Invoice[]
+  taxConfigs       TaxConfiguration[]
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+  products         Product[]
+  invoices         Invoice[]
+  inboundInvoices  InboundInvoice[]
 
   setUpCompletedAt  DateTime?   @map("setup_completed_at")
   createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
@@ -182,8 +183,9 @@ model Product {
   // Cache O(1) — cập nhật qua DB Transaction khi có hóa đơn mua/bán
   currentStock         Int      @default(0) @map("current_stock")
 
-  user    User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  invoiceDetails InvoiceDetail[]
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoiceDetails        InvoiceDetail[]
+  inboundInvoiceDetails InboundInvoiceDetail[]
 
   createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
@@ -271,4 +273,53 @@ model InvoiceDetail {
   // Phục vụ báo cáo: "sản phẩm này đã xuất hiện trong những hóa đơn nào?"
   @@index([productId])
   @@map("invoice_details")
+}
+
+// ─── INBOUND INVOICES (Hóa đơn Đầu vào / Mua vào) ───────────────────────────
+
+// 8. InboundInvoice (Hóa đơn nhập kho từ nhà cung cấp)
+model InboundInvoice {
+  id       Int    @id @default(autoincrement())
+  publicId String @unique @default(cuid()) @map("public_id")
+  userId   String @map("user_id")
+
+  // Thông tin từ người bán
+  sellerName    String   @map("seller_name")
+  sellerTaxCode String?  @map("seller_tax_code")
+  invoiceNo     String?   @map("invoice_no")  // Số hóa đơn của người bán
+  issueDate     DateTime? @map("issue_date")  // Ngày xuất trên hóa đơn
+
+  totalAmount   Decimal  @map("total_amount")   @db.Decimal(18, 4)
+  attachmentUrl String?  @map("attachment_url") @db.Text
+
+  // Logic cốt lõi: Frontend gửi checkbox xác nhận đã đồng bộ kho
+  // Backend KHÔNG tự set true nếu không có yêu cầu rõ ràng
+  isSyncedToInventory Boolean @default(false) @map("is_synced_to_inventory")
+
+  user  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  items InboundInvoiceDetail[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
+
+  @@index([userId])
+  @@index([publicId])
+  @@map("inbound_invoices")
+}
+
+// 9. InboundInvoiceDetail (Chi tiết dòng hàng — Weak Entity)
+model InboundInvoiceDetail {
+  id               Int @id @default(autoincrement())
+  inboundInvoiceId Int @map("inbound_invoice_id")
+  productId        Int @map("product_id")
+
+  quantity Int     // Số lượng nhập
+  unitCost Decimal @map("unit_cost") @db.Decimal(18, 4) // Giá nhập (tính giá vốn)
+
+  invoice InboundInvoice @relation(fields: [inboundInvoiceId], references: [id], onDelete: Cascade,  onUpdate: Cascade)
+  product Product        @relation(fields: [productId],        references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([inboundInvoiceId])
+  @@index([productId])
+  @@map("inbound_invoice_details")
 }
