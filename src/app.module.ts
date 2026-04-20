@@ -16,6 +16,7 @@ import { ProductsModule } from './products/products.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { TaxAuthorityModule } from './tax-authority/tax-authority.module';
+import { InboundInvoicesModule } from './inbound-invoices/inbound-invoices.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { TaxAuthorityModule } from './tax-authority/tax-authority.module';
     InvoicesModule,
     CloudinaryModule,
     TaxAuthorityModule,
+    InboundInvoicesModule,
   ],
   controllers: [AppController],
   providers: [
