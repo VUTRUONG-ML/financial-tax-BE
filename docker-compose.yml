@@ -17,6 +17,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - fintax_network
 
 volumes:
   fintax_postgres_data:
+
+networks:
+  fintax_network:
+    driver: bridge
