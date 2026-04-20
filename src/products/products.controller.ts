@@ -8,11 +8,15 @@ import {
   Param,
   Post,
   Put,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ImageUploadPipe } from '../common/constants/file-upload.constants';
 
 @Controller('products')
 export class ProductsController {
@@ -20,11 +24,13 @@ export class ProductsController {
 
   // POST /products
   @Post()
+  @UseInterceptors(FileInterceptor('file'))
   async create(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateProductDto,
+    @UploadedFile(ImageUploadPipe) file: Express.Multer.File,
   ) {
-    const data = await this.productsService.create(userId, dto);
+    const data = await this.productsService.create(userId, dto, file);
     return { message: 'Product created successfully.', data };
   }
 
@@ -47,13 +53,15 @@ export class ProductsController {
 
   // PUT /products/:publicId
   @Put(':publicId')
+  @UseInterceptors(FileInterceptor('file'))
   @HttpCode(HttpStatus.OK)
   async update(
     @CurrentUser('id') userId: string,
     @Param('publicId') publicId: string,
     @Body() dto: UpdateProductDto,
+    @UploadedFile(ImageUploadPipe) file: Express.Multer.File,
   ) {
-    const data = await this.productsService.update(userId, publicId, dto);
+    const data = await this.productsService.update(userId, publicId, dto, file);
     return { message: 'Product updated successfully.', data };
   }
 

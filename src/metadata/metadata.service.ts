@@ -9,6 +9,6 @@ export class MetadataService {
     return await this.prisma.taxGroup.findMany();
   }
   async findAllIndustry() {
-    return await this.prisma.specificIndustry.findMany();
+    return await this.prisma.uiPopularTag.findMany();
   }
 }

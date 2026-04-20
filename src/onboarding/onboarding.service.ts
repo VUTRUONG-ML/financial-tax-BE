@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
@@ -16,6 +17,8 @@ import {
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
 import { TAX_QUARTER_COOLDOWN_MS } from '../common/constants/tax-period-time.constant';
+import { Decimal } from '@prisma/client/runtime/client';
+import { PitMethod, Prisma } from '@prisma/client';
 
 @Injectable()
 export class OnboardingService {
@@ -24,7 +27,122 @@ export class OnboardingService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
   ) {}
+  private async findTaxGroupValid(
+    taxGroupId: number,
+    pitMethod: PitMethod,
+    tx: Prisma.TransactionClient,
+  ) {
+    // 1. Query lấy TaxGroup và danh sách phương pháp được phép
+    const taxGroup = await tx.taxGroup.findUnique({
+      where: { id: taxGroupId },
+      select: { id: true, allowedMethods: true },
+    });
 
+    // 2. Kiểm tra tồn tại của nhóm thuế
+    if (!taxGroup) {
+      this.log.warn('Set up onboarding', {
+        status: LOG_STATUS.FAILED,
+        action: LOG_ACTIONS.SET_ONBOARDING,
+        reason: 'TAX_GROUP_NOT_FOUND',
+        taxGroupId,
+      });
+      throw new NotFoundException('Tax group not found.');
+    }
+
+    // 3. Kiểm tra xem phương pháp User chọn có nằm trong mảng allowedMethods không
+    // Lưu ý: taxGroup.allowedMethods là mảng, pitMethod là giá trị đơn lẻ
+    const isMethodAllowed = taxGroup.allowedMethods.includes(pitMethod);
+
+    if (!isMethodAllowed) {
+      this.log.warn('Set up onboarding', {
+        status: LOG_STATUS.FAILED,
+        action: LOG_ACTIONS.SET_ONBOARDING,
+        reason: 'PIT_METHOD_INVALID',
+        taxGroupId,
+      });
+      throw new BadRequestException(
+        `Method ${pitMethod} not valid for this tax group.`,
+      );
+    }
+    return taxGroup;
+  }
+  private async findEffectiveTaxRate(
+    tx: Prisma.TransactionClient,
+    taxCategoryId: number,
+    depth: number = 0, // Giới hạn độ sâu để bảo vệ hệ thống
+  ): Promise<{ vatRate: Decimal; pitRate: Decimal }> {
+    if (depth > 5) {
+      throw new BadRequestException(
+        'The industry has an overly complex or repetitive parent-child structure.',
+      );
+    }
+    const currentIndustry = await tx.taxCategory.findUnique({
+      where: { id: taxCategoryId },
+      select: { id: true, vatRate: true, pitRate: true, parentId: true },
+    });
+    if (!currentIndustry) {
+      throw new NotFoundException('Industry category not found');
+    }
+    // 2. Kiểm tra Null/Undefined thay vì Falsy (vì thuế suất 0% vẫn hợp lệ)
+    const isRateMissing =
+      currentIndustry.vatRate === null || currentIndustry.pitRate === null;
+    if (isRateMissing) {
+      const parentId = currentIndustry.parentId;
+      if (!parentId)
+        throw new UnprocessableEntityException(
+          'This industry and its parent industries do not have a valid tax rate structure.',
+        );
+      return await this.findEffectiveTaxRate(tx, parentId, depth + 1);
+    }
+    return {
+      vatRate: currentIndustry.vatRate,
+      pitRate: currentIndustry.pitRate,
+    };
+  }
+  private async resolveTaxCategory(
+    tx: Prisma.TransactionClient,
+    industryId: number,
+    isOtherIndustry: boolean = false,
+    userId: string,
+    action: 'UPDATE' | 'SET',
+  ) {
+    // Vì Người dùng có thể có 2 trường hợp chọn trên ui hiển thị là bảng uiPopularTag -> cần map sang ngành nghề để lấy mức thuế của UI hiển thị đó
+    // Nếu người dùng chọn khác thì người dùng sẽ đi tìm ngành nghề trong phần search -> lấy id đó truyền vào nên id đó không phải của uiPopularTag
+    let finalCategoryId: number;
+    let taxRates: { pitRate: Decimal; vatRate: Decimal };
+
+    if (isOtherIndustry) {
+      // Luồng: Người dùng chọn từ Search/Danh mục chi tiết
+      finalCategoryId = industryId;
+      taxRates = await this.findEffectiveTaxRate(tx, finalCategoryId);
+    } else {
+      // Luồng: Người dùng chọn từ Thẻ gợi ý (Popular Tags)
+      const popularTag = await tx.uiPopularTag.findUnique({
+        where: { id: industryId },
+        select: { mappedTaxId: true },
+      });
+
+      if (!popularTag) {
+        this.log.warn(
+          action === 'SET'
+            ? LOG_ACTIONS.SET_ONBOARDING
+            : LOG_ACTIONS.UPDATE_ONBOARDING,
+          {
+            status: LOG_STATUS.FAILED,
+            reason: 'POPULAR_TAG_NOT_FOUND',
+            popularId: industryId,
+            userId,
+          },
+        );
+        throw new NotFoundException('Popular tag not found.');
+      }
+
+      finalCategoryId = popularTag.mappedTaxId;
+      taxRates = await this.findEffectiveTaxRate(tx, finalCategoryId);
+    }
+
+    return { finalCategoryId, taxRates };
+  }
   // onboarding lần đầu tạo tài khoản
   async setupTaxConfiguration(userId: string, dto: CreateOnboardingDto) {
     // Sử dụng Interactive Transaction của Prisma
@@ -32,6 +150,7 @@ export class OnboardingService {
       // 1. KHIÊN BẢO VỆ: Kiểm tra xem user này ĐÃ TỪNG cấu hình chưa?
       const existingConfig = await tx.taxConfiguration.findFirst({
         where: { userId: userId },
+        select: { id: true },
       });
 
       // Nếu đã có cấu hình trong DB => Đá văng ra ngay, chặn API Replay
@@ -47,36 +166,17 @@ export class OnboardingService {
         );
       }
 
-      // 2. Lấy thông tin ngành nghề để snapshot Rate
-      const industry = await tx.specificIndustry.findUnique({
-        where: { id: dto.industryId },
-      });
-
-      if (!industry) {
-        this.log.warn('Set up onboarding', {
-          status: LOG_STATUS.FAILED,
-          action: LOG_ACTIONS.SET_ONBOARDING,
-          reason: 'INDUSTRY_NOT_FOUND',
-          userId,
-          industry: dto.industryId,
-        });
-        throw new NotFoundException('Industry not found.');
-      }
+      // 2. Lấy thông tin ngành nghề từ bảng UiPopularTag, check tag group
+      const { finalCategoryId, taxRates } = await this.resolveTaxCategory(
+        tx,
+        dto.industryId,
+        dto.isOtherIndustry,
+        userId,
+        'SET',
+      );
 
       // Check thêm taxGroup tồn tại hay không ở đây (tương tự như industry)
-      const taxGroup = await tx.taxGroup.findUnique({
-        where: { id: dto.taxGroupId },
-      });
-      if (!taxGroup) {
-        this.log.warn('Set up onboarding', {
-          status: LOG_STATUS.FAILED,
-          action: LOG_ACTIONS.SET_ONBOARDING,
-          reason: 'TAX_GROUP_NOT_FOUND',
-          userId,
-          taxGroup: dto.taxGroupId,
-        });
-        throw new NotFoundException('Group tax not found.');
-      }
+      await this.findTaxGroupValid(dto.taxGroupId, dto.pitMethod, tx);
 
       const now = new Date();
 
@@ -84,13 +184,19 @@ export class OnboardingService {
       const newConfig = await tx.taxConfiguration.create({
         data: {
           userId: userId,
-          industryId: dto.industryId,
+          industryId: finalCategoryId,
           taxGroupId: dto.taxGroupId,
+          chosenPitMethod: dto.pitMethod,
           applyFromDate: now,
-          vatRateSnapShot: industry.vatRate,
-          pitRateSnapShot: industry.pitRate,
-          isVatReducible: industry.isVatReducible,
+          vatRateSnapShot: taxRates.vatRate,
+          pitRateSnapShot: taxRates.pitRate,
         },
+      });
+
+      // 4. Cập nhật thời gian config trên tài khoản của người dùng
+      await tx.user.update({
+        where: { id: userId, setUpCompletedAt: null },
+        data: { setUpCompletedAt: now },
       });
 
       await this.auditLog.logChange(
@@ -122,38 +228,7 @@ export class OnboardingService {
   ) {
     const { industryId, taxGroupId } = dto;
     return this.prisma.$transaction(async (tx) => {
-      const industry = await tx.specificIndustry.findUnique({
-        where: { id: dto.industryId },
-      });
-
-      if (!industry) {
-        this.log.warn('Set up onboarding', {
-          status: LOG_STATUS.FAILED,
-          action: LOG_ACTIONS.SET_ONBOARDING,
-          reason: 'INDUSTRY_NOT_FOUND',
-          userId,
-          industry: dto.industryId,
-        });
-        throw new NotFoundException('Industry not found.');
-      }
-
-      // Check thêm taxGroup tồn tại hay không ở đây (tương tự như industry)
-      const taxGroup = await tx.taxGroup.findUnique({
-        where: { id: dto.taxGroupId },
-      });
-      if (!taxGroup) {
-        this.log.warn('Set up onboarding', {
-          status: LOG_STATUS.FAILED,
-          action: LOG_ACTIONS.SET_ONBOARDING,
-          reason: 'TAX_GROUP_NOT_FOUND',
-          userId,
-          taxGroup: dto.taxGroupId,
-        });
-        throw new NotFoundException('Group tax not found.');
-      }
-
       const now = new Date();
-
       // 1. Tìm cấu hình đang Active
       const currentActiveConfig = await tx.taxConfiguration.findFirst({
         where: { userId: userId, applyToDate: null },
@@ -186,25 +261,18 @@ export class OnboardingService {
           );
         }
       }
+      // 3. Kiểm tra taxCategory và taxGroup
+      const { finalCategoryId, taxRates } = await this.resolveTaxCategory(
+        tx,
+        dto.industryId,
+        dto.isOtherIndustry,
+        userId,
+        'UPDATE',
+      );
 
-      // 3. Kiểm tra nếu update thì phải update thông tin khác
-      if (
-        currentActiveConfig.industryId === industryId &&
-        currentActiveConfig.taxGroupId === taxGroupId
-      ) {
-        this.log.warn(LOG_ACTIONS.UPDATE_ONBOARDING, {
-          status: LOG_STATUS.FAILED,
-          reason: 'NEW_CONFIGURATION_SAME_CURRENT',
-          userId,
-          industry: industryId,
-          taxGroup: taxGroupId,
-        });
-        throw new BadRequestException(
-          'The new configuration is exactly the same as the current one.',
-        );
-      }
+      await this.findTaxGroupValid(dto.taxGroupId, dto.pitMethod, tx);
 
-      // 4. KHIÊN BẢO VỆ CHỐNG DOUBLE CLICK (Optimistic Locking)
+      // 4. KHIÊN BẢO VỆ CHỐNG DOUBLE CLICK (Optimistic Locking) - đóng cấu hình cũ
       const closeResult = await tx.taxConfiguration.updateMany({
         where: {
           id: currentActiveConfig.id,
@@ -240,13 +308,13 @@ export class OnboardingService {
       const newConfig = await tx.taxConfiguration.create({
         data: {
           userId: userId,
-          industryId: industryId,
-          taxGroupId: taxGroupId,
+          industryId: finalCategoryId,
+          taxGroupId: dto.taxGroupId,
+          chosenPitMethod: dto.pitMethod,
           applyFromDate: now,
           applyToDate: null,
-          vatRateSnapShot: industry.vatRate,
-          pitRateSnapShot: industry.pitRate,
-          isVatReducible: industry.isVatReducible,
+          vatRateSnapShot: taxRates.vatRate,
+          pitRateSnapShot: taxRates.pitRate,
         },
       });
       await this.auditLog.logChange(

@@ -13,6 +13,9 @@ import { MetadataModule } from './metadata/metadata.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditLogModule } from './core/audit-log/audit-log.module';
 import { ProductsModule } from './products/products.module';
+import { InvoicesModule } from './invoices/invoices.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { TaxAuthorityModule } from './tax-authority/tax-authority.module';
 
 @Module({
   imports: [
@@ -25,6 +28,9 @@ import { ProductsModule } from './products/products.module';
     OnboardingModule,
     AuditLogModule,
     ProductsModule,
+    InvoicesModule,
+    CloudinaryModule,
+    TaxAuthorityModule,
   ],
   controllers: [AppController],
   providers: [
