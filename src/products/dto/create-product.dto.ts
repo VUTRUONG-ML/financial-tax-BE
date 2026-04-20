@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -7,11 +8,18 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ProductType } from '@prisma/client';
 
 export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
   productName!: string;
+
+  @IsNotEmpty()
+  @IsEnum(ProductType, {
+    message: 'The product type must be FINISHED_GOOD, RAW_MATERIAL, or SERVICE',
+  })
+  productType!: ProductType;
 
   @IsString()
   @IsOptional()

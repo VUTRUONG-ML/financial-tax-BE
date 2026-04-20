@@ -168,6 +168,7 @@ model Product {
 
   skuCode              String?  @map("sku_code")
   productName          String   @map("product_name")
+  productType          ProductType @map("product_type")
   unit                 String
   imageUrl             String?  @map("image_url") @db.Text
   imagePublicId        String?  @map("image_public_id") @db.Text
@@ -191,6 +192,13 @@ model Product {
   @@index([publicId])
   @@map("products")
 }
+
+enum ProductType {
+  FINISHED_GOOD
+  RAW_MATERIAL
+  SERVICE
+}
+
 
 // ─── INVOICES ────────────────────────────────────────────────────────────────
 

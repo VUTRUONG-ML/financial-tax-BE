@@ -30,6 +30,7 @@ export class ProductsService {
     });
   }
 
+  // Xử lí upload ảnh
   private async handleImageUpload(userId: string, file?: Express.Multer.File) {
     if (!file) return { url: undefined, publicId: undefined };
 
@@ -68,6 +69,7 @@ export class ProductsService {
         data: {
           userId,
           productName: dto.productName,
+          productType: dto.productType,
           skuCode: dto.skuCode,
           unit: dto.unit,
           imageUrl: imageData.url,
