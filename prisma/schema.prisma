@@ -286,8 +286,8 @@ model InboundInvoice {
   // Thông tin từ người bán
   sellerName    String   @map("seller_name")
   sellerTaxCode String?  @map("seller_tax_code")
-  invoiceNo     String?   @map("invoice_no")  // Số hóa đơn của người bán
-  issueDate     DateTime? @map("issue_date")  // Ngày xuất trên hóa đơn
+  invoiceNo     String   @map("invoice_no")  // Số hóa đơn của người bán
+  issueDate     DateTime @map("issue_date")  // Ngày xuất trên hóa đơn
 
   totalAmount   Decimal  @map("total_amount")   @db.Decimal(18, 4)
   attachmentUrl String?  @map("attachment_url") @db.Text
@@ -297,7 +297,7 @@ model InboundInvoice {
   isSyncedToInventory Boolean @default(false) @map("is_synced_to_inventory")
 
   user  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  items InboundInvoiceDetail[]
+  details InboundInvoiceDetail[]
 
   createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
   updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")

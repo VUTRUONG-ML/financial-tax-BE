@@ -1,6 +1,7 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Post } from '@nestjs/common';
 import { InboundInvoicesService } from './inbound-invoices.service';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
+import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
 
 @Controller('inbound-invoices')
 export class InboundInvoicesController {
@@ -17,6 +18,7 @@ export class InboundInvoicesController {
       data: result,
     };
   }
+
   @Get('/:publicId')
   async findOne(
     @Param('publicId') publicId: string,
@@ -28,6 +30,18 @@ export class InboundInvoicesController {
     );
     return {
       message: 'Get detail inbound invoice success.',
+      data: result,
+    };
+  }
+
+  @Post()
+  async createInboundInvoice(
+    @CurrentUser('id') userId: string,
+    dto: CreateInboundInvoiceDto,
+  ) {
+    const result = await this.inboundInvoicesService.create(userId, dto);
+    return {
+      message: 'Create success.',
       data: result,
     };
   }
