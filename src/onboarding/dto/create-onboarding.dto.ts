@@ -11,7 +11,6 @@ export class CreateOnboardingDto {
   taxGroupId!: number; // Tương ứng với 4 nhóm doanh thu
 
   @IsNotEmpty()
-  @IsBoolean()
   pitMethod!: PitMethod;
 
   @IsBoolean()
