@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { InboundInvoicesService } from './inbound-invoices.service';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
@@ -37,11 +37,23 @@ export class InboundInvoicesController {
   @Post()
   async createInboundInvoice(
     @CurrentUser('id') userId: string,
-    dto: CreateInboundInvoiceDto,
+    @Body() dto: CreateInboundInvoiceDto,
   ) {
     const result = await this.inboundInvoicesService.create(userId, dto);
     return {
       message: 'Create success.',
+      data: result,
+    };
+  }
+
+  @Patch('/:publicId/cancel')
+  async cancelInboundInvoice(
+    @CurrentUser('id') userId: string,
+    @Param('publicId') publicId: string,
+  ) {
+    const result = await this.inboundInvoicesService.cancel(userId, publicId);
+    return {
+      message: 'Cancel inbound invoice success.',
       data: result,
     };
   }

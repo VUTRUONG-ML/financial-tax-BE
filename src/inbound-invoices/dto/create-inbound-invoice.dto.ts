@@ -3,7 +3,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsDateString,
-  IsDecimal,
   IsBoolean,
   IsArray,
   ValidateNested,
@@ -14,8 +13,8 @@ import { Type } from 'class-transformer';
 
 export class CreateInboundInvoiceItemDto {
   @IsNotEmpty()
-  @IsNumber()
-  productId!: number; // ID sản phẩm đã có trong danh mục
+  @IsString()
+  productPublicId!: string; // ID public sản phẩm đã có trong danh mục
 
   @IsNotEmpty()
   @IsNumber()
@@ -42,10 +41,6 @@ export class CreateInboundInvoiceDto {
   @IsNotEmpty()
   @IsDateString()
   issueDate!: string; // Ngày xuất hóa đơn ghi trên chứng từ
-
-  @IsNotEmpty()
-  @IsNumber()
-  totalAmount!: number; // Tổng số tiền trên hóa đơn
 
   @IsOptional()
   @IsString()

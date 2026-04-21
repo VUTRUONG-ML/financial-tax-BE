@@ -94,7 +94,7 @@ export class AuthController {
   @HttpCode(HttpStatus.ACCEPTED)
   async refresh(
     @Res({ passthrough: true }) res: Response,
-    @Cookie('refreshToken') refreshToken: string,
+    @Cookie('refresh_token') refreshToken: string,
   ) {
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token missing');
@@ -114,7 +114,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(
     @Res({ passthrough: true }) res: Response,
-    @Cookie('refreshToken') rt: string,
+    @Cookie('refresh_token') rt: string,
     @CurrentUser('id') userId: string,
   ) {
     await this.authService.logout(rt);

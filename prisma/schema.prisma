@@ -291,6 +291,7 @@ model InboundInvoice {
 
   totalAmount   Decimal  @map("total_amount")   @db.Decimal(18, 4)
   attachmentUrl String?  @map("attachment_url") @db.Text
+  status        InboundInvoiceStatus  @default(ACTIVE)
 
   // Logic cốt lõi: Frontend gửi checkbox xác nhận đã đồng bộ kho
   // Backend KHÔNG tự set true nếu không có yêu cầu rõ ràng
@@ -305,6 +306,11 @@ model InboundInvoice {
   @@index([userId])
   @@index([publicId])
   @@map("inbound_invoices")
+}
+
+enum InboundInvoiceStatus {
+  CANCELED
+  ACTIVE
 }
 
 // 9. InboundInvoiceDetail (Chi tiết dòng hàng — Weak Entity)

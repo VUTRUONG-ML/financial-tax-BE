@@ -8,6 +8,7 @@ export enum tableWrite {
   users = 'users',
   invoices = 'invoices',
   vouchers = 'vouchers',
+  inboundInvoice = 'inbound_invoices',
 }
 @Injectable()
 export class AuditLogService {

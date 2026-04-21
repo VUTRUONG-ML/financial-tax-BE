@@ -81,6 +81,7 @@ export class ProductsService {
           // Khởi tạo cache tồn kho = số lượng đầu kỳ
           currentStock: qty,
         },
+        omit: { id: true },
       });
       this.log.log('Product created', { userId, publicId: product.publicId });
       // chèn vào bảng Sổ kho (S05-HKD) với diễn giải là "Kết chuyển số dư đầu kỳ".
