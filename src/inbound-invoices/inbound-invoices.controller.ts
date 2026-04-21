@@ -57,4 +57,19 @@ export class InboundInvoicesController {
       data: result,
     };
   }
+
+  @Patch('/:publicId/sync-inventory')
+  async syncInventory(
+    @Param('publicId') publicId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    const result = await this.inboundInvoicesService.syncToInventory(
+      userId,
+      publicId,
+    );
+    return {
+      message: 'Sync to inventory success.',
+      data: result,
+    };
+  }
 }

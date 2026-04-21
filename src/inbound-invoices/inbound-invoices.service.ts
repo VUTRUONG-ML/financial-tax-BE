@@ -224,4 +224,73 @@ export class InboundInvoicesService {
       };
     });
   }
+
+  async syncToInventory(userId: string, publicId: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Tìm và đồng thời kiểm tra điều kiện bằng updateMany (Atomic Check)
+      const updateStatus = await tx.inboundInvoice.updateMany({
+        where: {
+          publicId,
+          userId,
+          status: 'ACTIVE',
+          isSyncedToInventory: false, // CHỈ xử lý nếu chưa được đồng bộ
+        },
+        data: {
+          isSyncedToInventory: true,
+        },
+      });
+
+      // Nếu count = 0, có thể do hóa đơn đã hủy, không tồn tại, hoặc ĐÃ ĐƯỢC đồng bộ rồi
+      if (updateStatus.count === 0) {
+        throw new BadRequestException(
+          'Invoice cannot be synced (already synced, canceled, or not found).',
+        );
+      }
+
+      // 2. Lấy lại dữ liệu chi tiết để thực hiện cộng kho
+      const invoice = await tx.inboundInvoice.findUnique({
+        where: { publicId },
+        include: { details: true },
+      });
+
+      if (!invoice) throw new NotFoundException('Inbound invoice not found.');
+      // 3. Thực hiện cộng dồn tồn kho
+      for (const item of invoice.details) {
+        await tx.product.update({
+          where: { id: item.productId, userId },
+          data: {
+            currentStock: {
+              increment: item.quantity,
+            },
+          },
+        });
+      }
+
+      // 4. Ghi Audit Log cho hành động quan trọng này
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.inboundInvoice,
+        invoice.id,
+        { isSyncedToInventory: false }, // Old value
+        { isSyncedToInventory: true }, // New value
+      );
+
+      this.log.log(LOG_ACTIONS.SYNC_INVENTORY, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        publicId,
+      });
+      const { id, ...result } = invoice;
+      const cleanDetails = result.details.map((item) => {
+        const { productId, inboundInvoiceId, ...res } = item;
+        return res;
+      });
+      return {
+        ...result,
+        details: cleanDetails,
+      };
+    });
+  }
 }
