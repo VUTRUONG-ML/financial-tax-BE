@@ -1,0 +1,26 @@
+services:
+  fintax_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fintax_backend_app
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USERNAME}:${DB_PASSWORD}@fintax_db:5432/${DB_NAME}?schema=public
+      NODE_ENV: ${NODE_ENV}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_EXPIRATION: ${JWT_ACCESS_EXPIRATION}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION}
+      CLD_NAME: ${CLD_NAME}
+      CLD_API_KEY: ${CLD_API_KEY}
+      CLD_API_SECRET: ${CLD_API_SECRET}
+    ports:
+      - '3000:3000'
+    depends_on:
+      fintax_db:
+        condition: service_healthy
+    networks:
+      - fintax_network
