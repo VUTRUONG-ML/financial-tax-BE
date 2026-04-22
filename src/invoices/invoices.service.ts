@@ -118,7 +118,8 @@ export class InvoicesService {
 
       // GHI VAO SỔ S01 (doanh thu) ------------------
       // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
-      return updatedInvoice;
+      const { id, ...rest } = updatedInvoice;
+      return rest;
     });
   }
 
@@ -270,10 +271,10 @@ export class InvoicesService {
         totalPayment,
         itemCount: resolvedItems.length,
       });
-
+      const { id, ...rest } = invoice;
       // Return kèm details để FE không cần query thêm
       return {
-        ...invoice,
+        ...rest,
         details: resolvedItems.map(({ product, quantity, lineTotal }) => ({
           productPublicId: product.publicId,
           productNameSnapshot: product.productName,
@@ -301,6 +302,7 @@ export class InvoicesService {
       return await this.prisma.invoice.update({
         where: { publicId, userId },
         data: { status: 'SYNC_FAILED' },
+        omit: { id: true },
       });
     }
   }

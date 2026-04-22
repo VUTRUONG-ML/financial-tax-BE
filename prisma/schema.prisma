@@ -18,42 +18,44 @@ enum Role {
 
 // 1. Users_Profile (Hồ sơ Hộ kinh doanh)
 model User {
-  id           String   @id @default(cuid())
-  phoneNumber  String   @unique @map("phone_number")
-  passwordHash String   @map("password_hash")
-  role         Role     @default(ADMIN)
-  taxCode      String   @unique @map("tax_code")
-  businessName String   @map("business_name")
-  ownerName    String   @map("owner_name")
-  cccdNumber   String   @unique @map("cccd_number")
-  provinceCity String   @map("province_city")
-  isActive     Boolean  @default(true)
+  id           String  @id @default(cuid())
+  phoneNumber  String  @unique @map("phone_number")
+  passwordHash String  @map("password_hash")
+  role         Role    @default(ADMIN)
+  taxCode      String  @unique @map("tax_code")
+  businessName String  @map("business_name")
+  ownerName    String  @map("owner_name")
+  cccdNumber   String  @unique @map("cccd_number")
+  provinceCity String  @map("province_city")
+  isActive     Boolean @default(true)
 
-  taxConfigs       TaxConfiguration[]
-  refreshTokens    RefreshToken[]
-  auditLogs        AuditLog[]
-  products         Product[]
-  invoices         Invoice[]
-  inboundInvoices  InboundInvoice[]
+  taxConfigs        TaxConfiguration[]
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+  products          Product[]
+  invoices          Invoice[]
+  inboundInvoices   InboundInvoice[]
+  voucherCategories VoucherCategory[]
+  vouchers          Voucher[]
 
-  setUpCompletedAt  DateTime?   @map("setup_completed_at")
-  createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt    DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+  setUpCompletedAt DateTime? @map("setup_completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("users")
 }
 
-model RefreshToken{
-  id            String    @id @default(cuid())
-  userId        String    @map("user_id")
-  tokenHash     String    @unique @map("token_hash")
-  expiresAt     DateTime  @map("expires_at")
-  isRevoked     Boolean   @default(false) @map("is_revoked")
-  ipAddress     String?   @map("ip_address")
-  userAgent     String?   @map("user_agent") // Trinh duyet - thiet bi su dung
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3) @map("created_at")
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent") // Trinh duyet - thiet bi su dung
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([tokenHash])
   @@index([userId])
@@ -61,101 +63,102 @@ model RefreshToken{
 }
 
 model TaxGroup {
-  id                 Int                @id @default(autoincrement())
-  groupName          String             @map("group_name")
-  minRevenue         Decimal            @map("min_revenue") @db.Decimal(18, 4)
-  maxRevenue         Decimal?           @map("max_revenue") @db.Decimal(18, 4) 
-  description        String?            @map("description")
-  
+  id          Int      @id @default(autoincrement())
+  groupName   String   @map("group_name")
+  minRevenue  Decimal  @map("min_revenue") @db.Decimal(18, 4)
+  maxRevenue  Decimal? @map("max_revenue") @db.Decimal(18, 4)
+  description String?  @map("description")
+
   // Ví dụ: Nhóm 2 -> ["PERCENTAGE", "PROFIT_15"]
-  allowedMethods    PitMethod[] @default([PERCENTAGE]) @map("allowed_methods")
-  taxConfigs  TaxConfiguration[]
+  allowedMethods PitMethod[]        @default([PERCENTAGE]) @map("allowed_methods")
+  taxConfigs     TaxConfiguration[]
 
   @@map("tax_groups")
 }
 
 // 3. Specific_Industries (Danh mục Ngành nghề chi tiết)
 model TaxCategory {
-  id           Int      @id @default(autoincrement())
-  categoryName String   @map("category_name")
-  parentId     Int?     @map("parent_id") // Khóa ngoại trỏ về chính mình
-  vatRate      Decimal  @map("vat_rate") @db.Decimal(5, 4)
-  pitRate      Decimal  @map("pit_rate") @db.Decimal(5, 4)
-  isVatReducible Boolean  @default(false) @map("is_vat_reducible")
-  xmlIndicator String?  @map("xml_indicator") // VD: <ct28>
-  sortOrder    Int      @default(0) @map("sort_order")
+  id             Int     @id @default(autoincrement())
+  categoryName   String  @map("category_name")
+  parentId       Int?    @map("parent_id") // Khóa ngoại trỏ về chính mình
+  vatRate        Decimal @map("vat_rate") @db.Decimal(5, 4)
+  pitRate        Decimal @map("pit_rate") @db.Decimal(5, 4)
+  isVatReducible Boolean @default(false) @map("is_vat_reducible")
+  xmlIndicator   String? @map("xml_indicator") // VD: <ct28>
+  sortOrder      Int     @default(0) @map("sort_order")
 
   // Quan hệ Cha - Con (Recursive)
-  parent       TaxCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children     TaxCategory[] @relation("CategoryHierarchy")
-  
-  popularTags  UiPopularTag[]
-  taxConfigs   TaxConfiguration[]
+  parent   TaxCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children TaxCategory[] @relation("CategoryHierarchy")
+
+  popularTags UiPopularTag[]
+  taxConfigs  TaxConfiguration[]
 
   @@map("tax_categories_dictionary")
 }
 
 model UiPopularTag {
-  id          Int         @id @default(autoincrement())
-  tagName     String      @map("tag_name") // VD: "Quán cơm, đồ ăn nhanh"
-  iconName    String?     @map("icon_name")
-  mappedTaxId Int         @map("mapped_tax_id")
-  
+  id          Int     @id @default(autoincrement())
+  tagName     String  @map("tag_name") // VD: "Quán cơm, đồ ăn nhanh"
+  iconName    String? @map("icon_name")
+  mappedTaxId Int     @map("mapped_tax_id")
+
   taxCategory TaxCategory @relation(fields: [mappedTaxId], references: [id])
 
   @@map("ui_popular_tags")
 }
 
+model TaxConfiguration {
+  id         String @id @default(cuid())
+  userId     String @map("user_id")
+  industryId Int    @map("industry_id")
+  taxGroupId Int    @map("tax_group_id")
 
-model TaxConfiguration{
-  id                String        @id @default(cuid())
-  userId            String        @map("user_id")
-  industryId        Int           @map("industry_id")
-  taxGroupId        Int           @map("tax_group_id")
+  chosenPitMethod PitMethod @map("chosen_pit_method")
+  applyFromDate   DateTime  @map("apply_from_date")
+  applyToDate     DateTime? @map("apply_to_date")
 
-  chosenPitMethod   PitMethod     @map("chosen_pit_method")
-  applyFromDate     DateTime      @map("apply_from_date")
-  applyToDate       DateTime?     @map("apply_to_date")
+  vatRateSnapShot Decimal @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot Decimal @map("pit_rate_snapshot") @db.Decimal(5, 4)
+  isVatReducible  Boolean @default(false) @map("is_vat_reducible")
 
-  vatRateSnapShot   Decimal       @map("vat_rate_snapshot") @db.Decimal(5, 4)
-  pitRateSnapShot   Decimal       @map("pit_rate_snapshot") @db.Decimal(5, 4)
-  isVatReducible    Boolean       @map("is_vat_reducible") @default(false)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  industry TaxCategory @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  taxGroup TaxGroup    @relation(fields: [taxGroupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  user              User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  industry          TaxCategory   @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  taxGroup          TaxGroup         @relation(fields: [taxGroupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  createdAt        DateTime         @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt        DateTime         @updatedAt @db.Timestamptz(3) @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId, applyToDate])
   @@map("tax_configurations")
 }
+
 enum PitMethod {
-  EXEMPT      // Miễn thuế hoàn toàn (Nhóm 1) 
-  PERCENTAGE  // Tính theo % (doanh thu - 500tr) áp dụng cho nhóm 2 
-  PROFIT_15   // Lợi nhuận 15% (Nhóm 2) 
-  PROFIT_17   // Lợi nhuận 17% (Nhóm 3) 
-  PROFIT_20   // Lợi nhuận 20% (Nhóm 4)
+  EXEMPT // Miễn thuế hoàn toàn (Nhóm 1) 
+  PERCENTAGE // Tính theo % (doanh thu - 500tr) áp dụng cho nhóm 2 
+  PROFIT_15 // Lợi nhuận 15% (Nhóm 2) 
+  PROFIT_17 // Lợi nhuận 17% (Nhóm 3) 
+  PROFIT_20 // Lợi nhuận 20% (Nhóm 4)
 }
 
-enum  ActionWrite{
+enum ActionWrite {
   CREATE
   UPDATE
   DELETE
 }
-model AuditLog{
-  id              String        @id @default(cuid())
-  userId          String        @map("user_id")
-  action          ActionWrite  
-  tableName       String        @map("table_name")
-  recordId        String        @map("record_id")
-  oldValues       Json          @map("old_values")
-  newValues       Json          @map("new_values")
 
-  createdAt       DateTime      @default(now())   @db.Timestamptz(3)  @map("created_at")
+model AuditLog {
+  id        String      @id @default(cuid())
+  userId    String      @map("user_id")
+  action    ActionWrite
+  tableName String      @map("table_name")
+  recordId  String      @map("record_id")
+  oldValues Json        @map("old_values")
+  newValues Json        @map("new_values")
 
-  user           User           @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([userId])
   @@map("audit_logs")
@@ -163,35 +166,34 @@ model AuditLog{
 
 // 5. Products (Hàng hóa & Dịch vụ)
 model Product {
-  id                   Int      @id @default(autoincrement())
-  publicId             String   @unique @default(cuid()) @map("public_id")
-  userId               String   @map("user_id")
+  id       Int    @id @default(autoincrement())
+  publicId String @unique @default(cuid()) @map("public_id")
+  userId   String @map("user_id")
 
-  skuCode              String?  @map("sku_code")
-  productName          String   @map("product_name")
-  productType          ProductType @map("product_type")
-  unit                 String
-  imageUrl             String?  @map("image_url") @db.Text
-  imagePublicId        String?  @map("image_public_id") @db.Text
+  skuCode       String?     @map("sku_code")
+  productName   String      @map("product_name")
+  productType   ProductType @map("product_type")
+  unit          String
+  imageUrl      String?     @map("image_url") @db.Text
+  imagePublicId String?     @map("image_public_id") @db.Text
 
-  sellingPrice         Decimal  @map("selling_price")          @db.Decimal(18, 4)
+  sellingPrice Decimal @map("selling_price") @db.Decimal(18, 4)
 
-  openingStockQuantity Int      @default(0) @map("opening_stock_quantity")
-  openingStockUnitCost Decimal  @default(0) @map("opening_stock_unit_cost") @db.Decimal(18, 4)
-  openingStockValue    Decimal  @default(0) @map("opening_stock_value")     @db.Decimal(18, 4)
+  openingStockQuantity Int     @default(0) @map("opening_stock_quantity")
+  openingStockUnitCost Decimal @default(0) @map("opening_stock_unit_cost") @db.Decimal(18, 4)
+  openingStockValue    Decimal @default(0) @map("opening_stock_value") @db.Decimal(18, 4)
 
   // Cache O(1) — cập nhật qua DB Transaction khi có hóa đơn mua/bán
-  currentStock         Int      @default(0) @map("current_stock")
+  currentStock Int @default(0) @map("current_stock")
 
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   invoiceDetails        InvoiceDetail[]
   inboundInvoiceDetails InboundInvoiceDetail[]
 
-  createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId])
-  @@index([publicId])
   @@map("products")
 }
 
@@ -200,7 +202,6 @@ enum ProductType {
   RAW_MATERIAL
   SERVICE
 }
-
 
 // ─── INVOICES ────────────────────────────────────────────────────────────────
 
@@ -213,54 +214,55 @@ enum InvoiceStatus {
 
 // 6. Invoices (Thông tin chung Hóa đơn Bán ra)
 model Invoice {
-  id            Int           @id @default(autoincrement())
+  id       Int    @id @default(autoincrement())
   // publicId dùng để expose ra API, tránh lộ serial key
-  publicId      String        @unique @default(cuid()) @map("public_id")
-  userId        String        @map("user_id")
+  publicId String @unique @default(cuid()) @map("public_id")
+  userId   String @map("user_id")
 
   // Ký hiệu hóa đơn — bắt buộc bắt đầu bằng "2" theo pháp lý (VD: 2C26TAA)
   // Được sinh tự động ở tầng Service; để nullable để Prisma không yêu cầu khi create
-  invoiceSymbol String        @map("invoice_symbol")
+  invoiceSymbol String @map("invoice_symbol")
 
-  isB2C         Boolean       @default(true)  @map("is_b2c")
+  isB2C Boolean @default(true) @map("is_b2c")
 
   // Thông tin người mua (optional với B2C)
-  buyerName     String?       @map("buyer_name")
-  buyerTaxCode  String?       @map("buyer_tax_code")
-  buyerAddress  String?       @map("buyer_address")
+  buyerName    String? @map("buyer_name")
+  buyerTaxCode String? @map("buyer_tax_code")
+  buyerAddress String? @map("buyer_address")
 
-  totalPayment  Decimal       @map("total_payment") @db.Decimal(18, 4)
+  totalPayment Decimal @map("total_payment") @db.Decimal(18, 4)
 
-  status        InvoiceStatus @default(DRAFT)
+  status InvoiceStatus @default(DRAFT)
 
   // Trạng thái thu tiền — tách biệt với status phát hành
-  isPaid        Boolean       @default(false) @map("is_paid")
+  isPaid Boolean @default(false) @map("is_paid")
+  paidAmount  Decimal @map("paid_amount") @db.Decimal(18, 4) @default(0) // Trường lưu tổng giá trị các phiếu thu đã trả cho invoice này -> Nếu paidAmount == totalPayment -> cập nhật ispaid
 
   user    User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details InvoiceDetail[]
+  vouchers  Voucher[]
 
-  createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // Thông tin khi cơ quan thuế cấp mã 
-  cqtCode   String?         @map("cqt_code")
-  issuedAt  DateTime?       @map("issued_at")        
+  cqtCode  String?   @map("cqt_code")
+  issuedAt DateTime? @map("issued_at")
 
   // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
   @@index([userId, status])
-  @@index([publicId])
   @@map("invoices")
 }
 
 // 7. Invoice_Details (Chi tiết Hóa đơn — Weak Entity, không lưu user_id)
 model InvoiceDetail {
-  id         Int     @id @default(autoincrement())
-  invoiceId  Int     @map("invoice_id")
-  productId  Int     @map("product_id")
+  id        Int @id @default(autoincrement())
+  invoiceId Int @map("invoice_id")
+  productId Int @map("product_id")
 
   // SNAPSHOT — lưu chết tên & đơn giá tại thời điểm bán để bảo vệ tính bất biến chứng từ
   productNameSnapshot String  @map("product_name_snapshot")
-  unitPrice           Decimal @map("unit_price")  @db.Decimal(18, 4)
+  unitPrice           Decimal @map("unit_price") @db.Decimal(18, 4)
 
   quantity    Int     @default(1)
   totalAmount Decimal @map("total_amount") @db.Decimal(18, 4)
@@ -286,25 +288,25 @@ model InboundInvoice {
   // Thông tin từ người bán
   sellerName    String   @map("seller_name")
   sellerTaxCode String?  @map("seller_tax_code")
-  invoiceNo     String   @map("invoice_no")  // Số hóa đơn của người bán
-  issueDate     DateTime @map("issue_date")  // Ngày xuất trên hóa đơn
+  invoiceNo     String   @map("invoice_no") // Số hóa đơn của người bán
+  issueDate     DateTime @map("issue_date") // Ngày xuất trên hóa đơn
 
-  totalAmount   Decimal  @map("total_amount")   @db.Decimal(18, 4)
-  attachmentUrl String?  @map("attachment_url") @db.Text
-  status        InboundInvoiceStatus  @default(ACTIVE)
+  totalAmount   Decimal              @map("total_amount") @db.Decimal(18, 4)
+  attachmentUrl String?              @map("attachment_url") @db.Text
+  status        InboundInvoiceStatus @default(ACTIVE)
 
   // Logic cốt lõi: Frontend gửi checkbox xác nhận đã đồng bộ kho
   // Backend KHÔNG tự set true nếu không có yêu cầu rõ ràng
   isSyncedToInventory Boolean @default(false) @map("is_synced_to_inventory")
 
-  user  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details InboundInvoiceDetail[]
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details  InboundInvoiceDetail[]
+  vouchers Voucher[]
 
-  createdAt DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt DateTime @updatedAt      @db.Timestamptz(3) @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId])
-  @@index([publicId])
   @@map("inbound_invoices")
 }
 
@@ -319,13 +321,77 @@ model InboundInvoiceDetail {
   inboundInvoiceId Int @map("inbound_invoice_id")
   productId        Int @map("product_id")
 
-  quantity Int     // Số lượng nhập
+  quantity Int // Số lượng nhập
   unitCost Decimal @map("unit_cost") @db.Decimal(18, 4) // Giá nhập (tính giá vốn)
 
-  invoice InboundInvoice @relation(fields: [inboundInvoiceId], references: [id], onDelete: Cascade,  onUpdate: Cascade)
-  product Product        @relation(fields: [productId],        references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoice InboundInvoice @relation(fields: [inboundInvoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product Product        @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([inboundInvoiceId])
   @@index([productId])
   @@map("inbound_invoice_details")
+}
+
+// ─── VOUCHERS (Phiếu Thu / Chi) ─────────────────────────────────────────────
+
+enum VoucherType {
+  RECEIPT
+  PAYMENT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK
+}
+
+enum VoucherStatus {
+  ACTIVE
+  CANCELED
+}
+
+// Danh mục Hạng mục Thu/Chi (Cho phép Mặc định Hệ thống hoặc Riêng tư User)
+model VoucherCategory {
+  id           Int         @id @default(autoincrement())
+  userId       String?     @map("user_id") // Null: Hạng mục default system
+  type         VoucherType
+  categoryName String      @map("category_name")
+
+  vouchers Voucher[]
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("voucher_categories")
+}
+
+// Bảng lưu thông tin Phiếu Thu/Chi
+model Voucher {
+  id                  Int           @id @default(autoincrement())
+  userId              String        @map("user_id")
+  voucherCode         String        @map("voucher_code")
+  voucherType         VoucherType   @map("voucher_type")
+  transactionAt       DateTime      @map("transaction_at") @db.Timestamptz(3)
+  categoryId          Int           @map("category_id")
+  content             String        @db.Text
+  amount              Decimal       @map("amount") @db.Decimal(18, 4)
+  paymentMethod       PaymentMethod @map("payment_method")
+  isDeductibleExpense Boolean       @map("is_deductible_expense") @default(false)
+  inboundInvoiceId    Int?          @map("inbound_invoice_id")
+  outboundInvoiceId   Int?          @map("outbound_invoice_id")
+  status              VoucherStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  category       VoucherCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  // Liên kết tùy chọn về chứng từ nhập kho nếu Phiếu Chi đó để trả tiền nhà cung cấp
+  inboundInvoice InboundInvoice? @relation(fields: [inboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  outBoundInvoice Invoice? @relation(fields: [outboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([userId, voucherCode])
+  @@index([userId, transactionAt])
+  @@index([inboundInvoiceId])
+  @@index([outboundInvoiceId])
+  @@index([userId, voucherType])
+  @@map("vouchers")
 }

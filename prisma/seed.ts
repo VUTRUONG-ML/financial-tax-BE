@@ -1,5 +1,5 @@
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, PitMethod } from '@prisma/client';
+import { PrismaClient, PitMethod, VoucherType } from '@prisma/client';
 import 'dotenv/config';
 
 // Chỉ cần khởi tạo Client cơ bản cho script chạy local
@@ -130,6 +130,30 @@ async function main() {
       where: { id: tagId },
       update: tag,
       create: { ...tag, id: tagId },
+    });
+  }
+
+  // 4. Seed cho VoucherCategory (Hạng mục mặc định hệ thống - userId: null)
+  await prisma.voucherCategory.deleteMany({ where: { userId: null } });
+  const voucherCategories = [
+    { type: VoucherType.PAYMENT, categoryName: 'Tiền điện' },
+    { type: VoucherType.PAYMENT, categoryName: 'Tiền nước' },
+    { type: VoucherType.PAYMENT, categoryName: 'Trả lương' },
+    { type: VoucherType.PAYMENT, categoryName: 'Nhập hàng' },
+    { type: VoucherType.PAYMENT, categoryName: 'Chi phí Marketing' },
+    { type: VoucherType.PAYMENT, categoryName: 'Chi khác' },
+    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền bán hàng' },
+    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền thu nợ' },
+    { type: VoucherType.RECEIPT, categoryName: 'Thu khác' },
+  ];
+
+  for (const vc of voucherCategories) {
+    await prisma.voucherCategory.create({
+      data: {
+        type: vc.type,
+        categoryName: vc.categoryName,
+        userId: null,
+      },
     });
   }
 

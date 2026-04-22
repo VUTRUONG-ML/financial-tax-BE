@@ -17,6 +17,8 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { TaxAuthorityModule } from './tax-authority/tax-authority.module';
 import { InboundInvoicesModule } from './inbound-invoices/inbound-invoices.module';
+import { VouchersModule } from './vouchers/vouchers.module';
+import { VoucherCategoriesModule } from './voucher-categories/voucher-categories.module';
 
 @Module({
   imports: [
@@ -33,6 +35,8 @@ import { InboundInvoicesModule } from './inbound-invoices/inbound-invoices.modul
     CloudinaryModule,
     TaxAuthorityModule,
     InboundInvoicesModule,
+    VouchersModule,
+    VoucherCategoriesModule,
   ],
   controllers: [AppController],
   providers: [
