@@ -235,12 +235,12 @@ model Invoice {
   status InvoiceStatus @default(DRAFT)
 
   // Trạng thái thu tiền — tách biệt với status phát hành
-  isPaid Boolean @default(false) @map("is_paid")
-  paidAmount  Decimal @map("paid_amount") @db.Decimal(18, 4) @default(0) // Trường lưu tổng giá trị các phiếu thu đã trả cho invoice này -> Nếu paidAmount == totalPayment -> cập nhật ispaid
+  isPaid     Boolean @default(false) @map("is_paid")
+  paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4) // Trường lưu tổng giá trị các phiếu thu đã trả cho invoice này -> Nếu paidAmount == totalPayment -> cập nhật ispaid
 
-  user    User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details InvoiceDetail[]
-  vouchers  Voucher[]
+  user     User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details  InvoiceDetail[]
+  vouchers Voucher[]
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -298,6 +298,10 @@ model InboundInvoice {
   // Logic cốt lõi: Frontend gửi checkbox xác nhận đã đồng bộ kho
   // Backend KHÔNG tự set true nếu không có yêu cầu rõ ràng
   isSyncedToInventory Boolean @default(false) @map("is_synced_to_inventory")
+
+  // Trạng thái trả tiền cho nhà cung cấp
+  isPaid     Boolean @default(false) @map("is_paid")
+  paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4)
 
   user     User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details  InboundInvoiceDetail[]
@@ -374,7 +378,7 @@ model Voucher {
   content             String        @db.Text
   amount              Decimal       @map("amount") @db.Decimal(18, 4)
   paymentMethod       PaymentMethod @map("payment_method")
-  isDeductibleExpense Boolean       @map("is_deductible_expense") @default(false)
+  isDeductibleExpense Boolean       @default(false) @map("is_deductible_expense")
   inboundInvoiceId    Int?          @map("inbound_invoice_id")
   outboundInvoiceId   Int?          @map("outbound_invoice_id")
   status              VoucherStatus @default(ACTIVE)
@@ -382,11 +386,11 @@ model Voucher {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  category       VoucherCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  category        VoucherCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   // Liên kết tùy chọn về chứng từ nhập kho nếu Phiếu Chi đó để trả tiền nhà cung cấp
-  inboundInvoice InboundInvoice? @relation(fields: [inboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  outBoundInvoice Invoice? @relation(fields: [outboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  inboundInvoice  InboundInvoice? @relation(fields: [inboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  outBoundInvoice Invoice?        @relation(fields: [outboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([userId, voucherCode])
   @@index([userId, transactionAt])

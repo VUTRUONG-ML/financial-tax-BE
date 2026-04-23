@@ -119,6 +119,58 @@ export class VouchersService {
         throw new ForbiddenException(
           'You do not have access outbound invoice.',
         );
+      if (currentInboundInvoice.isPaid)
+        throw new BadRequestException('The invoice has been paid in full.');
+
+      const currentPaid =
+        currentInboundInvoice.paidAmount as unknown as Decimal;
+      const amountToAdd = amount as unknown as Decimal;
+
+      const totalPaidSoFar: Decimal = currentPaid.add(amountToAdd);
+
+      if (totalPaidSoFar.gt(currentInboundInvoice.totalAmount))
+        throw new BadRequestException(
+          'The total amount payment exceeded the total amount on the inbound invoice.',
+        );
+      const isPaid = totalPaidSoFar.eq(currentInboundInvoice.totalAmount);
+      const result = await tx.inboundInvoice.updateMany({
+        where: { publicId: inInvoicePublicId, userId, isPaid: false },
+        data: {
+          paidAmount: { increment: amount },
+          isPaid,
+        },
+      });
+      if (result.count === 0) {
+        this.log.debug('UPDATE_PAYMENT_STATUS_INBOUND_INVOICE', {
+          status: LOG_STATUS.FAILED,
+          userId,
+          invoicePublicId: inInvoicePublicId,
+        });
+        throw new ConflictException(
+          'Error updating payment status for inbound invoice.',
+        );
+      }
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.inboundInvoice,
+        currentInboundInvoice.id,
+        {
+          isPaid: false,
+          paidAmount: currentInboundInvoice.paidAmount as Decimal,
+        },
+        {
+          isPaid,
+          paidAmount: totalPaidSoFar,
+        },
+      );
+      this.log.debug('UPDATE_PAYMENT_STATUS_INBOUND_INVOICE', {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        invoicePublicId: inInvoicePublicId,
+      });
+
       return { id: currentInboundInvoice.id, type: 'INBOUND' };
     }
     if (isDeductibleExpense && !inInvoicePublicId)
@@ -167,6 +219,46 @@ export class VouchersService {
       this.log.debug('REFUND_AMOUNT_INVOICE', {
         status: LOG_STATUS.SUCCESS,
         invoiceId: voucher.outboundInvoiceId,
+        voucherCode: voucher.voucherCode,
+        userId: voucher.userId,
+      });
+    }
+    if (
+      voucher.voucherType === VoucherType.PAYMENT &&
+      voucher.inboundInvoiceId &&
+      voucher.amount.gt(0)
+    ) {
+      const { amount } = voucher;
+      const invoice = await tx.inboundInvoice.findUnique({
+        where: { id: voucher.inboundInvoiceId },
+      });
+      if (!invoice)
+        throw new NotFoundException(
+          'Inbound invoice not found for this voucher.',
+        );
+
+      if (invoice.paidAmount.lessThan(amount))
+        throw new ConflictException('Amount of voucher invalid.');
+
+      const updatedInvoice = await tx.inboundInvoice.update({
+        where: { id: voucher.inboundInvoiceId },
+        data: { paidAmount: { decrement: amount }, isPaid: false },
+      });
+      await this.auditLog.logChange(
+        tx,
+        voucher.userId,
+        'UPDATE',
+        tableWrite.inboundInvoice,
+        updatedInvoice.id,
+        { paidAmount: invoice.paidAmount, isPaid: invoice.isPaid },
+        {
+          paidAmount: updatedInvoice.paidAmount,
+          isPaid: updatedInvoice.isPaid,
+        },
+      );
+      this.log.debug('REFUND_AMOUNT_INBOUND_INVOICE', {
+        status: LOG_STATUS.SUCCESS,
+        invoiceId: voucher.inboundInvoiceId,
         voucherCode: voucher.voucherCode,
         userId: voucher.userId,
       });
