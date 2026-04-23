@@ -12,7 +12,14 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { Prisma, Voucher, VoucherStatus, VoucherType } from '@prisma/client';
+import {
+  InboundInvoiceStatus,
+  InvoiceStatus,
+  Prisma,
+  Voucher,
+  VoucherStatus,
+  VoucherType,
+} from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
   AuditLogService,
@@ -59,6 +66,10 @@ export class VouchersService {
       if (currentOutInvoice.userId !== userId) {
         throw new ForbiddenException('You do not have access invoice.');
       }
+
+      if (currentOutInvoice.status === InvoiceStatus.CANCELED)
+        throw new BadRequestException('Invoice canceled.');
+
       if (currentOutInvoice.isPaid)
         throw new BadRequestException('The invoice has been paid in full.');
 
@@ -119,6 +130,8 @@ export class VouchersService {
         throw new ForbiddenException(
           'You do not have access outbound invoice.',
         );
+      if (currentInboundInvoice.status === InboundInvoiceStatus.CANCELED)
+        throw new BadRequestException('Inbound invoice canceled.');
       if (currentInboundInvoice.isPaid)
         throw new BadRequestException('The invoice has been paid in full.');
 
@@ -158,7 +171,7 @@ export class VouchersService {
         currentInboundInvoice.id,
         {
           isPaid: false,
-          paidAmount: currentInboundInvoice.paidAmount as Decimal,
+          paidAmount: currentInboundInvoice.paidAmount,
         },
         {
           isPaid,
@@ -173,10 +186,6 @@ export class VouchersService {
 
       return { id: currentInboundInvoice.id, type: 'INBOUND' };
     }
-    if (isDeductibleExpense && !inInvoicePublicId)
-      throw new BadRequestException(
-        'Missing inbound invoice when calculating deductible expenses for personal income tax purposes.',
-      );
   }
 
   private async revertInvoicePayment(
