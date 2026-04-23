@@ -50,17 +50,21 @@ export class VouchersController {
     @Param('id', ParseIntPipe) id: number,
     @Body() updateVoucherDto: UpdateVoucherDto,
   ) {
-    const data = await this.vouchersService.update(userId, id, updateVoucherDto);
+    const data = await this.vouchersService.update(
+      userId,
+      id,
+      updateVoucherDto,
+    );
     return { message: 'Voucher updated successfully', data };
   }
 
-  @Patch(':id/cancel')
+  @Patch(':voucherCode/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(
     @CurrentUser('id') userId: string,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('voucherCode') voucherCode: string,
   ) {
-    const data = await this.vouchersService.cancel(userId, id);
+    const data = await this.vouchersService.cancel(userId, voucherCode);
     return { message: 'Voucher canceled successfully', data };
   }
 }

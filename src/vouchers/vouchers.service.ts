@@ -12,7 +12,7 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { Prisma, VoucherStatus, VoucherType } from '@prisma/client';
+import { Prisma, Voucher, VoucherStatus, VoucherType } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
   AuditLogService,
@@ -34,6 +34,7 @@ export class VouchersService {
     userId: string,
     voucherType: VoucherType,
     amount: Decimal,
+    isDeductibleExpense = false,
     inInvoicePublicId?: string,
     outInvoicePublicId?: string,
   ) {
@@ -94,7 +95,7 @@ export class VouchersService {
         'UPDATE',
         tableWrite.invoices,
         currentOutInvoice.id,
-        { isPaid: false, paidAmount: currentOutInvoice.paidAmount as Decimal },
+        { isPaid: false, paidAmount: currentOutInvoice.paidAmount },
         {
           isPaid,
           paidAmount: totalPaidSoFar,
@@ -119,6 +120,56 @@ export class VouchersService {
           'You do not have access outbound invoice.',
         );
       return { id: currentInboundInvoice.id, type: 'INBOUND' };
+    }
+    if (isDeductibleExpense && !inInvoicePublicId)
+      throw new BadRequestException(
+        'Missing inbound invoice when calculating deductible expenses for personal income tax purposes.',
+      );
+  }
+
+  private async revertInvoicePayment(
+    voucher: Voucher,
+    tx: Prisma.TransactionClient,
+  ) {
+    if (
+      voucher.voucherType === VoucherType.RECEIPT &&
+      voucher.outboundInvoiceId &&
+      voucher.amount.gt(0)
+    ) {
+      const { amount } = voucher;
+      const invoice = await tx.invoice.findUnique({
+        where: { id: voucher.outboundInvoiceId },
+      });
+      if (!invoice)
+        throw new NotFoundException(
+          'Outbound invoice not found for this voucher.',
+        );
+
+      if (invoice.paidAmount.lessThan(amount))
+        throw new ConflictException('Amount of voucher invalid.');
+
+      const updatedInvoice = await tx.invoice.update({
+        where: { id: voucher.outboundInvoiceId },
+        data: { paidAmount: { decrement: amount }, isPaid: false },
+      });
+      await this.auditLog.logChange(
+        tx,
+        voucher.userId,
+        'UPDATE',
+        tableWrite.invoices,
+        updatedInvoice.id,
+        { paidAmount: invoice.paidAmount, isPaid: invoice.isPaid },
+        {
+          paidAmount: updatedInvoice.paidAmount,
+          isPaid: updatedInvoice.isPaid,
+        },
+      );
+      this.log.debug('REFUND_AMOUNT_INVOICE', {
+        status: LOG_STATUS.SUCCESS,
+        invoiceId: voucher.outboundInvoiceId,
+        voucherCode: voucher.voucherCode,
+        userId: voucher.userId,
+      });
     }
   }
 
@@ -147,6 +198,7 @@ export class VouchersService {
           userId,
           createVoucherDto.voucherType,
           createVoucherDto.amount,
+          createVoucherDto.isDeductibleExpense,
           createVoucherDto.inboundInvoicePublicId,
           createVoucherDto.outboundInvoicePublicId,
         );
@@ -303,32 +355,61 @@ export class VouchersService {
     return updated;
   }
 
-  async cancel(userId: string, id: number) {
-    const existing = await this.prisma.voucher.findUnique({
-      where: { id },
+  async cancel(userId: string, voucherCode: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.voucher.findUnique({
+        where: { userId_voucherCode: { userId, voucherCode } },
+      });
+
+      if (!existing) {
+        throw new NotFoundException('Voucher not found');
+      }
+
+      if (existing.status === VoucherStatus.CANCELED) {
+        throw new BadRequestException('Voucher is already canceled');
+      }
+
+      const result = await tx.voucher.updateMany({
+        where: {
+          id: existing.id,
+          status: VoucherStatus.ACTIVE,
+        },
+        data: {
+          status: VoucherStatus.CANCELED,
+        },
+      });
+
+      if (result.count === 0) {
+        this.log.warn(LOG_ACTIONS.CANCEL_VOUCHER, {
+          status: LOG_STATUS.FAILED,
+          reason: 'RACE_CONDITION',
+          userId,
+          voucherCode,
+        });
+        throw new BadRequestException(
+          'The voucher does not exist or has already been processed.',
+        );
+      }
+
+      await this.revertInvoicePayment(existing, tx);
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.vouchers,
+        existing.id,
+        { status: VoucherStatus.ACTIVE },
+        { status: VoucherStatus.CANCELED },
+      );
+
+      this.log.log(LOG_ACTIONS.CANCEL_VOUCHER, {
+        status: LOG_STATUS.SUCCESS,
+        voucherCode,
+        userId,
+      });
+
+      return { ...existing, status: VoucherStatus.CANCELED };
     });
-
-    if (!existing || existing.userId !== userId) {
-      throw new NotFoundException('Voucher not found');
-    }
-
-    if (existing.status === VoucherStatus.CANCELED) {
-      throw new BadRequestException('Voucher is already canceled');
-    }
-
-    const canceled = await this.prisma.voucher.update({
-      where: { id },
-      data: {
-        status: VoucherStatus.CANCELED,
-      },
-    });
-
-    this.log.log(LOG_ACTIONS.CANCEL_VOUCHER, {
-      status: LOG_STATUS.SUCCESS,
-      userId,
-      voucherId: id,
-    });
-
-    return canceled;
   }
 }
