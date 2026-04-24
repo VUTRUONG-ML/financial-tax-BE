@@ -208,8 +208,8 @@ export class InboundInvoicesService {
         'UPDATE',
         tableWrite.inboundInvoice,
         currentInvoice.id,
-        currentInvoice,
-        { ...currentInvoice, status: 'CANCELED' },
+        { status: currentInvoice.status },
+        { status: 'CANCELED' },
       );
 
       this.log.log(LOG_ACTIONS.CANCEL_INBOUND_INVOICE, {

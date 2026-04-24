@@ -297,7 +297,10 @@ export class VouchersService {
           throw new BadRequestException('Voucher category not found');
         }
 
-        if (category.userId !== null && category.userId !== userId) {
+        if (
+          (category.userId !== null && category.userId !== userId) ||
+          category.type !== createVoucherDto.voucherType
+        ) {
           throw new BadRequestException('Invalid voucher category');
         }
 
@@ -415,52 +418,81 @@ export class VouchersService {
     return voucher;
   }
 
-  async update(userId: string, id: number, updateVoucherDto: UpdateVoucherDto) {
-    const existing = await this.prisma.voucher.findUnique({
-      where: { id },
-    });
-
-    if (!existing || existing.userId !== userId) {
-      throw new NotFoundException('Voucher not found');
-    }
-
-    if (existing.status === VoucherStatus.CANCELED) {
-      throw new BadRequestException('Cannot update a canceled voucher');
-    }
-
-    // Category Validation if modifying category
-    if (
-      updateVoucherDto.categoryId &&
-      updateVoucherDto.categoryId !== existing.categoryId
-    ) {
-      const category = await this.prisma.voucherCategory.findUnique({
-        where: { id: updateVoucherDto.categoryId },
+  async update(
+    userId: string,
+    voucherCode: string,
+    updateVoucherDto: UpdateVoucherDto,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.voucher.findUnique({
+        where: { userId_voucherCode: { userId, voucherCode } },
       });
 
-      if (
-        !category ||
-        (category.userId !== null && category.userId !== userId) ||
-        category.type !== existing.voucherType
-      ) {
-        throw new BadRequestException('Invalid voucher category');
+      if (!existing || existing.userId !== userId) {
+        throw new NotFoundException('Voucher not found');
       }
-    }
 
-    const updated = await this.prisma.voucher.update({
-      where: { id },
-      data: {
-        ...updateVoucherDto,
-        amount: updateVoucherDto.amount ? updateVoucherDto.amount : undefined,
-      },
+      if (existing.status === VoucherStatus.CANCELED) {
+        throw new BadRequestException('Cannot update a canceled voucher');
+      }
+
+      // Category Validation if modifying category
+      if (
+        updateVoucherDto.categoryId &&
+        updateVoucherDto.categoryId !== existing.categoryId
+      ) {
+        const category = await tx.voucherCategory.findUnique({
+          where: { id: updateVoucherDto.categoryId },
+        });
+
+        if (
+          !category ||
+          (category.userId !== null && category.userId !== userId) ||
+          category.type !== existing.voucherType
+        ) {
+          throw new BadRequestException('Invalid voucher category');
+        }
+      }
+
+      const updated = await tx.voucher.update({
+        where: { userId_voucherCode: { userId, voucherCode } },
+        data: {
+          ...updateVoucherDto,
+        },
+        omit: { inboundInvoiceId: true, outboundInvoiceId: true },
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.vouchers,
+        updated.id,
+        {
+          ...(updateVoucherDto.categoryId && {
+            categoryId: existing.categoryId,
+          }),
+          ...(updateVoucherDto.content && { content: existing.content }),
+          ...(updateVoucherDto.isDeductibleExpense && {
+            isDeductibleExpense: existing.isDeductibleExpense,
+          }),
+          ...(updateVoucherDto.paymentMethod && {
+            paymentMethod: existing.paymentMethod,
+          }),
+        },
+        {
+          ...updateVoucherDto,
+        },
+      );
+
+      this.log.log(LOG_ACTIONS.UPDATE_VOUCHER, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        voucherCode,
+      });
+      const { id, ...rest } = updated;
+      return rest;
     });
-
-    this.log.log(LOG_ACTIONS.UPDATE_VOUCHER, {
-      status: LOG_STATUS.SUCCESS,
-      userId,
-      voucherId: id,
-    });
-
-    return updated;
   }
 
   async cancel(userId: string, voucherCode: string) {

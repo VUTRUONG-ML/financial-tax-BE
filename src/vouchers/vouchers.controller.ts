@@ -43,16 +43,16 @@ export class VouchersController {
     return { message: 'Voucher details retrieved successfully', data };
   }
 
-  @Patch(':id')
+  @Patch(':voucherCode')
   @HttpCode(HttpStatus.OK)
   async update(
     @CurrentUser('id') userId: string,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('voucherCode') voucherCode: string,
     @Body() updateVoucherDto: UpdateVoucherDto,
   ) {
     const data = await this.vouchersService.update(
       userId,
-      id,
+      voucherCode,
       updateVoucherDto,
     );
     return { message: 'Voucher updated successfully', data };
