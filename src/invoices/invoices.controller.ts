@@ -11,6 +11,7 @@ import {
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('invoices')
 export class InvoicesController {
@@ -18,6 +19,7 @@ export class InvoicesController {
 
   // POST /invoices — Tạo hóa đơn mới (status: DRAFT)
   @Post()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
   async createInvoice(
     @CurrentUser('id') userId: string,
@@ -67,6 +69,7 @@ export class InvoicesController {
     };
   }
 
+  @Throttle({ medium: { limit: 3, ttl: 60000 } })
   @Patch('/:invoicePublicId/cancel')
   async cancelInvoice(
     @Param('invoicePublicId') invPublicId: string,
