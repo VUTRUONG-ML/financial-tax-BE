@@ -20,6 +20,7 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 import { Invoice } from '@prisma/client';
 import { refundQuantityProduct } from './helper/invoice.helper';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 @Injectable()
 export class InvoicesService {
@@ -29,6 +30,7 @@ export class InvoicesService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly taxAuthorityService: TaxAuthorityService,
+    private readonly voucherService: VouchersService,
   ) {}
 
   private validateInvoiceB2C(
@@ -389,6 +391,14 @@ export class InvoicesService {
       });
 
       await refundQuantityProduct(tx, this.log, userId, invoice.id, details);
+
+      // Hủy các phiếu thu liên quan
+      await this.voucherService.bulkCancelByInvoice(
+        tx,
+        userId,
+        invoice.id,
+        'OUTBOUND',
+      );
 
       await this.auditLog.logChange(
         tx,

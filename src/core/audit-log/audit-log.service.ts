@@ -27,6 +27,7 @@ export class AuditLogService {
     recordId: string | number,
     oldValues: unknown = null,
     newValues: unknown = null,
+    note?: string,
   ): Promise<void> {
     await tx.auditLog.create({
       data: {
@@ -41,6 +42,7 @@ export class AuditLogService {
         newValues: newValues
           ? (newValues as Prisma.InputJsonValue)
           : Prisma.JsonNull,
+        note,
       },
     });
     this.logger.log('Audit log success.', { userId, action, tableName });

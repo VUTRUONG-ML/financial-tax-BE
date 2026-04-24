@@ -553,4 +553,42 @@ export class VouchersService {
       return { ...rest, status: VoucherStatus.CANCELED };
     });
   }
+
+  async bulkCancelByInvoice(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    invoiceId: number,
+    type: 'INBOUND' | 'OUTBOUND',
+  ) {
+    // Xác định cột cần filter dựa trên loại hóa đơn
+    const whereField =
+      type === 'OUTBOUND' ? 'outboundInvoiceId' : 'inboundInvoiceId';
+
+    const result = await tx.voucher.updateMany({
+      where: {
+        [whereField]: invoiceId,
+        userId,
+        status: VoucherStatus.ACTIVE,
+      },
+      data: {
+        status: VoucherStatus.CANCELED,
+      },
+    });
+
+    await this.auditLog.logChange(
+      tx,
+      userId,
+      'UPDATE',
+      tableWrite.vouchers,
+      `VOUCHERS_RELATED_${whereField}_${invoiceId}`,
+      { status: 'ACTIVE' },
+      { status: 'CANCELED' },
+    );
+    // Ghi log chung cho hành động này (hoặc em có thể query ra list IDs để log chi tiết)
+    this.log.debug(
+      `Bulk canceled ${result.count} vouchers for ${type} invoice: ${invoiceId}`,
+    );
+
+    return result.count;
+  }
 }

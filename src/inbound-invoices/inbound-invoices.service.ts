@@ -16,6 +16,7 @@ import {
   AuditLogService,
   tableWrite,
 } from '../core/audit-log/audit-log.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 @Injectable()
 export class InboundInvoicesService {
@@ -23,6 +24,7 @@ export class InboundInvoicesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly voucherService: VouchersService,
   ) {}
 
   async findAllInboundInvoices(userId: string) {
@@ -52,13 +54,19 @@ export class InboundInvoicesService {
       dto.items.map(async (item) => {
         const product = await this.prisma.product.findUnique({
           where: { publicId: item.productPublicId },
-          select: { id: true },
+          select: { id: true, userId: true, publicId: true },
         });
 
         if (!product)
           throw new NotFoundException(
             `Product ${item.productPublicId} not found.`,
           );
+
+        if (userId !== product.userId) {
+          throw new ForbiddenException(
+            `You do not have access product ${product.publicId}.`,
+          );
+        }
 
         calculatedTotalAmount += item.quantity * item.unitCost;
         return {
@@ -110,7 +118,12 @@ export class InboundInvoicesService {
         }
       }
 
-      const { details, ...newValue } = inboundInvoice;
+      const { id, ...result } = inboundInvoice;
+      const cleanDetails = inboundInvoice.details.map((detail) => {
+        const { inboundInvoiceId, productId, ...item } = detail;
+        return item;
+      });
+
       await this.auditLog.logChange(
         tx,
         userId,
@@ -118,15 +131,11 @@ export class InboundInvoicesService {
         tableWrite.inboundInvoice,
         inboundInvoice.id,
         null,
-        { newValue, itemCount: details.length },
+        { result, itemCount: cleanDetails.length },
       );
 
       // 5. Trả về kết quả sau khi commit thành công
-      const { id, ...result } = inboundInvoice;
-      const cleanDetails = inboundInvoice.details.map((detail) => {
-        const { inboundInvoiceId, productId, ...item } = detail;
-        return item;
-      });
+
       return { ...result, details: cleanDetails };
     });
   }
@@ -166,6 +175,7 @@ export class InboundInvoicesService {
         throw new BadRequestException('Inbound invoice canceled.');
       }
 
+      // trừ đi sản phẩm trong kho
       if (currentInvoice.isSyncedToInventory) {
         const details = await tx.inboundInvoiceDetail.findMany({
           where: { inboundInvoiceId: currentInvoice.id },
@@ -192,6 +202,14 @@ export class InboundInvoicesService {
           }
         }
       }
+
+      // Hủy các phiếu thu liên quan
+      await this.voucherService.bulkCancelByInvoice(
+        tx,
+        userId,
+        currentInvoice.id,
+        'INBOUND',
+      );
 
       const updatedInvoice = await tx.inboundInvoice.updateMany({
         where: { publicId, status: 'ACTIVE' },
