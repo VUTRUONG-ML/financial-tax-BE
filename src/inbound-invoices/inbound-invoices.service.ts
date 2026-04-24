@@ -17,6 +17,7 @@ import {
   tableWrite,
 } from '../core/audit-log/audit-log.service';
 import { VouchersService } from '../vouchers/vouchers.service';
+import { ProductsService } from '../products/products.service';
 
 @Injectable()
 export class InboundInvoicesService {
@@ -25,6 +26,7 @@ export class InboundInvoicesService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly voucherService: VouchersService,
+    private readonly productService: ProductsService,
   ) {}
 
   async findAllInboundInvoices(userId: string) {
@@ -179,28 +181,16 @@ export class InboundInvoicesService {
       if (currentInvoice.isSyncedToInventory) {
         const details = await tx.inboundInvoiceDetail.findMany({
           where: { inboundInvoiceId: currentInvoice.id },
+          select: { productId: true, quantity: true },
         });
-        for (const item of details) {
-          const result = await tx.product.updateMany({
-            where: {
-              id: item.productId,
-              currentStock: { gte: item.quantity },
-              userId,
-            },
-            data: { currentStock: { decrement: item.quantity } },
-          });
-          if (result.count === 0) {
-            this.log.warn(LOG_ACTIONS.CREATE_INBOUND_INVOICE, {
-              status: LOG_STATUS.FAILED,
-              reason: 'OUT_OF_STOCK',
-              userId,
-              publicId,
-            });
-            throw new ConflictException(
-              'The product may have sold out or may no longer be available.',
-            );
-          }
-        }
+
+        await this.productService.updateStockFromCanceledInvoice(
+          tx,
+          userId,
+          details,
+          'DECREMENT',
+          currentInvoice.id,
+        );
       }
 
       // Hủy các phiếu thu liên quan

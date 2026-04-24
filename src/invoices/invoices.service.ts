@@ -19,8 +19,8 @@ import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 import { Invoice } from '@prisma/client';
-import { refundQuantityProduct } from './helper/invoice.helper';
 import { VouchersService } from '../vouchers/vouchers.service';
+import { ProductsService } from '../products/products.service';
 
 @Injectable()
 export class InvoicesService {
@@ -31,6 +31,7 @@ export class InvoicesService {
     private readonly auditLog: AuditLogService,
     private readonly taxAuthorityService: TaxAuthorityService,
     private readonly voucherService: VouchersService,
+    private readonly productService: ProductsService,
   ) {}
 
   private validateInvoiceB2C(
@@ -384,13 +385,17 @@ export class InvoicesService {
       }
 
       // refund quantity product
-      const details = await tx.invoiceDetail.groupBy({
-        by: ['productId'],
+      const item = await tx.invoiceDetail.findMany({
         where: { invoiceId: invoice.id },
-        _sum: { quantity: true },
+        select: { productId: true, quantity: true },
       });
-
-      await refundQuantityProduct(tx, this.log, userId, invoice.id, details);
+      await this.productService.updateStockFromCanceledInvoice(
+        tx,
+        userId,
+        item,
+        'INCREMENT',
+        invoice.id,
+      );
 
       // Hủy các phiếu thu liên quan
       await this.voucherService.bulkCancelByInvoice(

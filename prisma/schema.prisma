@@ -145,6 +145,7 @@ enum ActionWrite {
   CREATE
   UPDATE
   DELETE
+  STOCK_REVERT_BY_INVOICE_CANCEL
 }
 
 model AuditLog {

@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AppLogger } from '../../common/logger/app-logger.service';
 
-type ActionWrite = 'CREATE' | 'UPDATE' | 'DELETE';
+type ActionWrite =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'STOCK_REVERT_BY_INVOICE_CANCEL';
 export enum tableWrite {
   tax_configurations = 'tax_configurations',
   users = 'users',
