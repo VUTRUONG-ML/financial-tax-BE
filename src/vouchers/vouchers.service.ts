@@ -36,12 +36,30 @@ export class VouchersService {
     private readonly auditLog: AuditLogService,
   ) {}
 
+  private calculateNewPaymentState(
+    currentPaid: Decimal,
+    total: Decimal,
+    addAmount: Decimal,
+  ) {
+    const newTotalPaid = currentPaid.add(addAmount);
+
+    if (newTotalPaid.gt(total)) {
+      throw new BadRequestException(
+        'The total amount collected exceeded the total amount on the invoice.',
+      );
+    }
+
+    return {
+      newTotalPaid,
+      isPaid: newTotalPaid.eq(total),
+    };
+  }
+
   private async resolveVoucherType(
     tx: Prisma.TransactionClient,
     userId: string,
     voucherType: VoucherType,
     amount: Decimal,
-    isDeductibleExpense = false,
     inInvoicePublicId?: string,
     outInvoicePublicId?: string,
   ) {
@@ -73,20 +91,15 @@ export class VouchersService {
       if (currentOutInvoice.isPaid)
         throw new BadRequestException('The invoice has been paid in full.');
 
-      const currentPaid = currentOutInvoice.paidAmount as unknown as Decimal;
-      const amountToAdd = amount as unknown as Decimal;
-
-      const totalPaidSoFar: Decimal = currentPaid.add(amountToAdd);
-
-      if (totalPaidSoFar.gt(currentOutInvoice.totalPayment))
-        throw new BadRequestException(
-          'The total amount collected exceeded the total amount on the invoice.',
-        );
-      const isPaid = totalPaidSoFar.eq(currentOutInvoice.totalPayment);
+      const { isPaid, newTotalPaid } = this.calculateNewPaymentState(
+        currentOutInvoice.paidAmount,
+        currentOutInvoice.totalPayment,
+        amount,
+      );
       const result = await tx.invoice.updateMany({
         where: { publicId: outInvoicePublicId, userId, isPaid: false },
         data: {
-          paidAmount: { increment: amount },
+          paidAmount: newTotalPaid,
           isPaid,
         },
       });
@@ -109,7 +122,7 @@ export class VouchersService {
         { isPaid: false, paidAmount: currentOutInvoice.paidAmount },
         {
           isPaid,
-          paidAmount: totalPaidSoFar,
+          paidAmount: newTotalPaid,
         },
       );
       this.log.debug('UPDATE_PAYMENT_STATUS_INVOICE', {
@@ -135,21 +148,15 @@ export class VouchersService {
       if (currentInboundInvoice.isPaid)
         throw new BadRequestException('The invoice has been paid in full.');
 
-      const currentPaid =
-        currentInboundInvoice.paidAmount as unknown as Decimal;
-      const amountToAdd = amount as unknown as Decimal;
-
-      const totalPaidSoFar: Decimal = currentPaid.add(amountToAdd);
-
-      if (totalPaidSoFar.gt(currentInboundInvoice.totalAmount))
-        throw new BadRequestException(
-          'The total amount payment exceeded the total amount on the inbound invoice.',
-        );
-      const isPaid = totalPaidSoFar.eq(currentInboundInvoice.totalAmount);
+      const { newTotalPaid, isPaid } = this.calculateNewPaymentState(
+        currentInboundInvoice.paidAmount,
+        currentInboundInvoice.totalAmount,
+        amount,
+      );
       const result = await tx.inboundInvoice.updateMany({
         where: { publicId: inInvoicePublicId, userId, isPaid: false },
         data: {
-          paidAmount: { increment: amount },
+          paidAmount: newTotalPaid,
           isPaid,
         },
       });
@@ -175,7 +182,7 @@ export class VouchersService {
         },
         {
           isPaid,
-          paidAmount: totalPaidSoFar,
+          paidAmount: newTotalPaid,
         },
       );
       this.log.debug('UPDATE_PAYMENT_STATUS_INBOUND_INVOICE', {
@@ -299,7 +306,6 @@ export class VouchersService {
           userId,
           createVoucherDto.voucherType,
           createVoucherDto.amount,
-          createVoucherDto.isDeductibleExpense,
           createVoucherDto.inboundInvoicePublicId,
           createVoucherDto.outboundInvoicePublicId,
         );
@@ -389,6 +395,7 @@ export class VouchersService {
           select: { categoryName: true, type: true },
         },
       },
+      omit: { inboundInvoiceId: true, outboundInvoiceId: true },
     });
   }
 
@@ -510,7 +517,8 @@ export class VouchersService {
         userId,
       });
 
-      return { ...existing, status: VoucherStatus.CANCELED };
+      const { inboundInvoiceId, outboundInvoiceId, ...rest } = existing;
+      return { ...rest, status: VoucherStatus.CANCELED };
     });
   }
 }
