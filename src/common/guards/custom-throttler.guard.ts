@@ -1,6 +1,7 @@
 import {
-  BadRequestException,
   ExecutionContext,
+  HttpException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common';
 import { ThrottlerGuard, ThrottlerLimitDetail } from '@nestjs/throttler';
@@ -12,18 +13,20 @@ interface RequestWithUser {
 
 @Injectable()
 export class CustomThrottlerGuard extends ThrottlerGuard {
-  protected throwThrottlerException(
+  protected throwThrottlingException(
     context: ExecutionContext,
     throttlerLimitDetail: ThrottlerLimitDetail,
   ): Promise<void> {
+    const request = context.switchToHttp().getRequest<Request>();
     // throttlerLimitDetail.timeToBlockMS: thời gian còn lại phải chờ (miligiây)
     const seconds = Math.ceil(throttlerLimitDetail.ttl / 1000);
 
-    throw new BadRequestException({
-      statusCode: 429,
-      message: `You're working too fast. Please wait another ${seconds} seconds and try again.`,
-      error: 'Too Many Requests',
-    });
+    // Đính kèm dữ liệu vào request
+    request['isThrottlerLog'] = true;
+    request['throttlerWaitSeconds'] = seconds;
+
+    // Ném lỗi để dừng Request tại đây
+    throw new HttpException('ThrottlerException', HttpStatus.TOO_MANY_REQUESTS);
   }
 
   protected async getTracker(req: Record<string, any>): Promise<string> {

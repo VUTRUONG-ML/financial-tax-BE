@@ -57,6 +57,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const exceptionResponse = exception.getResponse();
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
+        if (
+          status === HttpStatus.TOO_MANY_REQUESTS ||
+          request['isThrottlerLog']
+        ) {
+          errorCode = 'TOO_MANY_REQUESTS';
+          const seconds = (request['throttlerWaitSeconds'] as number) || 60;
+          message = `You're working too fast. Please wait another ${seconds} seconds and try again.`;
+        }
       } else if (
         typeof exceptionResponse === 'object' &&
         exceptionResponse !== null
