@@ -55,16 +55,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
     else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
+      const defaultErrorCodes: Record<number, string> = {
+        [HttpStatus.UNAUTHORIZED]: 'UNAUTHORIZED',
+        [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
+        [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
+        [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
+        [HttpStatus.CONFLICT]: 'CONFLICT',
+        [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
+      };
+      errorCode = defaultErrorCodes[status] || 'INTERNAL_SERVER_ERROR';
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
-        if (
-          status === HttpStatus.TOO_MANY_REQUESTS ||
-          request['isThrottlerLog']
-        ) {
-          errorCode = 'TOO_MANY_REQUESTS';
-          const seconds = (request['throttlerWaitSeconds'] as number) || 60;
-          message = `You're working too fast. Please wait another ${seconds} seconds and try again.`;
-        }
       } else if (
         typeof exceptionResponse === 'object' &&
         exceptionResponse !== null
@@ -78,15 +79,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
         if (responseObj.errorCode) {
           errorCode = responseObj.errorCode as string;
-        } else {
-          const defaultErrorCodes: Record<number, string> = {
-            [HttpStatus.UNAUTHORIZED]: 'UNAUTHORIZED',
-            [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
-            [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
-            [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
-            [HttpStatus.CONFLICT]: 'CONFLICT',
-          };
-          errorCode = defaultErrorCodes[status] || 'INTERNAL_SERVER_ERROR';
         }
       }
     }
