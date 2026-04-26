@@ -17,6 +17,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageUploadPipe } from '../common/constants/file-upload.constants';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('products')
 export class ProductsController {
@@ -24,6 +25,7 @@ export class ProductsController {
 
   // POST /products
   @Post()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @CurrentUser('id') userId: string,
@@ -53,6 +55,7 @@ export class ProductsController {
 
   // PUT /products/:publicId
   @Put(':publicId')
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   @HttpCode(HttpStatus.OK)
   async update(

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { InboundInvoicesService } from './inbound-invoices.service';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('inbound-invoices')
 export class InboundInvoicesController {
@@ -35,6 +36,7 @@ export class InboundInvoicesController {
   }
 
   @Post()
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
   async createInboundInvoice(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateInboundInvoiceDto,
@@ -47,6 +49,7 @@ export class InboundInvoicesController {
   }
 
   @Patch('/:publicId/cancel')
+  @Throttle({ medium: { limit: 3, ttl: 60000 } })
   async cancelInboundInvoice(
     @CurrentUser('id') userId: string,
     @Param('publicId') publicId: string,
@@ -59,6 +62,7 @@ export class InboundInvoicesController {
   }
 
   @Patch('/:publicId/sync-inventory')
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
   async syncInventory(
     @Param('publicId') publicId: string,
     @CurrentUser('id') userId: string,

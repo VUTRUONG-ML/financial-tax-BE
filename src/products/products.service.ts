@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -10,6 +11,11 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { LOG_STATUS } from 'src/common/constants/log-events.constant';
+import { Prisma } from '@prisma/client';
+import {
+  AuditLogService,
+  tableWrite,
+} from '../core/audit-log/audit-log.service';
 
 @Injectable()
 export class ProductsService {
@@ -18,6 +24,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   private safeDeleteImage(publicId: string) {
@@ -201,5 +208,85 @@ export class ProductsService {
 
     this.log.log('Product deleted', { userId, publicId });
     return { message: 'Product deleted successfully.' };
+  }
+
+  async updateStockFromCanceledInvoice(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    items: { productId: number; quantity: number }[],
+    mode: 'INCREMENT' | 'DECREMENT', // Tăng (hoàn) hay Giảm (lấy đi)
+    invoiceId: number,
+  ) {
+    const actionToStock = mode === 'INCREMENT' ? 'REFUND' : 'DEDUCT';
+    const logsToCreate: Prisma.AuditLogCreateManyInput[] = [];
+
+    // 1. Gom sản phẩm lại để tính quantity cho mỗi product trong invoice
+    const groupQuantityProduct = items.reduce(
+      (acc, item) => {
+        acc[item.productId] = (acc[item.productId] || 0) + item.quantity;
+        return acc;
+      },
+      {} as Record<number, number>,
+    );
+
+    const productIds = Object.keys(groupQuantityProduct).map(Number);
+    // 2. Lấy thông tin sản phẩm có trong invoice lúc đầu
+    const productsBeforeUpdate = await tx.product.findMany({
+      where: { id: { in: productIds }, userId },
+    });
+    const productMap = new Map(productsBeforeUpdate.map((p) => [p.id, p]));
+
+    // 3. Xử lý từng sản phẩm
+    for (const productId of productIds) {
+      const quantity = groupQuantityProduct[productId];
+      const currentProduct = productMap.get(productId);
+
+      if (!currentProduct)
+        throw new NotFoundException(`Product ID ${productId} not found.`);
+
+      const isDecrement = mode === 'DECREMENT';
+
+      const updateResult = await tx.product.updateMany({
+        where: {
+          id: productId,
+          userId,
+          ...(isDecrement && { currentStock: { gte: quantity } }), // Chỉ check gte khi giảm kho
+        },
+        data: {
+          currentStock: isDecrement
+            ? { decrement: quantity }
+            : { increment: quantity },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException(
+          `Product ${currentProduct.productName} insufficient inventory to undo.`,
+        );
+      }
+
+      // Tính toán số lượng mới dựa trên con số đã biết (Vì trong Transaction nên rất an toàn)
+      const newStock = isDecrement
+        ? currentProduct.currentStock - quantity
+        : currentProduct.currentStock + quantity;
+
+      logsToCreate.push({
+        userId,
+        action: 'STOCK_REVERT_BY_INVOICE_CANCEL',
+        tableName: tableWrite.products,
+        recordId: String(productId),
+        oldValues: { currentStock: currentProduct.currentStock },
+        newValues: { currentStock: newStock },
+        note: `The system automatically ${isDecrement ? 'deduct' : 'refund'} inventory due to cancel invoice ID: ${invoiceId}`,
+      });
+    }
+    if (logsToCreate.length > 0) {
+      await tx.auditLog.createMany({ data: logsToCreate });
+    }
+    this.log.debug(`${actionToStock}_INVENTORY`, {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      invoiceId,
+    });
   }
 }

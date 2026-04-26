@@ -17,9 +17,25 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { TaxAuthorityModule } from './tax-authority/tax-authority.module';
 import { InboundInvoicesModule } from './inbound-invoices/inbound-invoices.module';
+import { VouchersModule } from './vouchers/vouchers.module';
+import { VoucherCategoriesModule } from './voucher-categories/voucher-categories.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      {
+        name: 'short', // Quy tắc ngắn: chống spam click
+        ttl: 1000, // 1 giây
+        limit: 1, // Chỉ 1 lần/giây
+      },
+      {
+        name: 'medium', // Quy tắc trung bình: bảo vệ tài nguyên
+        ttl: 60000, // 1 phút
+        limit: 20, // Chỉ 5 lần/phút cho các tác vụ nặng như Hủy/Tạo
+      },
+    ]),
     PrismaModule,
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     UsersModule,
@@ -33,6 +49,8 @@ import { InboundInvoicesModule } from './inbound-invoices/inbound-invoices.modul
     CloudinaryModule,
     TaxAuthorityModule,
     InboundInvoicesModule,
+    VouchersModule,
+    VoucherCategoriesModule,
   ],
   controllers: [AppController],
   providers: [
@@ -40,6 +58,10 @@ import { InboundInvoicesModule } from './inbound-invoices/inbound-invoices.modul
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard, // Áp dụng bảo vệ cho toàn bộ hệ thống
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CustomThrottlerGuard,
     },
   ],
 })

@@ -2,13 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AppLogger } from '../../common/logger/app-logger.service';
 
-type ActionWrite = 'CREATE' | 'UPDATE' | 'DELETE';
+type ActionWrite =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'STOCK_REVERT_BY_INVOICE_CANCEL';
 export enum tableWrite {
   tax_configurations = 'tax_configurations',
   users = 'users',
   invoices = 'invoices',
   vouchers = 'vouchers',
   inboundInvoice = 'inbound_invoices',
+  products = 'products',
 }
 @Injectable()
 export class AuditLogService {
@@ -26,6 +31,7 @@ export class AuditLogService {
     recordId: string | number,
     oldValues: unknown = null,
     newValues: unknown = null,
+    note?: string,
   ): Promise<void> {
     await tx.auditLog.create({
       data: {
@@ -40,6 +46,7 @@ export class AuditLogService {
         newValues: newValues
           ? (newValues as Prisma.InputJsonValue)
           : Prisma.JsonNull,
+        note,
       },
     });
     this.logger.log('Audit log success.', { userId, action, tableName });

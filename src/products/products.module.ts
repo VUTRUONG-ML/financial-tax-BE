@@ -7,5 +7,6 @@ import { CloudinaryModule } from '../cloudinary/cloudinary.module';
   controllers: [ProductsController],
   providers: [ProductsService],
   imports: [CloudinaryModule],
+  exports: [ProductsService],
 })
 export class ProductsModule {}
