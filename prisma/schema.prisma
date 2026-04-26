@@ -42,6 +42,8 @@ model User {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  productionOrders InternalProductionOrder[]
+
   @@map("users")
 }
 
@@ -191,6 +193,7 @@ model Product {
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   invoiceDetails        InvoiceDetail[]
   inboundInvoiceDetails InboundInvoiceDetail[]
+  productionDetails     ProductionDetail[]
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -401,3 +404,43 @@ model Voucher {
   @@index([userId, voucherType])
   @@map("vouchers")
 }
+
+// ─── INTERNAL PRODUCTION ORDERS (Lệnh Sản Xuất Nội Bộ) ──────────────────────
+
+enum ProductionTransactionType {
+  ISSUE_MATERIAL
+  RECEIVE_PRODUCT
+}
+
+model InternalProductionOrder {
+  id          Int      @id @default(autoincrement())
+  userId      String   @map("user_id")
+  orderCode   String   @map("order_code") // Ví dụ: LSX-0426-0001
+  notes       String?  @db.Text
+  
+  user        User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details     ProductionDetail[]
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, orderCode])
+  @@index([userId, createdAt])
+  @@map("internal_production_orders")
+}
+
+model ProductionDetail {
+  id              Int                       @id @default(autoincrement())
+  orderId         Int                       @map("order_id")
+  productId       Int                       @map("product_id")
+  transactionType ProductionTransactionType @map("transaction_type")
+  quantity        Int                       // Số lượng vật lý
+
+  order   InternalProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product Product                 @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("production_details")
+}
+
