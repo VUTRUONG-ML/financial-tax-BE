@@ -398,7 +398,7 @@ export class VouchersService {
           select: { categoryName: true, type: true },
         },
       },
-      omit: { inboundInvoiceId: true, outboundInvoiceId: true },
+      omit: { inboundInvoiceId: true, outboundInvoiceId: true, id: true },
     });
   }
 
