@@ -21,6 +21,8 @@ import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 import { Invoice } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
+import { mapToDto } from '../common/utils/mapper.util';
+import { InvoiceResponseDto } from './dto/response-invoice.dto';
 
 @Injectable()
 export class InvoicesService {
@@ -329,11 +331,34 @@ export class InvoicesService {
     }
   }
 
-  async findAll(userId: string) {
-    return await this.prisma.invoice.findMany({
-      where: { userId },
-      omit: { id: true },
-    });
+  async findAll(userId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+
+    const [total, data] = await Promise.all([
+      this.prisma.invoice.count({ where: { userId } }),
+      this.prisma.invoice.findMany({
+        where: { userId },
+        take: limit, // LIMIT
+        skip: skip, // OFFSET
+        orderBy: { createdAt: 'desc' },
+        include: {
+          details: {
+            include: {
+              product: { select: { publicId: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      data: mapToDto(InvoiceResponseDto, data),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
   }
 
   async detailInvoice(userId: string, invPublicId: string) {

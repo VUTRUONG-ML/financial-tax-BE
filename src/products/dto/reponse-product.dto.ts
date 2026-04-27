@@ -4,8 +4,8 @@ export class ProductResponseDto {
   @Exclude() id!: number;
   @Exclude() imagePublicId!: string;
   @Exclude() updatedAt!: Date;
+  @Exclude() userId!: string;
 
-  @Expose() userId!: string;
   @Expose() publicId!: string;
   @Expose() skuCode!: string;
   @Expose() productName!: string;
