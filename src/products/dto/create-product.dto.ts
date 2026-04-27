@@ -36,13 +36,11 @@ export class CreateProductDto {
 
   @IsInt()
   @Min(0)
-  @IsOptional()
   @Type(() => Number)
-  openingStockQuantity?: number = 0;
+  openingStockQuantity!: number;
 
   @IsNumber()
   @Min(0)
-  @IsOptional()
   @Type(() => Number)
-  openingStockUnitCost?: number = 0;
+  openingStockUnitCost!: number;
 }

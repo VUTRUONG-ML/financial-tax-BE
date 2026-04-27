@@ -62,7 +62,7 @@ export class ProductsController {
     @CurrentUser('id') userId: string,
     @Param('publicId') publicId: string,
     @Body() dto: UpdateProductDto,
-    @UploadedFile(ImageUploadPipe) file: Express.Multer.File,
+    @UploadedFile(ImageUploadPipe) file?: Express.Multer.File,
   ) {
     const data = await this.productsService.update(userId, publicId, dto, file);
     return { message: 'Product updated successfully.', data };
