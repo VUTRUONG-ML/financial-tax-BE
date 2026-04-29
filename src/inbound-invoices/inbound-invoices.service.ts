@@ -18,6 +18,9 @@ import {
 } from '../core/audit-log/audit-log.service';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
+import { mapToDto } from 'src/common/utils/mapper.util';
+import { InboundResponseDto } from './dto/response-inbound-invoice.dto';
+import { InboundInvoiceStatus } from '@prisma/client';
 
 @Injectable()
 export class InboundInvoicesService {
@@ -29,11 +32,37 @@ export class InboundInvoicesService {
     private readonly productService: ProductsService,
   ) {}
 
-  async findAllInboundInvoices(userId: string) {
-    return await this.prisma.inboundInvoice.findMany({
-      where: { userId },
-      omit: { id: true },
-    });
+  async findAllInboundInvoices(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+  ) {
+    const skip = (page - 1) * limit;
+    const [total, inboundInvoices] = await Promise.all([
+      this.prisma.inboundInvoice.count({
+        where: { userId },
+      }),
+      this.prisma.inboundInvoice.findMany({
+        where: {
+          userId,
+        },
+        take: limit,
+        skip,
+        include: {
+          details: {
+            include: {
+              product: {
+                select: { publicId: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+    return {
+      data: mapToDto(InboundResponseDto, inboundInvoices),
+      meta: { total, page, lastPage: Math.ceil(total / limit) },
+    };
   }
 
   async detailInboundInvoice(publicId: string, userId: string) {
@@ -42,12 +71,17 @@ export class InboundInvoicesService {
     });
     if (!inInvoice) throw new NotFoundException('Inbound invoice not found.');
     const items = await this.prisma.inboundInvoiceDetail.findMany({
-      where: { inboundInvoiceId: inInvoice?.id },
+      where: { inboundInvoiceId: inInvoice.id },
+      include: {
+        product: {
+          select: { publicId: true },
+        },
+      },
     });
-    return {
+    return mapToDto(InboundResponseDto, {
       ...inInvoice,
       details: items,
-    };
+    });
   }
 
   async create(userId: string, dto: CreateInboundInvoiceDto) {
@@ -110,7 +144,7 @@ export class InboundInvoicesService {
       if (dto.isSyncedToInventory) {
         for (const item of itemsWithInternalId) {
           await tx.product.update({
-            where: { id: item.productId, userId },
+            where: { id: item.productId },
             data: {
               currentStock: {
                 increment: item.quantity,
@@ -120,11 +154,7 @@ export class InboundInvoicesService {
         }
       }
 
-      const { id, ...result } = inboundInvoice;
-      const cleanDetails = inboundInvoice.details.map((detail) => {
-        const { inboundInvoiceId, productId, ...item } = detail;
-        return item;
-      });
+      const { id, details, ...result } = inboundInvoice;
 
       await this.auditLog.logChange(
         tx,
@@ -133,12 +163,12 @@ export class InboundInvoicesService {
         tableWrite.inboundInvoice,
         inboundInvoice.id,
         null,
-        { result, itemCount: cleanDetails.length },
+        { ...result, itemCount: inboundInvoice.details.length },
       );
 
       // 5. Trả về kết quả sau khi commit thành công
 
-      return { ...result, details: cleanDetails };
+      return mapToDto(InboundResponseDto, inboundInvoice);
     });
   }
 
@@ -225,11 +255,10 @@ export class InboundInvoicesService {
         userId,
         publicId,
       });
-      const { id, ...res } = currentInvoice;
-      return {
-        ...res,
-        status: 'CANCELED',
-      };
+      return mapToDto(InboundResponseDto, {
+        ...currentInvoice,
+        status: InboundInvoiceStatus.CANCELED,
+      });
     });
   }
 
@@ -258,7 +287,13 @@ export class InboundInvoicesService {
       // 2. Lấy lại dữ liệu chi tiết để thực hiện cộng kho
       const invoice = await tx.inboundInvoice.findUnique({
         where: { publicId },
-        include: { details: true },
+        include: {
+          details: {
+            include: {
+              product: { select: { publicId: true } },
+            },
+          },
+        },
       });
 
       if (!invoice) throw new NotFoundException('Inbound invoice not found.');
@@ -290,15 +325,7 @@ export class InboundInvoicesService {
         userId,
         publicId,
       });
-      const { id, ...result } = invoice;
-      const cleanDetails = result.details.map((item) => {
-        const { productId, inboundInvoiceId, ...res } = item;
-        return res;
-      });
-      return {
-        ...result,
-        details: cleanDetails,
-      };
+      return mapToDto(InboundResponseDto, invoice);
     });
   }
 }
