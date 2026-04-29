@@ -2,6 +2,37 @@
 
 This document describes the request and response data structures of the core API endpoints. Responses use the global application wrapper structure. The values inside the JSON structures denote the **data types** rather than example data.
 
+## Table of Contents
+- [1. Products](#1-products)
+  - [1.1. Create Product](#11-create-product)
+  - [1.2. Get All Products](#12-get-all-products)
+  - [1.3. Get Product Details](#13-get-product-details)
+  - [1.4. Update Product](#14-update-product)
+  - [1.5. Delete Product](#15-delete-product)
+- [2. Invoices (Outbound)](#2-invoices-outbound)
+  - [2.1. Create Invoice](#21-create-invoice)
+  - [2.2. Publish Invoice (Request Tax Code)](#22-publish-invoice-request-tax-code)
+  - [2.3. Get All Invoices](#23-get-all-invoices)
+  - [2.4. Get Invoice Details](#24-get-invoice-details)
+  - [2.5. Cancel Invoice](#25-cancel-invoice)
+- [3. Inbound Invoices](#3-inbound-invoices)
+  - [3.1. Create Inbound Invoice](#31-create-inbound-invoice)
+  - [3.2. Get All Inbound Invoices](#32-get-all-inbound-invoices)
+  - [3.3. Get Inbound Invoice Details](#33-get-inbound-invoice-details)
+  - [3.4. Cancel Inbound Invoice](#34-cancel-inbound-invoice)
+  - [3.5. Sync Inbound Invoice to Inventory](#35-sync-inbound-invoice-to-inventory)
+- [4. Vouchers (Receipts/Payments)](#4-vouchers-receiptspayments)
+  - [4.1. Create Voucher](#41-create-voucher)
+  - [4.2. Get All Vouchers](#42-get-all-vouchers)
+  - [4.3. Get Voucher Details](#43-get-voucher-details)
+  - [4.4. Update Voucher](#44-update-voucher)
+  - [4.5. Cancel Voucher](#45-cancel-voucher)
+- [5. Voucher Categories](#5-voucher-categories)
+  - [5.1. Create Voucher Category](#51-create-voucher-category)
+  - [5.2. Get All Voucher Categories](#52-get-all-voucher-categories)
+  - [5.3. Update Voucher Category](#53-update-voucher-category)
+  - [5.4. Delete Voucher Category](#54-delete-voucher-category)
+
 ---
 
 ## 1. Products
