@@ -30,16 +30,16 @@ export class VouchersController {
 
   @Get()
   async findAll(@CurrentUser('id') userId: string) {
-    const data = await this.vouchersService.findAll(userId);
-    return { message: 'Vouchers retrieved successfully', data };
+    const result = await this.vouchersService.findAll(userId);
+    return { message: 'Vouchers retrieved successfully', ...result };
   }
 
-  @Get(':id')
+  @Get(':orderCode')
   async findOne(
     @CurrentUser('id') userId: string,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('orderCode') orderCode: string,
   ) {
-    const data = await this.vouchersService.findOne(userId, id);
+    const data = await this.vouchersService.findOne(userId, orderCode);
     return { message: 'Voucher details retrieved successfully', data };
   }
 
