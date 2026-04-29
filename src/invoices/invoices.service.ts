@@ -18,7 +18,7 @@ import {
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
-import { Invoice } from '@prisma/client';
+import { Invoice, InvoiceStatus } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
 import { mapToDto } from '../common/utils/mapper.util';
@@ -259,7 +259,6 @@ export class InvoicesService {
             productId: product.id,
             invoiceSymbol,
           });
-          // Ném lỗi → Prisma tự động rollback toàn bộ transaction
           throw new ConflictException(
             `Stock for "${product.productName}" changed during processing. Please retry.`,
           );
@@ -291,18 +290,20 @@ export class InvoicesService {
         totalPayment,
         itemCount: resolvedItems.length,
       });
-      const { id, ...rest } = invoice;
+
+      const details = await tx.invoiceDetail.findMany({
+        where: { invoiceId: invoice.id },
+        include: {
+          product: {
+            select: { publicId: true },
+          },
+        },
+      });
       // Return kèm details để FE không cần query thêm
-      return {
-        ...rest,
-        details: resolvedItems.map(({ product, quantity, lineTotal }) => ({
-          productPublicId: product.publicId,
-          productNameSnapshot: product.productName,
-          unitPrice: product.sellingPrice,
-          quantity,
-          totalAmount: lineTotal,
-        })),
-      };
+      return mapToDto(InvoiceResponseDto, {
+        ...invoice,
+        details,
+      });
     });
   }
 
@@ -320,14 +321,16 @@ export class InvoicesService {
 
     if (result.success) {
       // Nếu thành công -> Chạy hàm lockInvoice
-      return await this.lockInvoice(invoice, result.cqtCode);
+      const res = await this.lockInvoice(invoice, result.cqtCode);
+      return mapToDto(InvoiceResponseDto, res);
     } else {
       // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED để người dùng bấm 'Retry'
-      return await this.prisma.invoice.update({
+      const res = await this.prisma.invoice.update({
         where: { publicId },
         data: { status: 'SYNC_FAILED' },
         omit: { id: true },
       });
+      return mapToDto(InvoiceResponseDto, res);
     }
   }
 
@@ -362,25 +365,28 @@ export class InvoicesService {
   }
 
   async detailInvoice(userId: string, invPublicId: string) {
-    const invoice = await this.validateInvoiceAccess(
+    const current = await this.validateInvoiceAccess(
       invPublicId,
       userId,
       'VIEW',
     );
-    const details = await this.prisma.invoiceDetail.findMany({
-      where: { invoiceId: invoice.id },
-      omit: { productId: true, invoiceId: true },
+    const response = await this.prisma.invoice.findMany({
+      where: { id: current.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        details: {
+          include: {
+            product: { select: { publicId: true } },
+          },
+        },
+      },
     });
     this.log.log('Get detail invoice.', {
       status: LOG_STATUS.SUCCESS,
       userId,
       invoicePublicId: invPublicId,
     });
-    const { id, ...rest } = invoice;
-    return {
-      ...rest,
-      details,
-    };
+    return mapToDto(InvoiceResponseDto, response);
   }
 
   // Huy hoa don
@@ -439,8 +445,10 @@ export class InvoicesService {
         { status: invoice.status },
         { status: 'CANCELED' },
       );
-      const { id, ...rest } = invoice;
-      return { ...rest, status: 'CANCELED' };
+      return mapToDto(InvoiceResponseDto, {
+        ...invoice,
+        status: InvoiceStatus.CANCELED,
+      });
     });
     // Hoàn lại tồn kho trong sổ s05 thong qua details.d._sum.quantity---------------------------
     this.log.log(LOG_ACTIONS.CANCEL_INVOICE, {
