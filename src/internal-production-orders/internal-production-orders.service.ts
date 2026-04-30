@@ -17,6 +17,8 @@ import {
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
 import { ProductionTransactionType, ProductType } from '@prisma/client';
+import { mapToDto } from 'src/common/utils/mapper.util';
+import { ProductionOrderResponseDto } from './dto/response-production.dto';
 @Injectable()
 export class InternalProductionOrdersService {
   private readonly log = new AppLogger(InternalProductionOrdersService.name);
@@ -39,6 +41,8 @@ export class InternalProductionOrdersService {
       throw new NotFoundException('One or more products not found.');
     }
 
+    let countFinish = 0; // Đếm số lượng thành phẩm
+    let countRaw = 0; // Đến số lượng nguyên liệu
     // Validation
     for (const detail of createDto.details) {
       const product = productsMap.get(detail.productPublicId);
@@ -66,6 +70,7 @@ export class InternalProductionOrdersService {
             `Insufficient stock for product: ${product.productName}. Current stock is ${product.currentStock}.`,
           );
         }
+        ++countRaw;
       }
 
       if (
@@ -76,7 +81,17 @@ export class InternalProductionOrdersService {
             `Product ${product.productName} must be a FINISHED_GOOD to receive.`,
           );
         }
+        ++countFinish;
       }
+    }
+    if (!countRaw || !countFinish) {
+      this.log.warn(LOG_ACTIONS.CREATE_PRODUCTION_ORDER, {
+        reason: 'FINISH_GOOD_OR_RAW_MATERIAL_EMPTY',
+        userId,
+      });
+      throw new BadRequestException(
+        'Finished products and raw materials are required.',
+      );
     }
 
     const result = await this.prisma.$transaction(
@@ -142,7 +157,13 @@ export class InternalProductionOrdersService {
             },
           },
           include: {
-            details: true,
+            details: {
+              include: {
+                product: {
+                  select: { publicId: true, skuCode: true, productName: true },
+                },
+              },
+            },
           },
         });
 
@@ -170,34 +191,39 @@ export class InternalProductionOrdersService {
       orderId: result.id,
       orderCode: result.orderCode,
     });
-    const details = result.details.map((d) => {
-      const { productId, ...rest } = d;
-      return rest;
-    });
-    const { id, ...rest } = result;
     productsMap.clear();
-    return { ...rest, details };
+    return mapToDto(ProductionOrderResponseDto, result);
   }
 
-  async findAll(userId: string) {
-    return this.prisma.internalProductionOrder.findMany({
-      where: { userId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: {
-        details: {
-          include: {
-            product: {
-              select: {
-                publicId: true,
-                productName: true,
-                skuCode: true,
-                unit: true,
+  async findAll(userId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+    const [total, data] = await Promise.all([
+      this.prisma.internalProductionOrder.count({
+        where: { userId },
+      }),
+      this.prisma.internalProductionOrder.findMany({
+        where: { userId },
+        take: limit,
+        skip,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: {
+          details: {
+            include: {
+              product: {
+                select: { productName: true, publicId: true, skuCode: true },
               },
             },
           },
         },
+      }),
+    ]);
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
       },
-      omit: { id: true },
-    });
+    };
   }
 }

@@ -37,7 +37,7 @@ export class InternalProductionOrdersController {
     const result = await this.internalProductionOrdersService.findAll(userId);
     return {
       message: 'Internal production orders retrieved successfully',
-      data: result,
+      ...result,
     };
   }
 }
