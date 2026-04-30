@@ -117,13 +117,10 @@ export class AuthController {
     @Cookie('refresh_token') rt: string,
     @CurrentUser('id') userId: string,
   ) {
-    await this.authService.logout(rt);
+    await this.authService.logout(userId, rt);
     this.setRefreshCookie(res, '');
     return {
       message: 'Logout success.',
-      data: {
-        userId,
-      },
     };
   }
 }

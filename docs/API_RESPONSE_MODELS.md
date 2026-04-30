@@ -3,6 +3,7 @@
 This document describes the request and response data structures of the core API endpoints. Responses use the global application wrapper structure. The values inside the JSON structures denote the **data types** rather than example data.
 
 ## Table of Contents
+
 - [1. Products](#1-products)
   - [1.1. Create Product](#11-create-product)
   - [1.2. Get All Products](#12-get-all-products)
@@ -32,18 +33,26 @@ This document describes the request and response data structures of the core API
   - [5.2. Get All Voucher Categories](#52-get-all-voucher-categories)
   - [5.3. Update Voucher Category](#53-update-voucher-category)
   - [5.4. Delete Voucher Category](#54-delete-voucher-category)
+- [6. Auth](#6-auth)
+  - [6.1. Register](#61-register)
+  - [6.2. Login](#62-login)
+  - [6.3. Get Profile](#63-get-profile)
+  - [6.4. Refresh Token](#64-refresh-token)
+  - [6.5. Logout](#65-logout)
 
 ---
 
 ## 1. Products
 
 ### 1.1. Create Product
+
 - **Route:** `/products`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 - **Content-Type:** `multipart/form-data`
 
 #### Request Body
+
 ```json
 {
   "file": "Binary File (Image) - Optional",
@@ -58,6 +67,7 @@ This document describes the request and response data structures of the core API
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -83,14 +93,17 @@ This document describes the request and response data structures of the core API
 ```
 
 ### 1.2. Get All Products
+
 - **Route:** `/products`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -118,14 +131,17 @@ None
 ```
 
 ### 1.3. Get Product Details
+
 - **Route:** `/products/:publicId`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -151,12 +167,14 @@ None
 ```
 
 ### 1.4. Update Product
+
 - **Route:** `/products/:publicId`
 - **Method:** `PUT`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 - **Content-Type:** `multipart/form-data`
 
 #### Request Body
+
 ```json
 {
   "file": "Binary File (Image) - Optional",
@@ -171,6 +189,7 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -196,14 +215,17 @@ None
 ```
 
 ### 1.5. Delete Product
+
 - **Route:** `/products/:publicId`
 - **Method:** `DELETE`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -220,11 +242,13 @@ None
 ## 2. Invoices (Outbound)
 
 ### 2.1. Create Invoice
+
 - **Route:** `/invoices`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "isB2C": "boolean (Optional)",
@@ -242,6 +266,7 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -279,14 +304,17 @@ None
 ```
 
 ### 2.2. Publish Invoice (Request Tax Code)
+
 - **Route:** `/invoices/:id/publish`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -314,14 +342,17 @@ None
 ```
 
 ### 2.3. Get All Invoices
+
 - **Route:** `/invoices`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -365,14 +396,17 @@ None
 ```
 
 ### 2.4. Get Invoice Details
+
 - **Route:** `/invoices/:invoicePublicId/details`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -410,17 +444,21 @@ None
   "meta": null
 }
 ```
-*(Note: Service returns an array `response` for `detailInvoice` because `findMany` is used in Prisma, so `data` is an array containing the single invoice).*
+
+_(Note: Service returns an array `response` for `detailInvoice` because `findMany` is used in Prisma, so `data` is an array containing the single invoice)._
 
 ### 2.5. Cancel Invoice
+
 - **Route:** `/invoices/:invoicePublicId/cancel`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -462,11 +500,13 @@ None
 ## 3. Inbound Invoices
 
 ### 3.1. Create Inbound Invoice
+
 - **Route:** `/inbound-invoices`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "sellerName": "string",
@@ -486,6 +526,7 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -522,14 +563,17 @@ None
 ```
 
 ### 3.2. Get All Inbound Invoices
+
 - **Route:** `/inbound-invoices`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -572,14 +616,17 @@ None
 ```
 
 ### 3.3. Get Inbound Invoice Details
+
 - **Route:** `/inbound-invoices/:publicId`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -616,14 +663,17 @@ None
 ```
 
 ### 3.4. Cancel Inbound Invoice
+
 - **Route:** `/inbound-invoices/:publicId/cancel`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -660,14 +710,17 @@ None
 ```
 
 ### 3.5. Sync Inbound Invoice to Inventory
+
 - **Route:** `/inbound-invoices/:publicId/sync-inventory`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -708,11 +761,13 @@ None
 ## 4. Vouchers (Receipts/Payments)
 
 ### 4.1. Create Voucher
+
 - **Route:** `/vouchers`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "voucherType": "\"RECEIPT\" | \"PAYMENT\"",
@@ -727,6 +782,7 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -759,14 +815,17 @@ None
 ```
 
 ### 4.2. Get All Vouchers
+
 - **Route:** `/vouchers`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -805,14 +864,17 @@ None
 ```
 
 ### 4.3. Get Voucher Details
+
 - **Route:** `/vouchers/:orderCode`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -845,11 +907,13 @@ None
 ```
 
 ### 4.4. Update Voucher
+
 - **Route:** `/vouchers/:voucherCode`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "categoryId": "number (Optional)",
@@ -858,9 +922,11 @@ None
   "isDeductibleExpense": "boolean (Optional)"
 }
 ```
-*(Note: Fields like `voucherType`, `amount`, and `invoicePublicId` cannot be updated).*
+
+_(Note: Fields like `voucherType`, `amount`, and `invoicePublicId` cannot be updated)._
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -893,14 +959,17 @@ None
 ```
 
 ### 4.5. Cancel Voucher
+
 - **Route:** `/vouchers/:voucherCode/cancel`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -937,11 +1006,13 @@ None
 ## 5. Voucher Categories
 
 ### 5.1. Create Voucher Category
+
 - **Route:** `/voucher-categories`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "type": "\"RECEIPT\" | \"PAYMENT\"",
@@ -950,6 +1021,7 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -967,14 +1039,17 @@ None
 ```
 
 ### 5.2. Get All Voucher Categories
+
 - **Route:** `/voucher-categories`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -994,11 +1069,13 @@ None
 ```
 
 ### 5.3. Update Voucher Category
+
 - **Route:** `/voucher-categories/:id`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "type": "\"RECEIPT\" | \"PAYMENT\" (Optional)",
@@ -1007,6 +1084,7 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
@@ -1024,20 +1102,202 @@ None
 ```
 
 ### 5.4. Delete Voucher Category
+
 - **Route:** `/voucher-categories/:id`
 - **Method:** `DELETE`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
   "statusCode": 200,
   "timestamp": "Date string (ISO 8601)",
   "message": "Voucher category deleted successfully",
+  "data": null,
+  "meta": null
+}
+```
+
+---
+
+## 6. Auth
+
+### 6.1. Register
+
+- **Route:** `/auth/register`
+- **Method:** `POST`
+- **Authentication:** None
+
+#### Request Body (JSON)
+
+```json
+{
+  "phoneNumber": "string",
+  "password": "string",
+  "taxCode": "string",
+  "businessName": "string",
+  "ownerName": "string",
+  "cccdNumber": "string",
+  "provinceCity": "string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "Register success",
+  "data": {
+    "phoneNumber": "string",
+    "role": "\"ADMIN\" | \"STAFF\"",
+    "taxCode": "string",
+    "businessName": "string",
+    "ownerName": "string",
+    "cccdNumber": "string",
+    "provinceCity": "string",
+    "isActive": "boolean",
+    "setUpCompletedAt": "Date string (ISO 8601) | null",
+    "createdAt": "Date string (ISO 8601)",
+    "updatedAt": "Date string (ISO 8601)"
+  },
+  "meta": null
+}
+```
+
+### 6.2. Login
+
+- **Route:** `/auth/login`
+- **Method:** `POST`
+- **Authentication:** None
+
+#### Request Body (JSON)
+
+```json
+{
+  "phoneNumber": "string",
+  "password": "string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "Login success.",
+  "data": {
+    "user": {
+      "phoneNumber": "string",
+      "role": "\"ADMIN\" | \"STAFF\"",
+      "taxCode": "string",
+      "businessName": "string",
+      "ownerName": "string",
+      "cccdNumber": "string",
+      "provinceCity": "string",
+      "isActive": "boolean",
+      "setUpCompletedAt": "Date string (ISO 8601) | null",
+      "createdAt": "Date string (ISO 8601)",
+      "updatedAt": "Date string (ISO 8601)"
+    },
+    "accessToken": "string"
+  },
+  "meta": null
+}
+```
+
+_(Note: `refresh_token` is returned securely via `Set-Cookie` header)._
+
+### 6.3. Get Profile
+
+- **Route:** `/auth/profile`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 202,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "string",
+  "data": {
+    "phoneNumber": "string",
+    "role": "\"ADMIN\" | \"STAFF\"",
+    "taxCode": "string",
+    "businessName": "string",
+    "ownerName": "string",
+    "cccdNumber": "string",
+    "provinceCity": "string",
+    "isActive": "boolean",
+    "setUpCompletedAt": "Date string (ISO 8601) | null",
+    "createdAt": "Date string (ISO 8601)",
+    "updatedAt": "Date string (ISO 8601)"
+  },
+  "meta": null
+}
+```
+
+### 6.4. Refresh Token
+
+- **Route:** `/auth/refresh`
+- **Method:** `POST`
+- **Authentication:** None (Requires `refresh_token` in Cookies)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 202,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "Refresh success.",
+  "data": {
+    "accessToken": "string"
+  },
+  "meta": null
+}
+```
+
+_(Note: A new `refresh_token` is also set securely via `Set-Cookie` header)._
+
+### 6.5. Logout
+
+- **Route:** `/auth/logout`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header) & `refresh_token` in Cookies
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "Logout success.",
   "data": null,
   "meta": null
 }
