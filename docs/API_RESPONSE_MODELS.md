@@ -39,6 +39,10 @@ This document describes the request and response data structures of the core API
   - [6.3. Get Profile](#63-get-profile)
   - [6.4. Refresh Token](#64-refresh-token)
   - [6.5. Logout](#65-logout)
+- [7. Onboarding](#7-onboarding)
+  - [7.1. Get Onboarding Init Data](#71-get-onboarding-init-data)
+  - [7.2. Setup Tax Configuration](#72-setup-tax-configuration)
+  - [7.3. Update Tax Configuration](#73-update-tax-configuration)
 
 ---
 
@@ -1298,7 +1302,134 @@ None
   "statusCode": 200,
   "timestamp": "Date string (ISO 8601)",
   "message": "Logout success.",
-  "data": null,
+  "data": {
+    "userId": "string"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 7. Onboarding
+
+### 7.1. Get Onboarding Init Data
+- **Route:** `/metadata/onboarding-init`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+None
+
+#### Response Data (JSON)
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "string",
+  "data": {
+    "industries": [
+      {
+        "id": "number",
+        "tagName": "string",
+        "iconName": "string | null",
+        "mappedTaxId": "number"
+      }
+    ],
+    "taxGroups": [
+      {
+        "id": "number",
+        "groupName": "string",
+        "minRevenue": "number",
+        "maxRevenue": "number | null",
+        "description": "string | null",
+        "allowedMethods": "Array of (\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\")"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 7.2. Setup Tax Configuration
+- **Route:** `/onboarding/tax-config`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+```json
+{
+  "industryId": "number",
+  "taxGroupId": "number",
+  "pitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+  "isOtherIndustry": "boolean (Optional)",
+  "isVatReducible": "boolean (Optional)"
+}
+```
+
+#### Response Data (JSON)
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "User onboarding success",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "industryId": "number",
+    "taxGroupId": "number",
+    "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+    "applyFromDate": "Date string (ISO 8601)",
+    "applyToDate": "Date string (ISO 8601) | null",
+    "vatRateSnapShot": "number",
+    "pitRateSnapShot": "number",
+    "isVatReducible": "boolean",
+    "createdAt": "Date string (ISO 8601)",
+    "updatedAt": "Date string (ISO 8601)"
+  },
+  "meta": null
+}
+```
+
+### 7.3. Update Tax Configuration
+- **Route:** `/onboarding/tax-config`
+- **Method:** `PUT`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+```json
+{
+  "industryId": "number",
+  "taxGroupId": "number",
+  "pitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+  "isOtherIndustry": "boolean (Optional)",
+  "isVatReducible": "boolean (Optional)"
+}
+```
+
+#### Response Data (JSON)
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string (ISO 8601)",
+  "message": "Update onboarding success",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "industryId": "number",
+    "taxGroupId": "number",
+    "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+    "applyFromDate": "Date string (ISO 8601)",
+    "applyToDate": "Date string (ISO 8601) | null",
+    "vatRateSnapShot": "number",
+    "pitRateSnapShot": "number",
+    "isVatReducible": "boolean",
+    "createdAt": "Date string (ISO 8601)",
+    "updatedAt": "Date string (ISO 8601)"
+  },
   "meta": null
 }
 ```
