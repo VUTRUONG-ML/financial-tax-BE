@@ -411,12 +411,17 @@ enum ProductionTransactionType {
   ISSUE_MATERIAL
   RECEIVE_PRODUCT
 }
+enum ProductionStatus {
+  ACTIVE
+  CANCELED
+}
 
 model InternalProductionOrder {
   id          Int      @id @default(autoincrement())
   userId      String   @map("user_id")
   orderCode   String   @map("order_code") // Ví dụ: LSX-0426-0001
   notes       String?  @db.Text
+  status      ProductionStatus  @default(ACTIVE)
   
   user        User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details     ProductionDetail[]

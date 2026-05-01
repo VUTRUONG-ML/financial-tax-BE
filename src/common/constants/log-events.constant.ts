@@ -23,6 +23,7 @@ export const LOG_ACTIONS = {
   CANCEL_VOUCHER: 'CANCEL_VOUCHER',
 
   CREATE_PRODUCTION_ORDER: 'CREATE_PRODUCTION_ORDER',
+  CANCEL_PRODUCTION_ORDER: 'CANCEL_PRODUCTION_ORDER',
 } as const;
 
 // 2. Định nghĩa Trạng thái chuẩn chung cho toàn bộ App

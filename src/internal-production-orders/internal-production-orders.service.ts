@@ -16,7 +16,11 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { ProductionTransactionType, ProductType } from '@prisma/client';
+import {
+  ProductionStatus,
+  ProductionTransactionType,
+  ProductType,
+} from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { ProductionOrderResponseDto } from './dto/response-production.dto';
 @Injectable()
@@ -193,6 +197,88 @@ export class InternalProductionOrdersService {
     });
     productsMap.clear();
     return mapToDto(ProductionOrderResponseDto, result);
+  }
+
+  async cancel(userId: string, orderCode: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      const current = await tx.internalProductionOrder.findUnique({
+        where: { userId_orderCode: { userId, orderCode } },
+        include: {
+          details: {
+            include: {
+              product: {
+                select: { productName: true },
+              },
+            },
+          },
+        },
+      });
+      if (!current) {
+        this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PRODUCT_ORDER_NOT_FOUND',
+          userId,
+          orderCode,
+        });
+        throw new NotFoundException('Product order not found.');
+      }
+      if (current.status === 'CANCELED') {
+        this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PRODUCT_ORDER_CANCELED',
+          userId,
+          orderCode,
+        });
+        throw new BadRequestException('Product order cancelled.');
+      }
+
+      const result = await tx.internalProductionOrder.updateMany({
+        where: { userId, orderCode, status: 'ACTIVE' },
+        data: { status: 'CANCELED' },
+      });
+      if (result.count === 0) {
+        // race condition
+        this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
+          status: LOG_STATUS.FAILED,
+          reason: 'RACE_CONDITION',
+          userId,
+          orderCode,
+        });
+        throw new BadRequestException('Product order not found or canceled.');
+      }
+      const details = current.details;
+      // refund raw_material and deduct good_finished
+      for (const item of details) {
+        if (item.transactionType === 'ISSUE_MATERIAL') {
+          await tx.product.updateMany({
+            where: { id: item.productId },
+            data: { currentStock: { increment: item.quantity } },
+          });
+        }
+        if (item.transactionType === 'RECEIVE_PRODUCT') {
+          const updatedReceive = await tx.product.updateMany({
+            where: { id: item.productId, currentStock: { gte: item.quantity } },
+            data: { currentStock: { decrement: item.quantity } },
+          });
+          if (updatedReceive.count === 0) {
+            this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
+              status: LOG_STATUS.FAILED,
+              reason: 'PRODUCT_OUT_OF_STOCK',
+              userId,
+              productId: item.productId,
+            });
+            throw new BadRequestException(
+              `Product ${item.product.productName} is not sufficient for deduction. `,
+            );
+          }
+        }
+      }
+
+      return mapToDto(ProductionOrderResponseDto, {
+        ...current,
+        status: ProductionStatus.CANCELED,
+      });
+    });
   }
 
   async findAll(userId: string, page: number = 1, limit: number = 20) {
