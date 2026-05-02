@@ -16,13 +16,10 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import {
-  ProductionStatus,
-  ProductionTransactionType,
-  ProductType,
-} from '@prisma/client';
+import { ProductionStatus, ProductType } from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { ProductionOrderResponseDto } from './dto/response-production.dto';
+import { ProductionTransactionType } from '@prisma/client';
 @Injectable()
 export class InternalProductionOrdersService {
   private readonly log = new AppLogger(InternalProductionOrdersService.name);
@@ -247,17 +244,37 @@ export class InternalProductionOrdersService {
         throw new BadRequestException('Product order not found or canceled.');
       }
       const details = current.details;
+      const groupQuantity = details.reduce(
+        (acc, item) => {
+          if (!acc[item.productId]) {
+            acc[item.productId] = {
+              quantity: 0,
+              transactionType: item.transactionType,
+            };
+          }
+          acc[item.productId].quantity =
+            (acc[item.productId].quantity || 0) + item.quantity;
+          return acc;
+        },
+        {} as Record<
+          number,
+          { quantity: number; transactionType: ProductionTransactionType }
+        >,
+      );
       // refund raw_material and deduct good_finished
-      for (const item of details) {
-        if (item.transactionType === 'ISSUE_MATERIAL') {
+      for (const [productId, item] of Object.entries(groupQuantity)) {
+        if (item.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
           await tx.product.updateMany({
-            where: { id: item.productId },
+            where: { id: Number(productId) },
             data: { currentStock: { increment: item.quantity } },
           });
         }
         if (item.transactionType === 'RECEIVE_PRODUCT') {
           const updatedReceive = await tx.product.updateMany({
-            where: { id: item.productId, currentStock: { gte: item.quantity } },
+            where: {
+              id: Number(productId),
+              currentStock: { gte: item.quantity },
+            },
             data: { currentStock: { decrement: item.quantity } },
           });
           if (updatedReceive.count === 0) {
@@ -265,10 +282,10 @@ export class InternalProductionOrdersService {
               status: LOG_STATUS.FAILED,
               reason: 'PRODUCT_OUT_OF_STOCK',
               userId,
-              productId: item.productId,
+              productId: productId,
             });
             throw new BadRequestException(
-              `Product ${item.product.productName} is not sufficient for deduction. `,
+              `Some of product is not sufficient for deduction. `,
             );
           }
         }
@@ -304,7 +321,7 @@ export class InternalProductionOrdersService {
       }),
     ]);
     return {
-      data,
+      data: mapToDto(ProductionOrderResponseDto, data),
       meta: {
         total,
         page,

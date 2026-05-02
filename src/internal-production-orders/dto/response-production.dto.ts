@@ -1,5 +1,5 @@
 import { Expose, Transform, Type } from 'class-transformer';
-import { ProductionTransactionType } from '@prisma/client';
+import { ProductionStatus, ProductionTransactionType } from '@prisma/client';
 
 export class ProductionDetailResponseDto {
   @Expose()
@@ -31,6 +31,9 @@ export class ProductionOrderResponseDto {
 
   @Expose()
   notes!: string;
+
+  @Expose()
+  status!: ProductionStatus;
 
   @Expose()
   createdAt!: Date;
