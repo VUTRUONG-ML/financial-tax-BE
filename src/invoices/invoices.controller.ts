@@ -50,7 +50,7 @@ export class InvoicesController {
     const result = await this.invoicesService.findAll(userId);
     return {
       message: 'Get all invoice own success',
-      data: result,
+      ...result,
     };
   }
 

@@ -16,7 +16,7 @@ export class InboundInvoicesController {
       await this.inboundInvoicesService.findAllInboundInvoices(userId);
     return {
       message: 'Get all inbound invoice success.',
-      data: result,
+      ...result,
     };
   }
 

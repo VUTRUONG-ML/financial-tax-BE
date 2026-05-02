@@ -26,6 +26,8 @@ import {
   tableWrite,
 } from '../core/audit-log/audit-log.service';
 import { Decimal } from '@prisma/client/runtime/client';
+import { mapToDto } from 'src/common/utils/mapper.util';
+import { VoucherResponseDto } from './dto/response-voucher-dto';
 
 @Injectable()
 export class VouchersService {
@@ -358,6 +360,15 @@ export class VouchersService {
             inboundInvoiceId: invoice?.type === 'INBOUND' ? invoice.id : null,
             outboundInvoiceId: invoice?.type === 'OUTBOUND' ? invoice.id : null,
           },
+          include: {
+            category: true,
+            inboundInvoice: {
+              select: { publicId: true, invoiceNo: true },
+            },
+            outBoundInvoice: {
+              select: { publicId: true, invoiceSymbol: true },
+            },
+          },
         });
 
         await this.auditLog.logChange(
@@ -385,29 +396,42 @@ export class VouchersService {
       voucherCode: result.voucherCode,
     });
 
-    const { id, ...rest } = result;
-    return rest;
+    return mapToDto(VoucherResponseDto, result);
   }
 
-  async findAll(userId: string) {
-    return this.prisma.voucher.findMany({
-      where: { userId },
-      orderBy: [{ transactionAt: 'desc' }, { id: 'desc' }],
-      include: {
-        category: {
-          select: { categoryName: true, type: true },
+  async findAll(userId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+    const [total, vouchers] = await Promise.all([
+      this.prisma.voucher.count({
+        where: { userId },
+      }),
+      this.prisma.voucher.findMany({
+        where: { userId },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          category: true,
         },
-      },
-      omit: { inboundInvoiceId: true, outboundInvoiceId: true, id: true },
-    });
+      }),
+    ]);
+    return {
+      data: mapToDto(VoucherResponseDto, vouchers),
+      meta: { total, page, lastPage: Math.ceil(total / limit) },
+    };
   }
 
-  async findOne(userId: string, id: number) {
+  async findOne(userId: string, voucherCode: string) {
     const voucher = await this.prisma.voucher.findUnique({
-      where: { id },
+      where: { userId_voucherCode: { userId, voucherCode } },
       include: {
         category: true,
-        inboundInvoice: true,
+        inboundInvoice: {
+          select: { publicId: true, invoiceNo: true },
+        },
+        outBoundInvoice: {
+          select: { publicId: true, invoiceSymbol: true },
+        },
       },
     });
 
@@ -415,7 +439,7 @@ export class VouchersService {
       throw new NotFoundException('Voucher not found');
     }
 
-    return voucher;
+    return mapToDto(VoucherResponseDto, voucher);
   }
 
   async update(
@@ -459,7 +483,15 @@ export class VouchersService {
         data: {
           ...updateVoucherDto,
         },
-        omit: { inboundInvoiceId: true, outboundInvoiceId: true },
+        include: {
+          inboundInvoice: {
+            select: { publicId: true, invoiceNo: true },
+          },
+          outBoundInvoice: {
+            select: { publicId: true, invoiceSymbol: true },
+          },
+          category: true,
+        },
       });
 
       await this.auditLog.logChange(
@@ -490,8 +522,7 @@ export class VouchersService {
         userId,
         voucherCode,
       });
-      const { id, ...rest } = updated;
-      return rest;
+      return mapToDto(VoucherResponseDto, updated);
     });
   }
 
@@ -548,9 +579,10 @@ export class VouchersService {
         voucherCode,
         userId,
       });
-
-      const { inboundInvoiceId, outboundInvoiceId, ...rest } = existing;
-      return { ...rest, status: VoucherStatus.CANCELED };
+      return mapToDto(VoucherResponseDto, {
+        ...existing,
+        status: VoucherStatus.CANCELED,
+      });
     });
   }
 

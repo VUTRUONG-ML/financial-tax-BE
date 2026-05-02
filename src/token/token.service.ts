@@ -187,13 +187,13 @@ export class TokenService {
     });
   }
 
-  async getToken(rt: string, tx?: Prisma.TransactionClient) {
+  async getToken(userId: string, rt: string, tx?: Prisma.TransactionClient) {
     const db = tx || this.prismaService;
     const hashedToken = this.hashToken(rt);
     const token = await db.refreshToken.findUnique({
       where: { tokenHash: hashedToken },
     });
-    if (!token || token.isRevoked) {
+    if (!token || token.isRevoked || token.userId !== userId) {
       throw new UnauthorizedException({
         errorCode: 'INVALID_REFRESH_TOKEN',
         message: 'The login session has expired or been disabled.',
@@ -201,11 +201,15 @@ export class TokenService {
     }
     return token;
   }
-  async markTokenRevoked(rt: string, tx?: Prisma.TransactionClient) {
+  async markTokenRevoked(
+    userId: string,
+    rt: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const db = tx || this.prismaService;
     const hashedToken = this.hashToken(rt);
     const result = await db.refreshToken.updateMany({
-      where: { tokenHash: hashedToken },
+      where: { tokenHash: hashedToken, userId },
       data: { isRevoked: true },
     });
     return result.count;

@@ -18,6 +18,9 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true, // Báo lỗi nếu người dùng gửi field lạ
       transform: true,
+      transformOptions: {
+        enableImplicitConversion: true, // Cho phép tự động chuyển kiểu cơ bản
+      },
     }),
   );
   app.useGlobalInterceptors(new TransformInterceptor());

@@ -21,6 +21,7 @@ import { VouchersModule } from './vouchers/vouchers.module';
 import { VoucherCategoriesModule } from './voucher-categories/voucher-categories.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
+import { InternalProductionOrdersModule } from './internal-production-orders/internal-production-orders.module';
 
 @Module({
   imports: [
@@ -33,7 +34,7 @@ import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
       {
         name: 'medium', // Quy tắc trung bình: bảo vệ tài nguyên
         ttl: 60000, // 1 phút
-        limit: 20, // Chỉ 5 lần/phút cho các tác vụ nặng như Hủy/Tạo
+        limit: 20, // Chỉ 20 lần/phút cho các tác vụ nặng như Hủy/Tạo
       },
     ]),
     PrismaModule,
@@ -51,6 +52,7 @@ import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
     InboundInvoicesModule,
     VouchersModule,
     VoucherCategoriesModule,
+    InternalProductionOrdersModule,
   ],
   controllers: [AppController],
   providers: [

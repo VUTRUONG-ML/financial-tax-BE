@@ -46,7 +46,7 @@ export class AuthService {
     const newUser = await this.usersService.create(userPayload);
 
     // 5. Bảo mật dữ liệu đầu ra (Sanitize Output)
-    const { passwordHash, ...userWithoutPassword } = newUser;
+    const { id, passwordHash, ...userWithoutPassword } = newUser;
 
     // 6. Trả về kết quả (Tuỳ chọn: Trả thêm token nếu muốn user đăng nhập luôn)
     return userWithoutPassword;
@@ -108,7 +108,7 @@ export class AuthService {
       phone: dto.phoneNumber,
     });
     // 6. Trả về token cho Client
-    const { passwordHash, ...userWithoutPassword } = user;
+    const { id, passwordHash, ...userWithoutPassword } = user;
     return { user: userWithoutPassword, accessToken, refreshToken };
   }
   async getProfile(phone: string) {
@@ -120,20 +120,20 @@ export class AuthService {
       });
       throw new NotFoundException('User not found.');
     }
-    const { passwordHash, ...userWithoutPass } = user;
+    const { id, passwordHash, ...userWithoutPass } = user;
     this.logger.log('GET_PROFILE_SUCCESS', { phone });
     return userWithoutPass;
   }
 
-  async logout(rt: string) {
+  async logout(userId: string, rt: string) {
     const decode: RequestUser = await this.tokenService.validateToken(
       rt,
       TokenType.REFRESH,
     );
     try {
       const result = await this.prismaService.$transaction(async (tx) => {
-        await this.tokenService.getToken(rt, tx);
-        const count = await this.tokenService.markTokenRevoked(rt, tx);
+        await this.tokenService.getToken(userId, rt, tx);
+        const count = await this.tokenService.markTokenRevoked(userId, rt, tx);
         if (count > 0) {
           // Ghi log người dùng đã đăng xuất thành công
         }

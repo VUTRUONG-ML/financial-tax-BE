@@ -9,13 +9,17 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
-import { LOG_STATUS } from 'src/common/constants/log-events.constant';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { LOG_STATUS } from '../common/constants/log-events.constant';
 import { Prisma } from '@prisma/client';
 import {
   AuditLogService,
   tableWrite,
 } from '../core/audit-log/audit-log.service';
+import { plainToInstance } from 'class-transformer';
+import { ProductResponseDto } from './dto/reponse-product.dto';
+import { mapToDto } from 'src/common/utils/mapper.util';
+import { Decimal } from '@prisma/client/runtime/client';
 
 @Injectable()
 export class ProductsService {
@@ -105,24 +109,12 @@ export class ProductsService {
 
   // ─── FIND ALL ─────────────────────────────────────────────────────────────
   async findAll(userId: string) {
-    return this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      select: {
-        publicId: true,
-        skuCode: true,
-        productName: true,
-        unit: true,
-        imageUrl: true,
-        sellingPrice: true,
-        openingStockQuantity: true,
-        openingStockUnitCost: true,
-        openingStockValue: true,
-        currentStock: true,
-        createdAt: true,
-        updatedAt: true,
-      },
     });
+
+    return mapToDto(ProductResponseDto, products);
   }
 
   // ─── FIND ONE ─────────────────────────────────────────────────────────────
@@ -139,7 +131,7 @@ export class ProductsService {
       throw new ForbiddenException('You do not have access to this product.');
     }
 
-    return product;
+    return mapToDto(ProductResponseDto, product);
   }
 
   // ─── UPDATE ───────────────────────────────────────────────────────────────
@@ -149,24 +141,34 @@ export class ProductsService {
     dto: UpdateProductDto,
     file?: Express.Multer.File,
   ) {
+    // Truyền file vào dto để bỏ qua lỗi khi gửi file thông qua multiple/form-data mà validatepipe bắt lỗi truyền dư field
+    const { file: fileDto, ...dtoWithoutFile } = dto;
     // Kiểm tra tồn tại & ownership
     const current = await this.findOneByPublicId(userId, publicId);
     const oldImage = current.imagePublicId ?? '';
     const imageData = await this.handleImageUpload(userId, file);
-
     // Spread DTO fields (currentStock không có trong UpdateProductDto)
     const { openingStockQuantity, openingStockUnitCost } = dto;
 
     // Tính lại openingStockValue nếu user cập nhật số lượng hoặc đơn giá vốn
-    const qty = openingStockQuantity ?? current.openingStockQuantity;
-    const cost = openingStockUnitCost ?? Number(current.openingStockUnitCost);
-    const openingStockValue = Number(qty) * Number(cost);
+    const finalQty =
+      openingStockQuantity !== undefined
+        ? openingStockQuantity
+        : current.openingStockQuantity;
+
+    const finalCost =
+      openingStockUnitCost !== undefined
+        ? Decimal(openingStockUnitCost)
+        : Decimal(current.openingStockUnitCost);
+
+    // Tính toán lại giá trị tồn kho đầu kỳ dựa trên Mẫu S05-HKD
+    const openingStockValue = finalCost.mul(Decimal(finalQty));
 
     try {
       const updated = await this.prisma.product.update({
         where: { publicId },
         data: {
-          ...dto,
+          ...dtoWithoutFile,
           ...(imageData.url && {
             imageUrl: imageData.url,
             imagePublicId: imageData.publicId,
@@ -180,7 +182,7 @@ export class ProductsService {
         this.safeDeleteImage(oldImage);
       }
       this.log.log('Product updated', { userId, publicId });
-      return updated;
+      return mapToDto(ProductResponseDto, updated);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'SERVER ERROR';
