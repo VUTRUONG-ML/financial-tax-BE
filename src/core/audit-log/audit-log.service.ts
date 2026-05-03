@@ -15,6 +15,7 @@ export enum tableWrite {
   inboundInvoice = 'inbound_invoices',
   products = 'products',
   internal_production_orders = 'internal_production_orders',
+  period = 'financial_periods',
 }
 @Injectable()
 export class AuditLogService {

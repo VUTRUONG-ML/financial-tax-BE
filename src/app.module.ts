@@ -22,6 +22,7 @@ import { VoucherCategoriesModule } from './voucher-categories/voucher-categories
 import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
 import { InternalProductionOrdersModule } from './internal-production-orders/internal-production-orders.module';
+import { FinancialPeriodsModule } from './financial-periods/financial-periods.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { InternalProductionOrdersModule } from './internal-production-orders/int
     VouchersModule,
     VoucherCategoriesModule,
     InternalProductionOrdersModule,
+    FinancialPeriodsModule,
   ],
   controllers: [AppController],
   providers: [

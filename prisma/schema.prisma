@@ -43,6 +43,7 @@ model User {
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   productionOrders InternalProductionOrder[]
+  financialPeriods FinancialPeriod[]
 
   @@map("users")
 }
@@ -411,23 +412,24 @@ enum ProductionTransactionType {
   ISSUE_MATERIAL
   RECEIVE_PRODUCT
 }
+
 enum ProductionStatus {
   ACTIVE
   CANCELED
 }
 
 model InternalProductionOrder {
-  id          Int      @id @default(autoincrement())
-  userId      String   @map("user_id")
-  orderCode   String   @map("order_code") // Ví dụ: LSX-0426-0001
-  notes       String?  @db.Text
-  status      ProductionStatus  @default(ACTIVE)
-  
-  user        User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details     ProductionDetail[]
+  id        Int              @id @default(autoincrement())
+  userId    String           @map("user_id")
+  orderCode String           @map("order_code") // Ví dụ: LSX-0426-0001
+  notes     String?          @db.Text
+  status    ProductionStatus @default(ACTIVE)
 
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user    User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details ProductionDetail[]
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([userId, orderCode])
   @@index([userId, createdAt])
@@ -439,7 +441,7 @@ model ProductionDetail {
   orderId         Int                       @map("order_id")
   productId       Int                       @map("product_id")
   transactionType ProductionTransactionType @map("transaction_type")
-  quantity        Int                       // Số lượng vật lý
+  quantity        Int // Số lượng vật lý
 
   order   InternalProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   product Product                 @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -449,3 +451,31 @@ model ProductionDetail {
   @@map("production_details")
 }
 
+// ─── FINANCIAL PERIODS (Kỳ Tài Chính) ───────────────────────────────────────
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model FinancialPeriod {
+  id                Int          @id @default(autoincrement())
+  publicId          String       @unique @default(cuid()) @map("public_id")
+  userId            String       @map("user_id")
+  periodName        String       @map("period_name")
+  startDate         DateTime     @map("start_date") @db.Date
+  endDate           DateTime     @map("end_date") @db.Date
+  deadlineDate      DateTime     @map("deadline_date") @db.Date
+  status            PeriodStatus @default(OPEN)
+  taxAmount         Decimal      @map("tax_amount") @db.Decimal(18, 4)
+  actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, status])
+  @@index([userId, startDate, endDate])
+  @@map("financial_periods")
+}
