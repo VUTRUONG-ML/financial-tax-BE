@@ -10,9 +10,6 @@ export class CreateOnboardingDto {
   @IsInt()
   taxGroupId!: number; // Tương ứng với 4 nhóm doanh thu
 
-  @IsNotEmpty()
-  pitMethod!: PitMethod;
-
   @IsBoolean()
   @IsOptional()
   // Flag để Service biết User chọn "Ngành nghề khác" hay "Tag gợi ý"

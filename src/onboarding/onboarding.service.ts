@@ -29,7 +29,6 @@ export class OnboardingService {
   ) {}
   private async findTaxGroupValid(
     taxGroupId: number,
-    pitMethod: PitMethod,
     tx: Prisma.TransactionClient,
   ) {
     // 1. Query lấy TaxGroup và danh sách phương pháp được phép
@@ -49,22 +48,24 @@ export class OnboardingService {
       throw new NotFoundException('Tax group not found.');
     }
 
-    // 3. Kiểm tra xem phương pháp User chọn có nằm trong mảng allowedMethods không
-    // Lưu ý: taxGroup.allowedMethods là mảng, pitMethod là giá trị đơn lẻ
-    const isMethodAllowed = taxGroup.allowedMethods.includes(pitMethod);
+    let defaultMethod: PitMethod | null = null;
 
-    if (!isMethodAllowed) {
-      this.log.warn('Set up onboarding', {
-        status: LOG_STATUS.FAILED,
-        action: LOG_ACTIONS.SET_ONBOARDING,
-        reason: 'PIT_METHOD_INVALID',
-        taxGroupId,
-      });
-      throw new BadRequestException(
-        `Method ${pitMethod} not valid for this tax group.`,
-      );
+    // Logic nghiệp vụ: Tự động chọn phương pháp mặc định phù hợp nhất
+    switch (taxGroupId) {
+      case 1:
+        defaultMethod = 'EXEMPT'; // Nhóm 1: Mặc định miễn thuế
+        break;
+      case 2:
+        defaultMethod = 'PERCENTAGE'; // Nhóm 2: Mặc định tính theo %, có thể đổi sau
+        break;
+      case 3:
+        defaultMethod = 'PROFIT_17'; // Nhóm 3: Bắt buộc lợi nhuận 17%
+        break;
+      case 4:
+        defaultMethod = 'PROFIT_20'; // Nhóm 4: Bắt buộc lợi nhuận 20%
+        break;
     }
-    return taxGroup;
+    return defaultMethod;
   }
   private async findEffectiveTaxRate(
     tx: Prisma.TransactionClient,
@@ -155,10 +156,9 @@ export class OnboardingService {
 
       // Nếu đã có cấu hình trong DB => Đá văng ra ngay, chặn API Replay
       if (existingConfig) {
-        this.log.warn('Set up onboarding', {
+        this.log.warn(LOG_ACTIONS.SET_ONBOARDING, {
           status: LOG_STATUS.FAILED,
           reason: 'USER_COMPLETED_ONBOARDING',
-          action: LOG_ACTIONS.SET_ONBOARDING,
           userId,
         });
         throw new ConflictException(
@@ -176,7 +176,7 @@ export class OnboardingService {
       );
 
       // Check thêm taxGroup tồn tại hay không ở đây (tương tự như industry)
-      await this.findTaxGroupValid(dto.taxGroupId, dto.pitMethod, tx);
+      const defaultPitMethod = await this.findTaxGroupValid(dto.taxGroupId, tx);
 
       const now = new Date();
 
@@ -186,7 +186,7 @@ export class OnboardingService {
           userId: userId,
           industryId: finalCategoryId,
           taxGroupId: dto.taxGroupId,
-          chosenPitMethod: dto.pitMethod,
+          chosenPitMethod: defaultPitMethod,
           applyFromDate: now,
           vatRateSnapShot: taxRates.vatRate,
           pitRateSnapShot: taxRates.pitRate,
@@ -209,9 +209,8 @@ export class OnboardingService {
         newConfig,
       );
 
-      this.log.log('Set up onboarding', {
+      this.log.log(LOG_ACTIONS.SET_ONBOARDING, {
         status: LOG_STATUS.SUCCESS,
-        action: LOG_ACTIONS.SET_ONBOARDING,
         userId,
         industry: dto.industryId,
         taxGroup: dto.taxGroupId,
@@ -270,7 +269,7 @@ export class OnboardingService {
         'UPDATE',
       );
 
-      await this.findTaxGroupValid(dto.taxGroupId, dto.pitMethod, tx);
+      const defaultPitMethod = await this.findTaxGroupValid(dto.taxGroupId, tx);
 
       // 4. KHIÊN BẢO VỆ CHỐNG DOUBLE CLICK (Optimistic Locking) - đóng cấu hình cũ
       const closeResult = await tx.taxConfiguration.updateMany({
@@ -310,7 +309,7 @@ export class OnboardingService {
           userId: userId,
           industryId: finalCategoryId,
           taxGroupId: dto.taxGroupId,
-          chosenPitMethod: dto.pitMethod,
+          chosenPitMethod: defaultPitMethod,
           applyFromDate: now,
           applyToDate: null,
           vatRateSnapShot: taxRates.vatRate,

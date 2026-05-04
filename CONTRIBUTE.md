@@ -17,6 +17,7 @@ Tài liệu này quy định các tiêu chuẩn lập trình bắt buộc dành 
 ```
 
 - **HTTP Code:** Luôn khai báo `@HttpCode(HttpStatus.OK)` cho các phương thức không phải GET nếu xử lý thành công.
+- **Data Mapping:** Hãy sử dụng hàm `mapToDto` trong `src/common/utils/mapper.util.ts` và viết `response.dto` cho riêng một module nào đó để chuẩn hóa dữ liệu trả về (tự động loại bỏ các trường không cần thiết thông qua `excludeExtraneousValues`).
 
 ## 2. 📝 QUY CHUẨN LOGGING NGHIỆP VỤ (STRUCTURED LOGGING)
 

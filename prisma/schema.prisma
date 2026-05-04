@@ -117,7 +117,7 @@ model TaxConfiguration {
   industryId Int    @map("industry_id")
   taxGroupId Int    @map("tax_group_id")
 
-  chosenPitMethod PitMethod @map("chosen_pit_method")
+  chosenPitMethod PitMethod? @map("chosen_pit_method")
   applyFromDate   DateTime  @map("apply_from_date")
   applyToDate     DateTime? @map("apply_to_date")
 
