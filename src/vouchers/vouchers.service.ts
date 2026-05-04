@@ -371,6 +371,23 @@ export class VouchersService {
           },
         });
 
+        if (createVoucherDto.voucherType === VoucherType.RECEIPT) {
+          const year = transactionDate.getFullYear();
+          await tx.revenueTracker.upsert({
+            where: {
+              userId_year: { userId, year },
+            },
+            update: {
+              revenueYtd: { increment: createVoucherDto.amount },
+            },
+            create: {
+              userId,
+              year,
+              revenueYtd: createVoucherDto.amount,
+            },
+          });
+        }
+
         await this.auditLog.logChange(
           tx,
           userId,
@@ -564,6 +581,14 @@ export class VouchersService {
 
       await this.revertInvoicePayment(existing, tx);
 
+      if (existing.voucherType === VoucherType.RECEIPT) {
+        const year = existing.transactionAt.getFullYear();
+        await tx.revenueTracker.updateMany({
+          where: { userId, year },
+          data: { revenueYtd: { decrement: existing.amount } },
+        });
+      }
+
       await this.auditLog.logChange(
         tx,
         userId,
@@ -596,16 +621,44 @@ export class VouchersService {
     const whereField =
       type === 'OUTBOUND' ? 'outboundInvoiceId' : 'inboundInvoiceId';
 
-    const result = await tx.voucher.updateMany({
+    const vouchersToCancel = await tx.voucher.findMany({
       where: {
         [whereField]: invoiceId,
         userId,
         status: VoucherStatus.ACTIVE,
       },
+    });
+
+    if (vouchersToCancel.length === 0) return 0;
+
+    const result = await tx.voucher.updateMany({
+      where: {
+        id: { in: vouchersToCancel.map((v) => v.id) },
+      },
       data: {
         status: VoucherStatus.CANCELED,
       },
     });
+
+    const receiptVouchers = vouchersToCancel.filter(
+      (v) => v.voucherType === VoucherType.RECEIPT,
+    );
+
+    if (receiptVouchers.length > 0) {
+      const decrementByYear = new Map<number, Decimal>();
+      for (const voucher of receiptVouchers) {
+        const year = voucher.transactionAt.getFullYear();
+        const currentTotal = decrementByYear.get(year) || new Decimal(0);
+        decrementByYear.set(year, currentTotal.add(voucher.amount));
+      }
+
+      for (const [year, totalAmount] of decrementByYear.entries()) {
+        await tx.revenueTracker.updateMany({
+          where: { userId, year },
+          data: { revenueYtd: { decrement: totalAmount } },
+        });
+      }
+    }
 
     await this.auditLog.logChange(
       tx,

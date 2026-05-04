@@ -44,6 +44,7 @@ model User {
 
   productionOrders InternalProductionOrder[]
   financialPeriods FinancialPeriod[]
+  revenueTrackers  RevenueTracker[]
 
   @@map("users")
 }
@@ -124,6 +125,7 @@ model TaxConfiguration {
   vatRateSnapShot Decimal @map("vat_rate_snapshot") @db.Decimal(5, 4)
   pitRateSnapShot Decimal @map("pit_rate_snapshot") @db.Decimal(5, 4)
   isVatReducible  Boolean @default(false) @map("is_vat_reducible")
+  vatFilingPeriod FilingPeriod @default(QUARTERLY) @map("vat_filing_period")
 
   user     User        @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   industry TaxCategory @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -478,4 +480,24 @@ model FinancialPeriod {
   @@index([userId, status])
   @@index([userId, startDate, endDate])
   @@map("financial_periods")
+}
+
+enum FilingPeriod {
+  MONTHLY         // Khai thuế theo tháng
+  QUARTERLY       // Khai thuế theo quý
+  YEARLY          // Khai thuế theo năm (hoặc thông báo doanh thu năm)
+  HALF_YEARLY     // Khai thuế 2 lần/năm (Bán niên)
+  PER_OCCURRENCE  // Khai thuế theo từng lần phát sinh
+}
+
+model RevenueTracker {
+  id         String  @id @default(cuid())
+  userId     String  @map("user_id")
+  year       Int     // Theo dõi theo từng năm tài chính
+  revenueYtd Decimal @default(0.00) @map("revenue_ytd") @db.Decimal(15, 2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([userId, year])
+  @@map("revenue_trackers")
 }
