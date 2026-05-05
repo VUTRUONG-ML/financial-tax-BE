@@ -18,11 +18,13 @@ import {
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
-import { Invoice, InvoiceStatus } from '@prisma/client';
+import { Invoice, InvoiceStatus, Prisma, Product } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
 import { mapToDto } from '../common/utils/mapper.util';
 import { InvoiceResponseDto } from './dto/response-invoice.dto';
+import { CreateInvoiceDetailDto } from './dto/create-invoice-detail.dto';
+import { Decimal } from '@prisma/client/runtime/client';
 
 @Injectable()
 export class InvoicesService {
@@ -36,6 +38,57 @@ export class InvoicesService {
     private readonly productService: ProductsService,
   ) {}
 
+  private async validateStockAvailability(
+    userId: string,
+    items: CreateInvoiceDetailDto[],
+  ) {
+    const itemMap = new Map<string, number>();
+    for (const i of items) {
+      itemMap.set(
+        i.productPublicId,
+        (itemMap.get(i.productPublicId) ?? 0) + i.quantity,
+      );
+    }
+    const publicIds = Array.from(itemMap.keys());
+    const products = await this.prisma.product.findMany({
+      where: { publicId: { in: publicIds }, userId },
+    });
+    const productMap = new Map(products.map((p) => [p.publicId, p]));
+    let totalPayment = 0;
+    const resolvedItems: {
+      product: Product;
+      lineTotal: Decimal;
+      quantity: number;
+    }[] = [];
+    for (const [productPublicId, quantity] of itemMap) {
+      const product = productMap.get(productPublicId);
+      if (!product) {
+        this.log.warn('VALIDATE_STOCK', {
+          status: LOG_STATUS.FAILED,
+          reason: 'PRODUCT_NOT_FOUND',
+          userId,
+          productPublicId: productPublicId,
+        });
+        throw new NotFoundException(`Product not found: ${productPublicId}`);
+      }
+      if (product.currentStock < quantity) {
+        this.log.warn('VALIDATE_STOCK', {
+          status: LOG_STATUS.FAILED,
+          reason: 'OUT_OF_STOCK',
+          userId,
+          productPublicId: productPublicId,
+        });
+        throw new BadRequestException(
+          `Insufficient stock for product: ${product.productName}. ` +
+            `Available: ${product.currentStock}, Requested: ${quantity}`,
+        );
+      }
+      const lineTotal = product.sellingPrice.mul(quantity);
+      totalPayment += Number(lineTotal);
+      resolvedItems.push({ product, lineTotal, quantity });
+    }
+    return { totalPayment, resolvedItems };
+  }
   private validateInvoiceB2C(
     isB2C?: boolean,
     buyerTaxCode?: string,
@@ -52,15 +105,14 @@ export class InvoicesService {
     action: 'UPDATE' | 'VIEW',
   ) {
     // 1. Tìm hóa đơn và kiểm tra quyền sở hữu ngay trong câu query
-    const invoice = await this.prisma.invoice.findFirst({
+    const invoice = await this.prisma.invoice.findUnique({
       where: {
         publicId: publicId,
-        userId: userId,
       },
     });
 
     // Nếu không tìm thấy hoặc không đúng chủ sở hữu
-    if (!invoice) {
+    if (!invoice || invoice.userId !== userId) {
       throw new NotFoundException(
         'The invoice does not exist or you do not have access to it.',
       );
@@ -95,52 +147,57 @@ export class InvoicesService {
     return invoice;
   }
 
-  async lockInvoice(invoice: Invoice, cqtCode?: string) {
+  async lockInvoice(
+    invoice: Invoice,
+    tx: Prisma.TransactionClient,
+    cqtCode?: string,
+  ) {
+    /**
+     * Khóa trạng thái invoice là issued khi đã được cơ quan thuế cấp mã
+     */
     const { id: internalId, publicId, userId, status } = invoice;
-    return await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const updatedInvoice = await tx.invoice.updateMany({
-        where: { publicId, userId, status: { in: ['DRAFT', 'SYNC_FAILED'] } },
-        data: {
-          status: 'ISSUED',
-          cqtCode,
-          issuedAt: now,
-        },
-      });
 
-      if (updatedInvoice.count === 0) {
-        this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
-          status: LOG_STATUS.FAILED,
-          reason: 'LOCK_INVOICE_FAILED',
-          userId,
-          invoicePublicId: publicId,
-        });
-        throw new BadRequestException(
-          'Invoice not found or invalid status invoice.',
-        );
-      }
+    const now = new Date();
+    const updatedInvoice = await tx.invoice.updateMany({
+      where: { publicId, userId, status: { in: ['DRAFT', 'SYNC_FAILED'] } },
+      data: {
+        status: 'ISSUED',
+        cqtCode,
+        issuedAt: now,
+      },
+    });
 
-      await this.auditLog.logChange(
-        tx,
-        userId,
-        'UPDATE',
-        tableWrite.invoices,
-        internalId,
-        { status, cqtCode: null, issuedAt: null },
-        { status: 'ISSUED', cqtCode, issuedAt: now },
-      );
-
+    if (updatedInvoice.count === 0) {
       this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
-        status: LOG_STATUS.SUCCESS,
+        status: LOG_STATUS.FAILED,
+        reason: 'LOCK_INVOICE_FAILED',
         userId,
         invoicePublicId: publicId,
       });
+      throw new BadRequestException(
+        'Invoice not found or invalid status invoice.',
+      );
+    }
 
-      // GHI VAO SỔ S01 (doanh thu) ------------------
-      // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
-      const { id, ...rest } = invoice;
-      return { ...rest, status: 'ISSUED', cqtCode, issuedAt: now };
+    await this.auditLog.logChange(
+      tx,
+      userId,
+      'UPDATE',
+      tableWrite.invoices,
+      internalId,
+      { status, cqtCode: null, issuedAt: null },
+      { status: 'ISSUED', cqtCode, issuedAt: now },
+    );
+
+    this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      invoicePublicId: publicId,
     });
+
+    // GHI VAO SỔ S01 (doanh thu) ------------------
+    // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
+    return { ...invoice, status: 'ISSUED', cqtCode, issuedAt: now };
   }
 
   async createInvoice(userId: string, dto: CreateInvoiceDto) {
@@ -151,63 +208,9 @@ export class InvoicesService {
       dto.buyerAddress,
       dto.buyerName,
     );
-
-    let totalPayment = 0;
-
-    // Tra cứu tất cả sản phẩm một lần, validate ownership & stock
-    const resolvedItems = await Promise.all(
-      dto.details.map(async (item) => {
-        const product = await this.prisma.product.findUnique({
-          where: { publicId: item.productPublicId },
-        });
-
-        if (!product) {
-          this.log.warn(LOG_ACTIONS.CREATE_INVOICE, {
-            status: LOG_STATUS.FAILED,
-            reason: 'PRODUCT_NOT_FOUND',
-            userId,
-            productPublicId: item.productPublicId,
-          });
-          throw new NotFoundException(
-            `Product not found: ${item.productPublicId}`,
-          );
-        }
-
-        // Kiểm tra ownership — chỉ được dùng sản phẩm của chính mình
-        if (product.userId !== userId) {
-          this.log.warn(LOG_ACTIONS.CREATE_INVOICE, {
-            status: LOG_STATUS.FAILED,
-            reason: 'PRODUCT_OWNERSHIP_VIOLATION',
-            userId,
-            productPublicId: item.productPublicId,
-          });
-          throw new ForbiddenException(
-            `You do not have access to product: ${item.productPublicId}`,
-          );
-        }
-
-        // Kiểm tra tồn kho trước khi vào Transaction
-        if (product.currentStock < item.quantity) {
-          this.log.warn(LOG_ACTIONS.CREATE_INVOICE, {
-            status: LOG_STATUS.FAILED,
-            reason: 'OUT_OF_STOCK',
-            userId,
-            productPublicId: item.productPublicId,
-            requested: item.quantity,
-            available: product.currentStock,
-          });
-          throw new BadRequestException(
-            `Insufficient stock for product: ${product.productName}. ` +
-              `Available: ${product.currentStock}, Requested: ${item.quantity}`,
-          );
-        }
-
-        const lineTotal = Number(product.sellingPrice) * item.quantity;
-        totalPayment += lineTotal;
-
-        return { product, quantity: item.quantity, lineTotal };
-      }),
-    );
+    // // Tra cứu tất cả sản phẩm một lần, validate ownership & stock
+    const { totalPayment, resolvedItems } =
+      await this.validateStockAvailability(userId, dto.details);
 
     // ─── TRANSACTION — 3 bước ACID ────────────────────────────────────────────
     return this.prisma.$transaction(async (tx) => {
@@ -299,7 +302,6 @@ export class InvoicesService {
           },
         },
       });
-      // Return kèm details để FE không cần query thêm
       return mapToDto(InvoiceResponseDto, {
         ...invoice,
         details,
@@ -320,9 +322,26 @@ export class InvoicesService {
     const result = await this.taxAuthorityService.requestTaxCode(publicId);
 
     if (result.success) {
-      // Nếu thành công -> Chạy hàm lockInvoice
-      const res = await this.lockInvoice(invoice, result.cqtCode);
-      return mapToDto(InvoiceResponseDto, res);
+      return this.prisma.$transaction(async (tx) => {
+        // Nếu thành công -> Chạy hàm lockInvoice
+        const res = await this.lockInvoice(invoice, tx, result.cqtCode);
+        const year = res.issuedAt.getFullYear();
+        // Tính vào doanh thu năm
+        await tx.revenueTracker.upsert({
+          where: {
+            userId_year: { userId, year },
+          },
+          update: {
+            revenueYtd: { increment: res.totalPayment },
+          },
+          create: {
+            userId,
+            year,
+            revenueYtd: res.totalPayment,
+          },
+        });
+        return mapToDto(InvoiceResponseDto, res);
+      });
     } else {
       // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED để người dùng bấm 'Retry'
       const res = await this.prisma.invoice.update({
