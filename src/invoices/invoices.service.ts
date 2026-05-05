@@ -41,6 +41,7 @@ export class InvoicesService {
   private async validateStockAvailability(
     userId: string,
     items: CreateInvoiceDetailDto[],
+    tx: Prisma.TransactionClient = this.prisma,
   ) {
     const itemMap = new Map<string, number>();
     for (const i of items) {
@@ -50,7 +51,7 @@ export class InvoicesService {
       );
     }
     const publicIds = Array.from(itemMap.keys());
-    const products = await this.prisma.product.findMany({
+    const products = await tx.product.findMany({
       where: { publicId: { in: publicIds }, userId },
     });
     const productMap = new Map(products.map((p) => [p.publicId, p]));
@@ -142,6 +143,18 @@ export class InvoicesService {
         });
         throw new ForbiddenException('The invoice has been canceled');
       }
+
+      if (invoice.status === 'PENDING_ISSUED') {
+        this.log.warn('VALIDATE_ACCESS', {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVOICE_PENDING_ISSUED',
+          userId,
+          invoicePublicId: publicId,
+        });
+        throw new ForbiddenException(
+          'The invoice is pending tax authority code and cannot be modified.',
+        );
+      }
     }
 
     return invoice;
@@ -159,7 +172,11 @@ export class InvoicesService {
 
     const now = new Date();
     const updatedInvoice = await tx.invoice.updateMany({
-      where: { publicId, userId, status: { in: ['DRAFT', 'SYNC_FAILED'] } },
+      where: {
+        publicId,
+        userId,
+        status: { in: ['DRAFT', 'SYNC_FAILED', 'PENDING_ISSUED'] },
+      },
       data: {
         status: 'ISSUED',
         cqtCode,
@@ -243,32 +260,7 @@ export class InvoicesService {
         })),
       });
 
-      // 3. Trừ currentStock — Optimistic Locking chống race condition
-      for (const { product, quantity } of resolvedItems) {
-        const updateResult = await tx.product.updateMany({
-          where: {
-            id: product.id,
-            // ĐIỀU KIỆN SỐNG CÒN: chỉ trừ nếu stock vẫn đủ
-            currentStock: { gte: quantity },
-          },
-          data: { currentStock: { decrement: quantity } },
-        });
-
-        if (updateResult.count === 0) {
-          this.log.warn(LOG_ACTIONS.CREATE_INVOICE, {
-            status: LOG_STATUS.FAILED,
-            reason: 'STOCK_CHANGED_CONCURRENTLY',
-            userId,
-            productId: product.id,
-            invoiceSymbol,
-          });
-          throw new ConflictException(
-            `Stock for "${product.productName}" changed during processing. Please retry.`,
-          );
-        }
-      }
-
-      // 4. Ghi AuditLog trong cùng Transaction
+      // 3. Ghi AuditLog trong cùng Transaction
       await this.auditLog.logChange(
         tx,
         userId,
@@ -284,7 +276,7 @@ export class InvoicesService {
         },
       );
 
-      // 5. Log nghiệp vụ
+      // 4. Log nghiệp vụ
       this.log.log(LOG_ACTIONS.CREATE_INVOICE, {
         status: LOG_STATUS.SUCCESS,
         userId,
@@ -312,11 +304,18 @@ export class InvoicesService {
   // service cấp phát mã
   async publishInvoice(publicId: string, userId: string) {
     // Kiểm tra quyền sở hữu và trạng thái (chỉ DRAFT hoặc SYNC_FAILED mới được làm)
+    // validateInvoiceAccess sẽ ném lỗi nếu invoice đang ở trạng thái ISSUED, CANCELED, hoặc PENDING_ISSUED
     const invoice = await this.validateInvoiceAccess(
       publicId,
       userId,
       'UPDATE',
     );
+
+    // Cập nhật trạng thái PENDING_ISSUED trước khi gọi api cơ quan thuế
+    const pendingInvoice = await this.prisma.invoice.update({
+      where: { publicId },
+      data: { status: 'PENDING_ISSUED' },
+    });
 
     // Gọi Mock API
     const result = await this.taxAuthorityService.requestTaxCode(publicId);
@@ -324,7 +323,7 @@ export class InvoicesService {
     if (result.success) {
       return this.prisma.$transaction(async (tx) => {
         // Nếu thành công -> Chạy hàm lockInvoice
-        const res = await this.lockInvoice(invoice, tx, result.cqtCode);
+        const res = await this.lockInvoice(pendingInvoice, tx, result.cqtCode);
         const year = res.issuedAt.getFullYear();
         // Tính vào doanh thu năm
         await tx.revenueTracker.upsert({
@@ -476,5 +475,113 @@ export class InvoicesService {
       invoicePublicId: invPublicId,
     });
     return result;
+  }
+
+  async updateInvoice(
+    publicId: string,
+    userId: string,
+    dto: import('./dto/update-invoice.dto').UpdateInvoiceDto,
+  ) {
+    // 1. Kiểm tra quyền sở hữu và trạng thái
+    const invoice = await this.validateInvoiceAccess(
+      publicId,
+      userId,
+      'UPDATE',
+    );
+
+    // 2. Validate thông tin B2C/B2B
+    this.validateInvoiceB2C(
+      dto.isB2C ?? invoice.isB2C,
+      dto.buyerTaxCode ?? invoice.buyerTaxCode ?? undefined,
+      dto.buyerAddress ?? invoice.buyerAddress ?? undefined,
+      dto.buyerName ?? invoice.buyerName ?? undefined,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      let finalTotalPayment = invoice.totalPayment;
+
+      // Nếu có cập nhật chi tiết hàng hóa
+
+      // Xóa chi tiết cũ
+      await tx.invoiceDetail.deleteMany({
+        where: { invoiceId: invoice.id },
+      });
+
+      // 3. Validate
+      const { totalPayment: newTotalPayment, resolvedItems } =
+        await this.validateStockAvailability(userId, dto.details, tx);
+
+      // Tạo chi tiết mới
+      await tx.invoiceDetail.createMany({
+        data: resolvedItems.map(({ product, quantity, lineTotal }) => ({
+          invoiceId: invoice.id,
+          productId: product.id,
+          productNameSnapshot: product.productName,
+          unitPrice: product.sellingPrice,
+          quantity,
+          totalAmount: lineTotal,
+        })),
+      });
+
+      finalTotalPayment = new Decimal(newTotalPayment);
+
+      // 4. Cập nhật Invoice Header
+      const updatedInvoice = await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          isB2C: dto.isB2C ?? invoice.isB2C,
+          buyerName:
+            dto.buyerName !== undefined ? dto.buyerName : invoice.buyerName,
+          buyerTaxCode:
+            dto.buyerTaxCode !== undefined
+              ? dto.buyerTaxCode
+              : invoice.buyerTaxCode,
+          buyerAddress:
+            dto.buyerAddress !== undefined
+              ? dto.buyerAddress
+              : invoice.buyerAddress,
+          totalPayment: finalTotalPayment,
+        },
+      });
+
+      // 6. Ghi log audit
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.invoices,
+        invoice.id,
+        {
+          isB2C: invoice.isB2C,
+          buyerName: invoice.buyerName,
+          totalPayment: invoice.totalPayment,
+        },
+        {
+          isB2C: updatedInvoice.isB2C,
+          buyerName: updatedInvoice.buyerName,
+          totalPayment: updatedInvoice.totalPayment,
+        },
+      );
+
+      this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        invoiceId: updatedInvoice.publicId,
+        invoiceSymbol: updatedInvoice.invoiceSymbol,
+      });
+
+      const details = await tx.invoiceDetail.findMany({
+        where: { invoiceId: invoice.id },
+        include: {
+          product: {
+            select: { publicId: true },
+          },
+        },
+      });
+      return mapToDto(InvoiceResponseDto, {
+        ...updatedInvoice,
+        details,
+      });
+    });
   }
 }

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 
@@ -82,6 +83,24 @@ export class InvoicesController {
     return {
       message: 'Invoice canceled success.',
       data: result,
+    };
+  }
+
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @Patch('/:invoicePublicId')
+  async updateInvoice(
+    @Param('invoicePublicId') invPublicId: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateInvoiceDto,
+  ) {
+    const data = await this.invoicesService.updateInvoice(
+      invPublicId,
+      userId,
+      dto,
+    );
+    return {
+      message: 'Invoice updated successfully.',
+      data,
     };
   }
 }

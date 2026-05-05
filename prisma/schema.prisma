@@ -119,12 +119,12 @@ model TaxConfiguration {
   taxGroupId Int    @map("tax_group_id")
 
   chosenPitMethod PitMethod? @map("chosen_pit_method")
-  applyFromDate   DateTime  @map("apply_from_date")
-  applyToDate     DateTime? @map("apply_to_date")
+  applyFromDate   DateTime   @map("apply_from_date")
+  applyToDate     DateTime?  @map("apply_to_date")
 
-  vatRateSnapShot Decimal @map("vat_rate_snapshot") @db.Decimal(5, 4)
-  pitRateSnapShot Decimal @map("pit_rate_snapshot") @db.Decimal(5, 4)
-  isVatReducible  Boolean @default(false) @map("is_vat_reducible")
+  vatRateSnapShot Decimal      @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot Decimal      @map("pit_rate_snapshot") @db.Decimal(5, 4)
+  isVatReducible  Boolean      @default(false) @map("is_vat_reducible")
   vatFilingPeriod FilingPeriod @default(QUARTERLY) @map("vat_filing_period")
 
   user     User        @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -215,6 +215,7 @@ enum ProductType {
 
 enum InvoiceStatus {
   DRAFT
+  PENDING_ISSUED
   ISSUED
   SYNC_FAILED
   CANCELED
@@ -483,17 +484,17 @@ model FinancialPeriod {
 }
 
 enum FilingPeriod {
-  MONTHLY         // Khai thuế theo tháng
-  QUARTERLY       // Khai thuế theo quý
-  YEARLY          // Khai thuế theo năm (hoặc thông báo doanh thu năm)
-  HALF_YEARLY     // Khai thuế 2 lần/năm (Bán niên)
-  PER_OCCURRENCE  // Khai thuế theo từng lần phát sinh
+  MONTHLY // Khai thuế theo tháng
+  QUARTERLY // Khai thuế theo quý
+  YEARLY // Khai thuế theo năm (hoặc thông báo doanh thu năm)
+  HALF_YEARLY // Khai thuế 2 lần/năm (Bán niên)
+  PER_OCCURRENCE // Khai thuế theo từng lần phát sinh
 }
 
 model RevenueTracker {
   id         String  @id @default(cuid())
   userId     String  @map("user_id")
-  year       Int     // Theo dõi theo từng năm tài chính
+  year       Int // Theo dõi theo từng năm tài chính
   revenueYtd Decimal @default(0.00) @map("revenue_ytd") @db.Decimal(15, 2)
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
