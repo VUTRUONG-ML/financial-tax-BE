@@ -104,11 +104,21 @@ export class InvoicesService {
     publicId: string,
     userId: string,
     action: 'UPDATE' | 'VIEW',
+    tx: Prisma.TransactionClient = this.prisma,
   ) {
     // 1. Tìm hóa đơn và kiểm tra quyền sở hữu ngay trong câu query
-    const invoice = await this.prisma.invoice.findUnique({
+    const invoice = await tx.invoice.findUnique({
       where: {
         publicId: publicId,
+      },
+      include: {
+        details: {
+          include: {
+            product: {
+              select: { publicId: true },
+            },
+          },
+        },
       },
     });
 
@@ -161,21 +171,40 @@ export class InvoicesService {
   }
 
   async lockInvoice(
-    invoice: Invoice,
-    tx: Prisma.TransactionClient,
+    publicId: string,
+    userId: string,
     cqtCode?: string,
+    tx: Prisma.TransactionClient = this.prisma,
   ) {
     /**
      * Khóa trạng thái invoice là issued khi đã được cơ quan thuế cấp mã
      */
-    const { id: internalId, publicId, userId, status } = invoice;
+    const invoice = await tx.invoice.findUnique({
+      where: { publicId },
+    });
+    if (!invoice) {
+      this.log.warn('LOCK_INVOICE', {
+        status: LOG_STATUS.FAILED,
+        reason: 'INVOICE_NOT_FOUND',
+        userId,
+        publicId,
+      });
+      throw new NotFoundException('Invoice not found.');
+    }
+
+    if (invoice.status !== 'PENDING_ISSUED') {
+      this.log.warn('LOCK_INVOICE', {
+        status: LOG_STATUS.FAILED,
+        reason: 'STATUS_MUST_HAVE_PENDING_ISSUED',
+        userId,
+        publicId,
+      });
+    }
 
     const now = new Date();
-    const updatedInvoice = await tx.invoice.updateMany({
+    await tx.invoice.update({
       where: {
         publicId,
-        userId,
-        status: { in: ['DRAFT', 'SYNC_FAILED', 'PENDING_ISSUED'] },
       },
       data: {
         status: 'ISSUED',
@@ -184,25 +213,13 @@ export class InvoicesService {
       },
     });
 
-    if (updatedInvoice.count === 0) {
-      this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
-        status: LOG_STATUS.FAILED,
-        reason: 'LOCK_INVOICE_FAILED',
-        userId,
-        invoicePublicId: publicId,
-      });
-      throw new BadRequestException(
-        'Invoice not found or invalid status invoice.',
-      );
-    }
-
     await this.auditLog.logChange(
       tx,
       userId,
       'UPDATE',
       tableWrite.invoices,
-      internalId,
-      { status, cqtCode: null, issuedAt: null },
+      invoice.id,
+      { status: invoice.status, cqtCode: null, issuedAt: null },
       { status: 'ISSUED', cqtCode, issuedAt: now },
     );
 
@@ -303,52 +320,143 @@ export class InvoicesService {
 
   // service cấp phát mã
   async publishInvoice(publicId: string, userId: string) {
-    // Kiểm tra quyền sở hữu và trạng thái (chỉ DRAFT hoặc SYNC_FAILED mới được làm)
-    // validateInvoiceAccess sẽ ném lỗi nếu invoice đang ở trạng thái ISSUED, CANCELED, hoặc PENDING_ISSUED
-    const invoice = await this.validateInvoiceAccess(
-      publicId,
-      userId,
-      'UPDATE',
-    );
+    const yearNow = new Date().getFullYear();
 
-    // Cập nhật trạng thái PENDING_ISSUED trước khi gọi api cơ quan thuế
-    const pendingInvoice = await this.prisma.invoice.update({
-      where: { publicId },
-      data: { status: 'PENDING_ISSUED' },
+    // 1. Cập nhật trạng thái PENDING_ISSUED / trừ tồn kho, cộng doanh thu trước khi gọi api cơ quan thuế
+    const phaseFirst = await this.prisma.$transaction(async (tx) => {
+      // Kiểm tra quyền sở hữu và invoice phải ở trạng thái ISSUED, CANCELED, hoặc PENDING_ISSUED
+      const currentInvoice = await this.validateInvoiceAccess(
+        publicId,
+        userId,
+        'UPDATE',
+        tx,
+      );
+      if (currentInvoice.status === 'PENDING_ISSUED') {
+        throw new BadRequestException('Invalid invoice status.');
+      }
+      // Validate details
+      const items = currentInvoice.details.map((d) => {
+        return { productPublicId: d.product.publicId, quantity: d.quantity };
+      });
+      const { totalPayment, resolvedItems } =
+        await this.validateStockAvailability(userId, items);
+      // Cập nhật pending
+      const resPending = await tx.invoice.update({
+        where: { publicId },
+        data: { status: 'PENDING_ISSUED' },
+      });
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.invoices,
+        resPending.id,
+        { status: currentInvoice.status },
+        { status: resPending.status },
+      );
+      // Trừ tồn kho
+      for (const { product, quantity } of resolvedItems) {
+        const updateResult = await tx.product.updateMany({
+          where: {
+            id: product.id,
+            // ĐIỀU KIỆN SỐNG CÒN: chỉ trừ nếu stock vẫn đủ
+            currentStock: { gte: quantity },
+          },
+          data: { currentStock: { decrement: quantity } },
+        });
+
+        if (updateResult.count === 0) {
+          this.log.warn(LOG_ACTIONS.CREATE_INVOICE, {
+            status: LOG_STATUS.FAILED,
+            reason: 'STOCK_CHANGED_CONCURRENTLY',
+            userId,
+            productId: product.id,
+            invoiceSymbol: currentInvoice.invoiceSymbol,
+          });
+          throw new ConflictException(
+            `Stock for "${product.productName}" changed during processing. Please retry.`,
+          );
+        }
+      }
+
+      // Cộng doanh thu
+      const year = new Date().getFullYear();
+      await tx.revenueTracker.upsert({
+        where: {
+          userId_year: { userId, year },
+        },
+        update: {
+          revenueYtd: { increment: resPending.totalPayment },
+        },
+        create: {
+          userId,
+          year,
+          revenueYtd: resPending.totalPayment,
+        },
+      });
+
+      this.log.log(LOG_ACTIONS.INVOICE_CQT_ISSUED + '_PHASE1', {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        publicId,
+      });
     });
 
     // Gọi Mock API
     const result = await this.taxAuthorityService.requestTaxCode(publicId);
 
     if (result.success) {
-      return this.prisma.$transaction(async (tx) => {
-        // Nếu thành công -> Chạy hàm lockInvoice
-        const res = await this.lockInvoice(pendingInvoice, tx, result.cqtCode);
-        const year = res.issuedAt.getFullYear();
-        // Tính vào doanh thu năm
-        await tx.revenueTracker.upsert({
-          where: {
-            userId_year: { userId, year },
-          },
-          update: {
-            revenueYtd: { increment: res.totalPayment },
-          },
-          create: {
+      // Nếu thành công -> Chạy hàm lockInvoice
+      const phaseSecond = await this.lockInvoice(
+        publicId,
+        userId,
+        result.cqtCode,
+      );
+      return mapToDto(InvoiceResponseDto, phaseSecond);
+    } else if (result.success === false) {
+      // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED, hoàn trả hàng vào kho, trừ doanh thu để người dùng bấm 'Retry'
+      const phaseFinally = await this.prisma.$transaction(async (tx) => {
+        const currentInvoice = await tx.invoice.findUnique({
+          where: { publicId },
+        });
+        if (!currentInvoice || currentInvoice.status !== 'PENDING_ISSUED') {
+          this.log.warn('ROLLBACK_ISSUED', {
+            status: LOG_STATUS.FAILED,
+            reason: 'INVOICE_NOT_FOUND_OR_INVALID_STATUS',
             userId,
-            year,
-            revenueYtd: res.totalPayment,
+            publicId,
+          });
+          throw new BadRequestException(
+            'Invalid status invoice while rollback process.',
+          );
+        }
+        const rollbackInvoice = await tx.invoice.update({
+          where: { publicId },
+          data: { status: 'SYNC_FAILED' },
+          include: { details: true },
+        });
+        const details = rollbackInvoice.details;
+        // Hoàn trả tồn kho
+        for (const item of details) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { currentStock: { increment: item.quantity } },
+          });
+        }
+        // Trừ doanh thu
+        const updateRevenue = await tx.revenueTracker.updateMany({
+          where: {
+            userId,
+            year: yearNow,
+            revenueYtd: { gte: rollbackInvoice.totalPayment },
+          },
+          data: {
+            revenueYtd: { decrement: rollbackInvoice.totalPayment },
           },
         });
-        return mapToDto(InvoiceResponseDto, res);
+        return rollbackInvoice;
       });
-    } else {
-      // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED để người dùng bấm 'Retry'
-      const res = await this.prisma.invoice.update({
-        where: { publicId },
-        data: { status: 'SYNC_FAILED' },
-        omit: { id: true },
-      });
-      return mapToDto(InvoiceResponseDto, res);
+      return mapToDto(InvoiceResponseDto, phaseFinally);
     }
   }
 
@@ -501,29 +609,30 @@ export class InvoicesService {
       let finalTotalPayment = invoice.totalPayment;
 
       // Nếu có cập nhật chi tiết hàng hóa
+      if (dto.details) {
+        // Xóa chi tiết cũ
+        await tx.invoiceDetail.deleteMany({
+          where: { invoiceId: invoice.id },
+        });
 
-      // Xóa chi tiết cũ
-      await tx.invoiceDetail.deleteMany({
-        where: { invoiceId: invoice.id },
-      });
+        // 3. Validate
+        const { totalPayment: newTotalPayment, resolvedItems } =
+          await this.validateStockAvailability(userId, dto.details, tx);
 
-      // 3. Validate
-      const { totalPayment: newTotalPayment, resolvedItems } =
-        await this.validateStockAvailability(userId, dto.details, tx);
+        // Tạo chi tiết mới
+        await tx.invoiceDetail.createMany({
+          data: resolvedItems.map(({ product, quantity, lineTotal }) => ({
+            invoiceId: invoice.id,
+            productId: product.id,
+            productNameSnapshot: product.productName,
+            unitPrice: product.sellingPrice,
+            quantity,
+            totalAmount: lineTotal,
+          })),
+        });
 
-      // Tạo chi tiết mới
-      await tx.invoiceDetail.createMany({
-        data: resolvedItems.map(({ product, quantity, lineTotal }) => ({
-          invoiceId: invoice.id,
-          productId: product.id,
-          productNameSnapshot: product.productName,
-          unitPrice: product.sellingPrice,
-          quantity,
-          totalAmount: lineTotal,
-        })),
-      });
-
-      finalTotalPayment = new Decimal(newTotalPayment);
+        finalTotalPayment = new Decimal(newTotalPayment);
+      }
 
       // 4. Cập nhật Invoice Header
       const updatedInvoice = await tx.invoice.update({
@@ -544,7 +653,7 @@ export class InvoicesService {
         },
       });
 
-      // 6. Ghi log audit
+      // 5. Ghi log audit
       await this.auditLog.logChange(
         tx,
         userId,
