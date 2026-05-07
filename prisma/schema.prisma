@@ -470,7 +470,7 @@ model FinancialPeriod {
   endDate           DateTime     @map("end_date") @db.Date
   deadlineDate      DateTime     @map("deadline_date") @db.Date
   status            PeriodStatus @default(OPEN)
-  taxAmount         Decimal      @map("tax_amount") @db.Decimal(18, 4)
+  taxAmount         Decimal      @map("tax_amount") @db.Decimal(18, 4) @default(0.00)
   actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
