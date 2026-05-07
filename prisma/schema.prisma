@@ -466,6 +466,7 @@ model FinancialPeriod {
   publicId          String       @unique @default(cuid()) @map("public_id")
   userId            String       @map("user_id")
   periodName        String       @map("period_name")
+  vatFilingPeriod   FilingPeriod  @default(QUARTERLY) @map("vat_filing_period")
   startDate         DateTime     @map("start_date") @db.Date
   endDate           DateTime     @map("end_date") @db.Date
   deadlineDate      DateTime     @map("deadline_date") @db.Date
@@ -480,6 +481,7 @@ model FinancialPeriod {
 
   @@index([userId, status])
   @@index([userId, startDate, endDate])
+  @@unique([userId, periodName, startDate], name: "userId_periodName_startDate")
   @@map("financial_periods")
 }
 

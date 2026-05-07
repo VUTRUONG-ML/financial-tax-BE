@@ -20,16 +20,16 @@ export class FinancialPeriodsController {
     private readonly financialPeriodsService: FinancialPeriodsService,
   ) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Tạo mới một kỳ tài chính' })
-  @ApiResponse({ status: 201, type: FinancialPeriodResponseDto })
-  async create(
-    @CurrentUser() user: RequestUser,
-    @Body() createDto: CreateFinancialPeriodDto,
-  ): Promise<{ message: string; data: FinancialPeriodResponseDto }> {
-    const data = await this.financialPeriodsService.create(user, createDto);
-    return { message: 'Tạo kỳ tài chính thành công', data };
-  }
+  // @Post()
+  // @ApiOperation({ summary: 'Tạo mới một kỳ tài chính' })
+  // @ApiResponse({ status: 201, type: FinancialPeriodResponseDto })
+  // async create(
+  //   @CurrentUser() user: RequestUser,
+  //   @Body() createDto: CreateFinancialPeriodDto,
+  // ): Promise<{ message: string; data: FinancialPeriodResponseDto }> {
+  //   const data = await this.financialPeriodsService.create(user, createDto);
+  //   return { message: 'Tạo kỳ tài chính thành công', data };
+  // }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Cập nhật kỳ tài chính (chỉ Admin)' })

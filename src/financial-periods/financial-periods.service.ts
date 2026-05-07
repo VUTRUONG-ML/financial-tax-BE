@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { moment } from '../common/utils/time.util';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { CreateFinancialPeriodDto } from './dto/create-financial-period.dto';
 import { UpdateFinancialPeriodDto } from './dto/update-financial-period.dto';
@@ -13,12 +14,13 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import {
   AuditLogService,
   tableWrite,
 } from '../core/audit-log/audit-log.service';
+import { Dayjs } from 'dayjs';
 
 @Injectable()
 export class FinancialPeriodsService {
@@ -29,41 +31,84 @@ export class FinancialPeriodsService {
     private readonly auditLog: AuditLogService,
   ) {}
 
-  async create(
+  async createInitialPeriod(
     user: RequestUser,
-    createDto: CreateFinancialPeriodDto,
+    taxConfigId: string,
+    tx: Prisma.TransactionClient,
   ): Promise<FinancialPeriodResponseDto> {
-    return await this.prisma.$transaction(async (tx) => {
-      const period = await tx.financialPeriod.create({
-        data: {
-          userId: user.id,
-          periodName: createDto.periodName,
-          startDate: new Date(createDto.startDate),
-          endDate: new Date(createDto.endDate),
-          deadlineDate: new Date(createDto.deadlineDate),
-          taxAmount: createDto.taxAmount,
-        },
-      });
-
-      await this.auditLog.logChange(
-        tx,
-        user.id,
-        'CREATE',
-        tableWrite.period,
-        period.id,
-        null,
-        { ...createDto },
-        'Initial financial period for user',
-      );
-
-      this.log.log(LOG_ACTIONS.CREATE_FINANCIAL_PERIOD, {
-        status: LOG_STATUS.SUCCESS,
-        userId: user.id,
-        publicId: period.publicId,
-      });
-
-      return mapToDto(FinancialPeriodResponseDto, period);
+    const taxConfig = await tx.taxConfiguration.findUnique({
+      where: { id: taxConfigId },
     });
+
+    if (!taxConfig) throw new NotFoundException('Tax config not found');
+
+    const filingPeriod = taxConfig.vatFilingPeriod;
+    const now = moment();
+
+    // 1. Xác định startDate/endDate trọn vẹn (Ví dụ: 01/04 - 30/06)
+    const unit: 'quarter' | 'month' =
+      filingPeriod === 'QUARTERLY' ? 'quarter' : 'month';
+    const start = now.clone().startOf(unit);
+    const end = now.clone().endOf(unit);
+
+    // 2. Tính toán DeadlineDate chuẩn xác (Sửa lỗi tháng 30/31 ngày)
+    let deadline: Dayjs;
+    if (filingPeriod === 'MONTHLY') {
+      // Ấn định thẳng ngày 20 của tháng sau, không dùng cộng ngày
+      deadline = end.clone().add(1, 'month').date(20).startOf('day');
+    } else {
+      // Ngày cuối cùng của tháng đầu tiên quý sau
+      deadline = end.clone().add(1, 'month').endOf('month').startOf('day');
+    }
+
+    // 3. Logic dời hạn nộp thuế nếu trùng Thứ 7, Chủ nhật
+    while (deadline.day() === 6 || deadline.day() === 0) {
+      deadline = deadline.add(1, 'day');
+    }
+
+    const periodName =
+      filingPeriod === 'QUARTERLY'
+        ? `Quý ${now.quarter()}/${now.year()}`
+        : `Tháng ${now.format('MM/YYYY')}`;
+
+    // 4. Upsert dựa trên Unique bộ 3 trường em mong muốn
+    const period = await tx.financialPeriod.upsert({
+      where: {
+        userId_periodName_startDate: {
+          userId: user.id,
+          periodName,
+          startDate: start.toDate(),
+        },
+      },
+      update: {},
+      create: {
+        userId: user.id,
+        periodName: periodName,
+        vatFilingPeriod: filingPeriod,
+        startDate: start.toDate(),
+        endDate: end.toDate(),
+        deadlineDate: deadline.toDate(),
+      },
+    });
+
+    // 5. Ghi Audit Log với Metadata chi tiết để BA/PM dễ dàng kiểm tra
+    await this.auditLog.logChange(
+      tx,
+      user.id,
+      'CREATE',
+      tableWrite.period,
+      period.id,
+      null,
+      {
+        periodName,
+        startDate: start,
+        endDate: end,
+        deadlineDate: deadline.format('YYYY-MM-DD'),
+      },
+      'Initial financial period setup',
+    );
+
+    return mapToDto(FinancialPeriodResponseDto, period);
   }
 
   async update(
