@@ -1,0 +1,44 @@
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { FinancialPeriodValidationService } from '../../financial-periods/financial-period-validation.service';
+import { CHECK_PERIOD_KEY } from '../decorators/check-period.decorator';
+import { RequestWithUser } from '../interface/request-with-user.interface';
+import { moment } from '../utils/time.util';
+
+@Injectable()
+export class PeriodLockGuard implements CanActivate {
+  constructor(
+    private reflector: Reflector,
+    private validationService: FinancialPeriodValidationService,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 1. Kiểm tra xem method có gắn decorator @CheckPeriod không
+    const isCheckRequired = this.reflector.getAllAndOverride<boolean>(
+      CHECK_PERIOD_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (!isCheckRequired) return true;
+
+    // 2. Ép kiểu Request để xử lý Type Safe
+    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const user = request.user;
+
+    if (!user || !user.id) return false;
+
+    // Tạm thời dùng thời gian hiện tại (now) theo thống nhất MVP hiện tại
+    const checkDate = moment().toDate();
+
+    /**
+     * TODO: Thảo luận với BA/PM về việc dùng invoiceDate từ body.
+     * Nếu sau này thêm, chỉ cần uncomment dòng dưới và thay checkDate.
+     * const transactionDate = request.body.transactionDate;
+     */
+
+    // 3. Gọi Service check
+    await this.validationService.checkIsPeriodClosed(user.id, checkDate);
+
+    return true;
+  }
+}
