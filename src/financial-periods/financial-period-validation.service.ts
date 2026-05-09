@@ -16,7 +16,7 @@ export class FinancialPeriodValidationService {
    * Nếu kỳ tài chính chứa mốc thời gian đó đã bị CLOSED, ném ra BadRequestException.
    */
   async checkIsPeriodClosed(userId: string, date: Date): Promise<void> {
-    const transactionDateUTC = moment(date).utc().toDate();
+    const transactionDateUTC = moment(date).startOf('day').toDate();
     const closedPeriod = await this.prisma.financialPeriod.findFirst({
       where: {
         userId,

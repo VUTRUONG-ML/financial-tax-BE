@@ -1,11 +1,11 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { moment } from '../common/utils/time.util';
 import { PrismaService } from '../core/prisma/prisma.service';
-import { CreateFinancialPeriodDto } from './dto/create-financial-period.dto';
 import { UpdateFinancialPeriodDto } from './dto/update-financial-period.dto';
 import { FinancialPeriodResponseDto } from './dto/financial-period-response.dto';
 import { RequestUser } from '../common/interface/request-user.interface';
@@ -14,7 +14,7 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { Prisma, Role } from '@prisma/client';
+import { FilingPeriod, Prisma, Role } from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import {
   AuditLogService,
@@ -31,19 +31,11 @@ export class FinancialPeriodsService {
     private readonly auditLog: AuditLogService,
   ) {}
 
-  async createInitialPeriod(
-    user: RequestUser,
-    taxConfigId: string,
-    tx: Prisma.TransactionClient,
-  ): Promise<FinancialPeriodResponseDto> {
-    const taxConfig = await tx.taxConfiguration.findUnique({
-      where: { id: taxConfigId },
-    });
-
-    if (!taxConfig) throw new NotFoundException('Tax config not found');
-
-    const filingPeriod = taxConfig.vatFilingPeriod;
-    const now = moment();
+  private calculatePeriodMetadata(
+    transactionDate: Date,
+    filingPeriod: FilingPeriod,
+  ) {
+    const now = moment(transactionDate).startOf('day');
 
     // 1. Xác định startDate/endDate trọn vẹn (Ví dụ: 01/04 - 30/06)
     const unit: 'quarter' | 'month' =
@@ -70,31 +62,60 @@ export class FinancialPeriodsService {
       filingPeriod === 'QUARTERLY'
         ? `Quý ${now.quarter()}/${now.year()}`
         : `Tháng ${now.format('MM/YYYY')}`;
+    return {
+      start: start.toDate(),
+      end: end.toDate(),
+      deadline: deadline,
+      periodName,
+    };
+  }
 
-    // 4. Upsert dựa trên Unique bộ 3 trường em mong muốn
+  /**
+   * Sử dụng trong lúc người dùng khởi tạo onboarding tax configuration
+   */
+  async createInitialPeriod(
+    userId: string,
+    taxConfigId: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const taxConfig = await tx.taxConfiguration.findUnique({
+      where: { id: taxConfigId },
+    });
+
+    if (!taxConfig) throw new NotFoundException('Tax config not found');
+
+    const filingPeriod = taxConfig.vatFilingPeriod;
+    const now = new Date();
+
+    // 1. Tính toán các mốc thời gian và tên kì thuế phù hợp
+    const { start, end, deadline, periodName } = this.calculatePeriodMetadata(
+      now,
+      filingPeriod,
+    );
+    // 2. Upsert financial period
     const period = await tx.financialPeriod.upsert({
       where: {
         userId_periodName_startDate: {
-          userId: user.id,
+          userId,
           periodName,
-          startDate: start.toDate(),
+          startDate: start,
         },
       },
       update: {},
       create: {
-        userId: user.id,
+        userId,
         periodName: periodName,
         vatFilingPeriod: filingPeriod,
-        startDate: start.toDate(),
-        endDate: end.toDate(),
+        startDate: start,
+        endDate: end,
         deadlineDate: deadline.toDate(),
       },
     });
 
-    // 5. Ghi Audit Log với Metadata chi tiết để BA/PM dễ dàng kiểm tra
+    // 3. Ghi Audit Log với Metadata chi tiết để BA/PM dễ dàng kiểm tra
     await this.auditLog.logChange(
       tx,
-      user.id,
+      userId,
       'CREATE',
       tableWrite.period,
       period.id,
@@ -108,7 +129,14 @@ export class FinancialPeriodsService {
       'Initial financial period setup',
     );
 
-    return mapToDto(FinancialPeriodResponseDto, period);
+    // 4. Ghi log server backend
+    this.log.debug(LOG_ACTIONS.CREATE_FINANCIAL_PERIOD, {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      periodId: period.id,
+      detail: 'Initial financial period setup.',
+    });
+    return period;
   }
 
   async update(
@@ -158,5 +186,85 @@ export class FinancialPeriodsService {
     });
 
     return mapToDto(FinancialPeriodResponseDto, updatedPeriod);
+  }
+
+  /**
+   * Hệ thống tự động khởi tạo financial period khi hóa đơn hiện tại/ngày lập không thuộc một chu kỳ thuế nào
+   * Service sử dụng bên trong hàm tạo invoice
+   */
+  async ensurePeriodExists(
+    userId: string,
+    tx: Prisma.TransactionClient = this.prisma,
+    date: Date,
+  ) {
+    const targetDate = moment(date).startOf('day').toDate();
+
+    // 1. Tìm xem đã có kỳ nào bao phủ ngày này chưa
+    let period = await tx.financialPeriod.findFirst({
+      where: {
+        userId,
+        startDate: { lte: targetDate },
+        endDate: { gte: targetDate },
+      },
+    });
+
+    // 2. Nếu chưa có, tiến hành tạo mới (sử dụng logic tạo kỳ đã thảo luận)
+    if (!period) {
+      const taxConfig = await tx.taxConfiguration.findFirst({
+        where: {
+          userId,
+          applyToDate: null,
+        },
+      });
+      if (!taxConfig) {
+        this.log.warn(LOG_ACTIONS.ENSURE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'TAX_CONFIG_NOT_FOUND',
+          userId,
+        });
+        throw new ConflictException(
+          'User have not been set up tax configuration yet.',
+        );
+      }
+      const { start, end, deadline, periodName } = this.calculatePeriodMetadata(
+        date,
+        taxConfig.vatFilingPeriod,
+      );
+
+      period = await tx.financialPeriod.create({
+        data: {
+          userId,
+          startDate: start,
+          endDate: end,
+          deadlineDate: deadline.toDate(),
+          periodName,
+          vatFilingPeriod: taxConfig.vatFilingPeriod,
+        },
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'CREATE',
+        tableWrite.period,
+        period.id,
+        null,
+        {
+          periodName,
+          startDate: start,
+          endDate: end,
+          deadlineDate: deadline.format('YYYY-MM-DD'),
+        },
+        'The system automatically initiates the financial period',
+      );
+
+      this.log.debug(LOG_ACTIONS.ENSURE_FINANCIAL_PERIOD, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        periodId: period.id,
+        detail: 'The system automatically initiates the financial period.',
+      });
+    }
+    return period;
   }
 }
