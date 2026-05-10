@@ -258,8 +258,12 @@ model Invoice {
   cqtCode  String?   @map("cqt_code")
   issuedAt DateTime? @map("issued_at")
 
+  // Ngày tạo sản phẩm được bán 
+  transactionDate DateTime @map("transaction_date") @default(now())
+
   // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
   @@index([userId, status])
+  @@index([userId, transactionDate])
   @@map("invoices")
 }
 
@@ -316,10 +320,13 @@ model InboundInvoice {
   details  InboundInvoiceDetail[]
   vouchers Voucher[]
 
+  transactionDate DateTime  @map("transaction_date") @default(now())
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId])
+  @@index([userId, transactionDate])
   @@map("inbound_invoices")
 }
 
@@ -339,6 +346,8 @@ model InboundInvoiceDetail {
 
   invoice InboundInvoice @relation(fields: [inboundInvoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   product Product        @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+
 
   @@index([inboundInvoiceId])
   @@index([productId])
@@ -471,6 +480,8 @@ model FinancialPeriod {
   endDate           DateTime     @map("end_date") @db.Date
   deadlineDate      DateTime     @map("deadline_date") @db.Date
   status            PeriodStatus @default(OPEN)
+  vatRateSnapShot   Decimal?      @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot   Decimal?      @map("pit_rate_snapshot") @db.Decimal(5, 4)
   taxAmount         Decimal      @map("tax_amount") @db.Decimal(18, 4) @default(0.00)
   actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
 

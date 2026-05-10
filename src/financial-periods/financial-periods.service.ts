@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -14,13 +15,21 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { FilingPeriod, Prisma, Role } from '@prisma/client';
+import {
+  FilingPeriod,
+  InboundInvoiceStatus,
+  InvoiceStatus,
+  PeriodStatus,
+  Prisma,
+  Role,
+} from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import {
   AuditLogService,
   tableWrite,
 } from '../core/audit-log/audit-log.service';
 import { Dayjs } from 'dayjs';
+import { Decimal } from '@prisma/client/runtime/client';
 
 @Injectable()
 export class FinancialPeriodsService {
@@ -266,5 +275,143 @@ export class FinancialPeriodsService {
       });
     }
     return period;
+  }
+
+  /**
+   * Service dùng để chốt sổ cho người dùng
+   */
+  async closeFinancialPeriod(userId: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      const now = moment().startOf('day').toDate();
+      // 1. Lấy tax config
+      const currentTaxConfig = await tx.taxConfiguration.findFirst({
+        where: { userId, applyToDate: null },
+      });
+      if (!currentTaxConfig) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'TAX_CONFIG_NOT_FOUND',
+          userId,
+        });
+        throw new ConflictException(
+          'You have not set up the tax configuration for this tax period.',
+        );
+      }
+      // 2. Kiểm tra kì thuế hiện tại
+      const currentFp = await tx.financialPeriod.findFirst({
+        where: {
+          userId,
+          startDate: { lte: now },
+          endDate: { gte: now },
+        },
+      });
+      if (!currentFp) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'FINANCIAL_PERIOD_NOT_FOUND_FOR_NOW',
+          userId,
+        });
+        throw new BadRequestException(
+          'You have not yet initiated the tax period.',
+        );
+      }
+      if (currentFp.status === PeriodStatus.CLOSED) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'FINANCIAL_PERIOD_IS_CLOSED',
+          financialPeriodId: currentFp.id,
+          userId,
+        });
+        throw new BadRequestException('The financial period is closed.');
+      }
+      // 3. Kiểm tra danh sách invoice và tính tổng doanh thu issued
+      const invalidInvoiceCount = await tx.invoice.count({
+        where: {
+          userId,
+          transactionDate: { gte: currentFp.startDate, lte: currentFp.endDate },
+          NOT: [
+            { status: InvoiceStatus.ISSUED },
+            { status: InvoiceStatus.CANCELED },
+          ],
+        },
+      });
+      if (invalidInvoiceCount > 0) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'SOME_INVOICE_NOT_FINALIZED',
+          userId,
+        });
+        throw new BadRequestException(
+          'Some invoices are still in draft or sync failed status, please check again.',
+        );
+      }
+      const aggregateInvoice = await tx.invoice.aggregate({
+        _sum: { totalPayment: true },
+        where: {
+          userId,
+          transactionDate: { gte: currentFp.startDate, lte: currentFp.endDate },
+          status: InvoiceStatus.ISSUED, // Chỉ tính các hóa đơn đã phát hành
+        },
+      });
+      const taxableRevenue =
+        aggregateInvoice._sum.totalPayment || new Decimal(0);
+
+      const aggregateInbound = await tx.inboundInvoice.aggregate({
+        _sum: { totalAmount: true },
+        where: {
+          userId,
+          transactionDate: {
+            gte: currentFp.startDate,
+            lte: currentFp.endDate,
+          },
+          status: InboundInvoiceStatus.ACTIVE,
+        },
+      });
+      const expense = aggregateInbound._sum.totalAmount || new Decimal(0);
+      // Dùng service tính thuế với pitRate và vatRate trong taxConfiguration
+      // Trước tiên làm mẫu tiền thuế
+      const totalRate = currentTaxConfig.pitRateSnapShot.add(
+        currentTaxConfig.vatRateSnapShot,
+      );
+      const totalTax = taxableRevenue.sub(expense).mul(totalRate);
+      const updatedFp = await tx.financialPeriod.update({
+        where: {
+          id: currentFp.id,
+        },
+        data: {
+          taxAmount: totalTax,
+          vatRateSnapShot: currentTaxConfig.vatRateSnapShot,
+          pitRateSnapShot: currentTaxConfig.pitRateSnapShot,
+          status: PeriodStatus.CLOSED,
+        },
+      });
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.period,
+        updatedFp.id,
+        {
+          taxAmount: currentFp.taxAmount,
+          vatRateSnapShot: currentFp.vatRateSnapShot,
+          pitRateSnapShot: currentFp.pitRateSnapShot,
+          status: currentFp.status,
+        },
+        {
+          taxAmount: updatedFp.taxAmount,
+          vatRateSnapShot: updatedFp.vatRateSnapShot,
+          pitRateSnapShot: updatedFp.pitRateSnapShot,
+          status: updatedFp.status,
+        },
+        'User close financial period.',
+      );
+      this.log.log(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        financialPeriodId: currentFp.id,
+      });
+      return mapToDto(FinancialPeriodResponseDto, updatedFp);
+    });
   }
 }
