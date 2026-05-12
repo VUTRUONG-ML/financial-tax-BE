@@ -27,14 +27,10 @@ export class PeriodLockGuard implements CanActivate {
 
     if (!user || !user.id) return false;
 
-    // Tạm thời dùng thời gian hiện tại (now) theo thống nhất MVP hiện tại
-    const checkDate = moment().toDate();
-
-    /**
-     * TODO: Thảo luận với BA/PM về việc dùng invoiceDate từ body.
-     * Nếu sau này thêm, chỉ cần uncomment dòng dưới và thay checkDate.
-     * const transactionDate = request.body.transactionDate;
-     */
+    const transactionDate = request.body?.transactionDate;
+    const checkDate = transactionDate
+      ? moment(transactionDate).toDate()
+      : moment().toDate();
 
     // 3. Gọi Service check
     await this.validationService.checkIsPeriodClosed(user.id, checkDate);

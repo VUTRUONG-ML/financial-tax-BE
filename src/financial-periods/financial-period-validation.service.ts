@@ -6,9 +6,12 @@ import {
 import { PrismaService } from '../core/prisma/prisma.service';
 import { moment } from '../common/utils/time.util';
 import { PeriodStatus } from '@prisma/client';
+import { AppLogger } from '../common/logger/app-logger.service';
+import { LOG_ACTIONS } from '../common/constants/log-events.constant';
 
 @Injectable()
 export class FinancialPeriodValidationService {
+  private readonly log = new AppLogger(FinancialPeriodValidationService.name);
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -16,22 +19,24 @@ export class FinancialPeriodValidationService {
    * Nếu kỳ tài chính chứa mốc thời gian đó đã bị CLOSED, ném ra BadRequestException.
    */
   async checkIsPeriodClosed(userId: string, date: Date): Promise<void> {
-    const transactionDateUTC = moment(date).startOf('day').toDate();
+    const transactionDate = moment(date).startOf('day').toDate();
     const closedPeriod = await this.prisma.financialPeriod.findFirst({
       where: {
         userId,
         startDate: {
-          lte: transactionDateUTC,
+          lte: transactionDate,
         },
         endDate: {
-          gte: transactionDateUTC,
+          gte: transactionDate,
         },
       },
     });
     if (!closedPeriod) {
-      throw new NotFoundException(
-        'Financial period not found. Please configure the tax settings before use.',
-      );
+      this.log.debug(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+        userId,
+        content: 'The tax period has not yet been created.',
+      });
+      return;
     }
 
     if (closedPeriod.status === PeriodStatus.CLOSED) {

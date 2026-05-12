@@ -414,4 +414,6 @@ export class FinancialPeriodsService {
       return mapToDto(FinancialPeriodResponseDto, updatedFp);
     });
   }
+
+  async openFinancialPeriod(userId: string) {}
 }
