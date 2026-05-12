@@ -280,7 +280,7 @@ export class FinancialPeriodsService {
   /**
    * Service dùng để chốt sổ cho người dùng
    */
-  async closeFinancialPeriod(userId: string) {
+  async closeFinancialPeriod(userId: string, publicId: string) {
     return await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       const now = moment().startOf('day').toDate();
@@ -298,38 +298,63 @@ export class FinancialPeriodsService {
           'You have not set up the tax configuration for this tax period.',
         );
       }
-      // 2. Kiểm tra kì thuế hiện tại
-      const currentFp = await tx.financialPeriod.findFirst({
+      // 2. Kiểm tra kì thuế
+      const targetFp = await tx.financialPeriod.findUnique({
         where: {
-          userId,
-          startDate: { lte: now },
-          endDate: { gte: now },
+          publicId, // Tìm theo ID cụ thể
         },
       });
-      if (!currentFp) {
+
+      if (!targetFp || targetFp.userId !== userId) {
         this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
           status: LOG_STATUS.FAILED,
-          reason: 'FINANCIAL_PERIOD_NOT_FOUND_FOR_NOW',
+          reason: 'FINANCIAL_PERIOD_NOT_FOUND',
+          userId,
+        });
+        throw new NotFoundException('Financial period not found.');
+      }
+      if (targetFp.endDate > now) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'FINANCIAL_PERIOD_NOT_END',
           userId,
         });
         throw new BadRequestException(
-          'You have not yet initiated the tax period.',
+          'You cannot close an accounting period that has not yet ended.',
         );
       }
-      if (currentFp.status === PeriodStatus.CLOSED) {
+      if (targetFp.status === PeriodStatus.CLOSED) {
         this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
           status: LOG_STATUS.FAILED,
           reason: 'FINANCIAL_PERIOD_IS_CLOSED',
-          financialPeriodId: currentFp.id,
+          financialPeriodId: targetFp.id,
           userId,
         });
         throw new BadRequestException('The financial period is closed.');
+      }
+      // Kiểm tra xem còn kì thuế nào chưa được đóng trước đây ko
+      const openPeriodCount = await tx.financialPeriod.count({
+        where: {
+          userId,
+          status: PeriodStatus.OPEN,
+          endDate: { lt: targetFp.startDate },
+        },
+      });
+      if (openPeriodCount > 0) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PRE_PERIOD_NOT_YET_CLOSE',
+          userId,
+        });
+        throw new BadRequestException(
+          'There are previous tax periods that have not been closed.',
+        );
       }
       // 3. Kiểm tra danh sách invoice và tính tổng doanh thu issued
       const invalidInvoiceCount = await tx.invoice.count({
         where: {
           userId,
-          transactionDate: { gte: currentFp.startDate, lte: currentFp.endDate },
+          transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
           NOT: [
             { status: InvoiceStatus.ISSUED },
             { status: InvoiceStatus.CANCELED },
@@ -350,7 +375,7 @@ export class FinancialPeriodsService {
         _sum: { totalPayment: true },
         where: {
           userId,
-          transactionDate: { gte: currentFp.startDate, lte: currentFp.endDate },
+          transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
           status: InvoiceStatus.ISSUED, // Chỉ tính các hóa đơn đã phát hành
         },
       });
@@ -362,8 +387,8 @@ export class FinancialPeriodsService {
         where: {
           userId,
           transactionDate: {
-            gte: currentFp.startDate,
-            lte: currentFp.endDate,
+            gte: targetFp.startDate,
+            lte: targetFp.endDate,
           },
           status: InboundInvoiceStatus.ACTIVE,
         },
@@ -377,7 +402,7 @@ export class FinancialPeriodsService {
       const totalTax = taxableRevenue.sub(expense).mul(totalRate);
       const updatedFp = await tx.financialPeriod.update({
         where: {
-          id: currentFp.id,
+          id: targetFp.id,
         },
         data: {
           taxAmount: totalTax,
@@ -393,10 +418,10 @@ export class FinancialPeriodsService {
         tableWrite.period,
         updatedFp.id,
         {
-          taxAmount: currentFp.taxAmount,
-          vatRateSnapShot: currentFp.vatRateSnapShot,
-          pitRateSnapShot: currentFp.pitRateSnapShot,
-          status: currentFp.status,
+          taxAmount: targetFp.taxAmount,
+          vatRateSnapShot: targetFp.vatRateSnapShot,
+          pitRateSnapShot: targetFp.pitRateSnapShot,
+          status: targetFp.status,
         },
         {
           taxAmount: updatedFp.taxAmount,
@@ -409,7 +434,7 @@ export class FinancialPeriodsService {
       this.log.log(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
         status: LOG_STATUS.SUCCESS,
         userId,
-        financialPeriodId: currentFp.id,
+        financialPeriodId: targetFp.id,
       });
       return mapToDto(FinancialPeriodResponseDto, updatedFp);
     });
