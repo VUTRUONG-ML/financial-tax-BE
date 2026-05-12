@@ -259,7 +259,7 @@ model Invoice {
   issuedAt DateTime? @map("issued_at")
 
   // Ngày tạo sản phẩm được bán 
-  transactionDate DateTime @map("transaction_date") @default(now())
+  transactionDate DateTime @default(now()) @map("transaction_date")
 
   // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
   @@index([userId, status])
@@ -320,7 +320,7 @@ model InboundInvoice {
   details  InboundInvoiceDetail[]
   vouchers Voucher[]
 
-  transactionDate DateTime  @map("transaction_date") @default(now())
+  transactionDate DateTime @default(now()) @map("transaction_date")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -346,8 +346,6 @@ model InboundInvoiceDetail {
 
   invoice InboundInvoice @relation(fields: [inboundInvoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   product Product        @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-
 
   @@index([inboundInvoiceId])
   @@index([productId])
@@ -475,25 +473,45 @@ model FinancialPeriod {
   publicId          String       @unique @default(cuid()) @map("public_id")
   userId            String       @map("user_id")
   periodName        String       @map("period_name")
-  vatFilingPeriod   FilingPeriod  @default(QUARTERLY) @map("vat_filing_period")
+  vatFilingPeriod   FilingPeriod @default(QUARTERLY) @map("vat_filing_period")
   startDate         DateTime     @map("start_date") @db.Date
   endDate           DateTime     @map("end_date") @db.Date
   deadlineDate      DateTime     @map("deadline_date") @db.Date
   status            PeriodStatus @default(OPEN)
-  vatRateSnapShot   Decimal?      @map("vat_rate_snapshot") @db.Decimal(5, 4)
-  pitRateSnapShot   Decimal?      @map("pit_rate_snapshot") @db.Decimal(5, 4)
-  taxAmount         Decimal      @map("tax_amount") @db.Decimal(18, 4) @default(0.00)
+  vatRateSnapShot   Decimal?     @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot   Decimal?     @map("pit_rate_snapshot") @db.Decimal(5, 4)
+  taxAmount         Decimal      @default(0.00) @map("tax_amount") @db.Decimal(18, 4)
   actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
 
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  taxDeclaration TaxDeclaration?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  @@unique([userId, periodName, startDate], name: "userId_periodName_startDate")
   @@index([userId, status])
   @@index([userId, startDate, endDate])
-  @@unique([userId, periodName, startDate], name: "userId_periodName_startDate")
   @@map("financial_periods")
+}
+
+model TaxDeclaration {
+  id              Int       @id @default(autoincrement())
+  periodId        Int       @unique @map("period_id")
+  declaredRevenue Decimal   @map("declared_revenue") @db.Decimal(18, 4)
+  declaredExpense Decimal   @map("declared_expense") @db.Decimal(18, 4)
+  vatTaxAmount    Decimal   @map("vat_tax_amount") @db.Decimal(18, 4)
+  pitTaxAmount    Decimal   @map("pit_tax_amount") @db.Decimal(18, 4)
+  totalTaxAmount  Decimal   @map("total_tax_amount") @db.Decimal(18, 4)
+  chosenPitMethod PitMethod @map("chosen_pit_method")
+  xmlContent      String    @map("xml_content") @db.Text
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("tax_declarations")
 }
 
 enum FilingPeriod {

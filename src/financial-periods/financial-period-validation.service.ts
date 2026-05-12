@@ -44,5 +44,19 @@ export class FinancialPeriodValidationService {
         `Financial period "${closedPeriod.periodName}" is locked, transactions cannot be processed during this period..`,
       );
     }
+
+    const previousOpenPeriod = await this.prisma.financialPeriod.findFirst({
+      where: {
+        userId,
+        endDate: { lt: closedPeriod.startDate },
+        status: PeriodStatus.OPEN,
+      },
+    });
+
+    if (previousOpenPeriod) {
+      throw new BadRequestException(
+        `You cannot execute a transaction in ${closedPeriod.periodName} because ${previousOpenPeriod.periodName} has not yet been closed.`,
+      );
+    }
   }
 }

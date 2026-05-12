@@ -17,6 +17,7 @@ import {
 } from '../common/constants/log-events.constant';
 import {
   FilingPeriod,
+  FinancialPeriod,
   InboundInvoiceStatus,
   InvoiceStatus,
   PeriodStatus,
@@ -440,5 +441,84 @@ export class FinancialPeriodsService {
     });
   }
 
-  async openFinancialPeriod(userId: string) {}
+  async openFinancialPeriod(userId: string, publicId: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      const periods = await tx.$queryRaw<FinancialPeriod[]>`
+        SELECT * FROM "financial_periods" 
+        WHERE "public_id" = ${publicId} AND "user_id" = ${userId} 
+        FOR UPDATE
+    `;
+
+      const period = periods[0];
+
+      if (!period) {
+        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PERIOD_NOT_FOUND',
+          userId,
+          publicId,
+        });
+        throw new NotFoundException('Financial period not found.');
+      }
+
+      if (period.userId !== userId) {
+        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'ACCESS_DENIED',
+          userId,
+          publicId,
+        });
+        throw new ForbiddenException(
+          'You do not have permission to access this financial period.',
+        );
+      }
+
+      if (period.status === PeriodStatus.OPEN) {
+        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'ALREADY_OPEN',
+          userId,
+          financialPeriodId: period.id,
+        });
+        throw new BadRequestException('The financial period is already open.');
+      }
+
+      if (period.taxDeclaration) {
+        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'TAX_DECLARED_LOCK',
+          userId,
+          financialPeriodId: period.id,
+        });
+        throw new ConflictException(
+          "This period has an associated tax declaration. Reopening the accounting book is blocked to preserve the reported data's legal integrity.",
+        );
+      }
+
+      const updatedFp = await tx.financialPeriod.update({
+        where: { id: period.id },
+        data: { status: PeriodStatus.OPEN },
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.period,
+        updatedFp.id,
+        { status: period.status },
+        { status: updatedFp.status },
+        'User reopened the financial period.',
+      );
+
+      this.log.log(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        financialPeriodId: updatedFp.id,
+        detail: 'OPEN_FINANCIAL_PERIOD',
+      });
+
+      return mapToDto(FinancialPeriodResponseDto, updatedFp);
+    });
+  }
 }
