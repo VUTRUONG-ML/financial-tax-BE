@@ -31,6 +31,7 @@ import {
 } from '../core/audit-log/audit-log.service';
 import { Dayjs } from 'dayjs';
 import { Decimal } from '@prisma/client/runtime/client';
+import { ConfirmTaxPaymentDto } from './dto/confirm-financial-period.dto';
 
 @Injectable()
 export class FinancialPeriodsService {
@@ -283,7 +284,7 @@ export class FinancialPeriodsService {
    */
   async closeFinancialPeriod(userId: string, publicId: string) {
     return await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      await tx.$executeRaw`SELECT id FROM financial_periods WHERE public_id = ${publicId} FOR UPDATE`;
       const now = moment().startOf('day').toDate();
       // 1. Lấy tax config
       const currentTaxConfig = await tx.taxConfiguration.findFirst({
@@ -313,16 +314,6 @@ export class FinancialPeriodsService {
           userId,
         });
         throw new NotFoundException('Financial period not found.');
-      }
-      if (targetFp.endDate > now) {
-        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
-          status: LOG_STATUS.FAILED,
-          reason: 'FINANCIAL_PERIOD_NOT_END',
-          userId,
-        });
-        throw new BadRequestException(
-          'You cannot close an accounting period that has not yet ended.',
-        );
       }
       if (targetFp.status === PeriodStatus.CLOSED) {
         this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
@@ -460,7 +451,7 @@ export class FinancialPeriodsService {
       });
 
       if (!period) {
-        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+        this.log.warn(LOG_ACTIONS.REOPEN_PERIOD, {
           status: LOG_STATUS.FAILED,
           reason: 'PERIOD_NOT_FOUND',
           userId,
@@ -470,7 +461,7 @@ export class FinancialPeriodsService {
       }
 
       if (period.userId !== userId) {
-        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+        this.log.warn(LOG_ACTIONS.REOPEN_PERIOD, {
           status: LOG_STATUS.FAILED,
           reason: 'ACCESS_DENIED',
           userId,
@@ -482,7 +473,7 @@ export class FinancialPeriodsService {
       }
 
       if (period.status === PeriodStatus.OPEN) {
-        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+        this.log.warn(LOG_ACTIONS.REOPEN_PERIOD, {
           status: LOG_STATUS.FAILED,
           reason: 'ALREADY_OPEN',
           userId,
@@ -492,7 +483,7 @@ export class FinancialPeriodsService {
       }
 
       if (period.taxDeclaration) {
-        this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+        this.log.warn(LOG_ACTIONS.REOPEN_PERIOD, {
           status: LOG_STATUS.FAILED,
           reason: 'TAX_DECLARED_LOCK',
           userId,
@@ -500,6 +491,27 @@ export class FinancialPeriodsService {
         });
         throw new ConflictException(
           "This period has an associated tax declaration. Reopening the accounting book is blocked to preserve the reported data's legal integrity.",
+        );
+      }
+
+      // không thể mở kì khi kì tiếp theo của kì này đã đóng
+      const hasNextClosePeriod: boolean =
+        (await tx.financialPeriod.count({
+          where: {
+            userId,
+            startDate: { gte: period.endDate },
+            status: PeriodStatus.CLOSED,
+          },
+        })) > 0;
+
+      if (hasNextClosePeriod) {
+        this.log.warn(LOG_ACTIONS.REOPEN_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'EXIST_NEXT_CLOSE_PERIOD',
+          publicId,
+        });
+        throw new NotFoundException(
+          'The next period of this period has closed.',
         );
       }
 
@@ -519,7 +531,7 @@ export class FinancialPeriodsService {
         'User reopened the financial period.',
       );
 
-      this.log.log(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
+      this.log.log(LOG_ACTIONS.REOPEN_PERIOD, {
         status: LOG_STATUS.SUCCESS,
         userId,
         financialPeriodId: updatedFp.id,
@@ -536,8 +548,9 @@ export class FinancialPeriodsService {
   async finishedTaxPayment(
     userId: string,
     publicId: string,
-    paymentDate: Date,
+    dto: ConfirmTaxPaymentDto,
   ) {
+    const paymentDate = dto.paymentDate;
     return await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra điều kiện status và tờ khai
       const period = await tx.financialPeriod.findUnique({
@@ -568,6 +581,18 @@ export class FinancialPeriodsService {
       if (period.status !== PeriodStatus.CLOSED || !period.taxDeclaration) {
         throw new BadRequestException(
           'The tax period has not been close or no tax return has been filed.',
+        );
+      }
+
+      if (period.startDate > paymentDate) {
+        this.log.log(LOG_ACTIONS.FINISHED_TAX_PAYMENT, {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVALID_PAYMENT_DATE',
+          userId,
+          publicId,
+        });
+        throw new BadRequestException(
+          'You cannot pay your taxes before the start of the period.',
         );
       }
 
