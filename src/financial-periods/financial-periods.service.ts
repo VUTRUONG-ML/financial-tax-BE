@@ -441,15 +441,23 @@ export class FinancialPeriodsService {
     });
   }
 
+  /**
+   * Mở lại kì chưa lập tờ kê khai
+   */
   async openFinancialPeriod(userId: string, publicId: string) {
     return await this.prisma.$transaction(async (tx) => {
-      const periods = await tx.$queryRaw<FinancialPeriod[]>`
-        SELECT * FROM "financial_periods" 
-        WHERE "public_id" = ${publicId} AND "user_id" = ${userId} 
+      await tx.$executeRaw`
+        SELECT id FROM "financial_periods" 
+        WHERE "public_id" = ${publicId} 
         FOR UPDATE
-    `;
+      `;
 
-      const period = periods[0];
+      const period = await tx.financialPeriod.findUnique({
+        where: { publicId: publicId },
+        include: {
+          taxDeclaration: true,
+        },
+      });
 
       if (!period) {
         this.log.warn(LOG_ACTIONS.UPDATE_FINANCIAL_PERIOD, {
@@ -519,6 +527,75 @@ export class FinancialPeriodsService {
       });
 
       return mapToDto(FinancialPeriodResponseDto, updatedFp);
+    });
+  }
+
+  /**
+   * Xác nhận nộp tiền thuế khi đã lập tờ khai
+   */
+  async finishedTaxPayment(
+    userId: string,
+    publicId: string,
+    paymentDate: Date,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Kiểm tra điều kiện status và tờ khai
+      const period = await tx.financialPeriod.findUnique({
+        where: { publicId },
+        include: { taxDeclaration: true },
+      });
+
+      if (!period) {
+        this.log.log(LOG_ACTIONS.FINISHED_TAX_PAYMENT, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PERIOD_NOT_FOUND',
+          userId,
+          publicId,
+        });
+        throw new NotFoundException('Financial period not found.');
+      }
+
+      if (period.userId !== userId) {
+        this.log.log(LOG_ACTIONS.FINISHED_TAX_PAYMENT, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PERIOD_NOT_OWN',
+          userId,
+          publicId,
+        });
+        throw new ForbiddenException('You do not have access period.');
+      }
+
+      if (period.status !== PeriodStatus.CLOSED || !period.taxDeclaration) {
+        throw new BadRequestException(
+          'The tax period has not been close or no tax return has been filed.',
+        );
+      }
+
+      // 2. Cập nhật ngày nộp thực tế
+      const updatedPeriod = await tx.financialPeriod.updateMany({
+        where: { publicId, actualPaymentDate: null },
+        data: { actualPaymentDate: paymentDate },
+      });
+
+      if (updatedPeriod.count === 0) {
+        throw new BadRequestException(
+          'Period not found or repeat the update action.',
+        );
+      }
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.period,
+        period.id,
+        { actualPayment: null },
+        { actualPayment: paymentDate },
+      );
+      return mapToDto(FinancialPeriodResponseDto, {
+        ...period,
+        actualPaymentDate: paymentDate,
+      });
     });
   }
 }
