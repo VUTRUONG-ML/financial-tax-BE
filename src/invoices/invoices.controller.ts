@@ -25,7 +25,7 @@ export class InvoicesController {
 
   // POST /invoices — Tạo hóa đơn mới (status: DRAFT)
   @Post()
-  @CheckPeriod()
+  @CheckPeriod() // Decorator check xem period có đang mở hay không
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
   async createInvoice(
