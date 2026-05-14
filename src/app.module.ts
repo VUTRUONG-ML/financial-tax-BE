@@ -23,6 +23,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
 import { InternalProductionOrdersModule } from './internal-production-orders/internal-production-orders.module';
 import { FinancialPeriodsModule } from './financial-periods/financial-periods.module';
+import { TaxEngineModule } from './tax-engine/tax-engine.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { FinancialPeriodsModule } from './financial-periods/financial-periods.mo
     VoucherCategoriesModule,
     InternalProductionOrdersModule,
     FinancialPeriodsModule,
+    TaxEngineModule,
   ],
   controllers: [AppController],
   providers: [

@@ -32,6 +32,7 @@ import {
 import { Dayjs } from 'dayjs';
 import { Decimal } from '@prisma/client/runtime/client';
 import { ConfirmTaxPaymentDto } from './dto/confirm-financial-period.dto';
+import { TaxEngineService } from '../tax-engine/tax-engine.service';
 
 @Injectable()
 export class FinancialPeriodsService {
@@ -40,6 +41,7 @@ export class FinancialPeriodsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly taxEngine: TaxEngineService,
   ) {}
 
   private calculatePeriodMetadata(
@@ -387,11 +389,12 @@ export class FinancialPeriodsService {
       });
       const expense = aggregateInbound._sum.totalAmount || new Decimal(0);
       // Dùng service tính thuế với pitRate và vatRate trong taxConfiguration
-      // Trước tiên làm mẫu tiền thuế
-      const totalRate = currentTaxConfig.pitRateSnapShot.add(
-        currentTaxConfig.vatRateSnapShot,
+      const taxResult = this.taxEngine.calculateTotalTax(
+        taxableRevenue,
+        expense,
+        currentTaxConfig,
       );
-      const totalTax = taxableRevenue.sub(expense).mul(totalRate);
+      const totalTax = taxResult.totalTaxDue;
       const updatedFp = await tx.financialPeriod.update({
         where: {
           id: targetFp.id,
