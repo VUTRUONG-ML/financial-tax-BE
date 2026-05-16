@@ -1,64 +1,100 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { moment } from '../common/utils/time.util';
 import { PeriodStatus } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
-import { LOG_ACTIONS } from '../common/constants/log-events.constant';
+import { FinancialPeriodsService } from './financial-periods.service';
+import {
+  LOG_ACTIONS,
+  LOG_STATUS,
+} from '../common/constants/log-events.constant';
 
 @Injectable()
 export class FinancialPeriodValidationService {
   private readonly log = new AppLogger(FinancialPeriodValidationService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly period: FinancialPeriodsService,
+  ) {}
 
   /**
-   * Kiểm tra xem giao dịch tại một thời điểm có hợp lệ không.
-   * Nếu kì tài chính cho hành động hiện tại chưa có vẫn cho qua vì trong hành động sẽ tự gọi invoice
-   * Nếu kỳ tài chính chứa mốc thời gian đó đã bị CLOSED, ném ra BadRequestException.
-   * Nếu kỳ tài chính trước kì hiện tại chưa đóng thì ko thể thực hiện các hành động liên quan tới kì tài chính này
+   * Hàm này thực hiện kiểm tra xem hành động hiện tại có thuộc một kì nào không mục đích là để kiểm tra trạng thái đã chốt hay còn mở của kì đó.
+   * Nếu không tồn tại phải đi khởi tạo một kì mới chứa hành động hiện tại, ngược lại thì kiểm tra trạng thái.
+   * Trước khi khởi tạo kì mới nếu kì chứa hành động hiện tại không tồn tại, thì phải kiểm tra có tồn tại kì nào trước đây chưa được chốt hay không (status = OPEN).
+   * Nếu tồn tại kì trước đây chưa được chốt -> ngăn chặn.
+   * @param userId
+   * @param date
+   * @returns FinancialPeriod
    */
-  async checkIsPeriodClosed(userId: string, date: Date): Promise<void> {
+  async getOrCreateAndValidatePeriod(userId: string, date: Date) {
     const transactionDate = moment(date).startOf('day').toDate();
-    const closedPeriod = await this.prisma.financialPeriod.findFirst({
-      where: {
-        userId,
-        startDate: {
-          lte: transactionDate,
-        },
-        endDate: {
-          gte: transactionDate,
-        },
-      },
-    });
-    if (!closedPeriod) {
-      this.log.debug(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
-        userId,
-        content: 'The tax period has not yet been created.',
+
+    return await this.prisma.$transaction(async (tx) => {
+      // KỸ THUẬT CỐT LÕI (Pessimistic Lock): Khóa luồng xử lý theo từng userId độc lập
+      await tx.user.update({
+        where: { id: userId },
+        data: {},
       });
-      return;
-    }
 
-    if (closedPeriod.status === PeriodStatus.CLOSED) {
-      throw new BadRequestException(
-        `Financial period "${closedPeriod.periodName}" is locked, transactions cannot be processed during this period..`,
-      );
-    }
+      // 1. Tìm kiếm kỳ tài chính chứa mốc thời gian giao dịch
+      // Lúc này, luồng chạy vào đây đã là duy nhất (Sequential) đối với user này
+      let currentPeriod = await tx.financialPeriod.findFirst({
+        where: {
+          userId,
+          startDate: { lte: transactionDate },
+          endDate: { gte: transactionDate },
+        },
+      });
 
-    const previousOpenPeriod = await this.prisma.financialPeriod.findFirst({
-      where: {
+      // 2. Nếu chưa có kì, tiến hành khởi tạo tự động
+      if (!currentPeriod) {
+        const startOfMonth = moment(transactionDate).startOf('month').toDate();
+
+        // CHẶN: Kiểm tra xem kỳ tài chính liền trước đã đóng (CLOSED) chưa
+        // Tìm các kì kết thúc trước tháng của transactionDate (startOfMonth)
+        const isPreviousOpenPeriod =
+          (await tx.financialPeriod.count({
+            where: {
+              userId,
+              endDate: { lte: startOfMonth },
+              status: PeriodStatus.OPEN,
+            },
+          })) > 0;
+
+        if (isPreviousOpenPeriod) {
+          this.log.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+            status: LOG_STATUS.FAILED,
+            reason: 'PRE_OPEN_PERIOD_EXISTS',
+            userId,
+          });
+          throw new BadRequestException(
+            `Cannot create new period. Previous open period exists.`,
+          );
+        }
+
+        currentPeriod = await this.period.ensurePeriodExists(
+          userId,
+          tx,
+          transactionDate,
+        );
+      }
+
+      // 3. CHẶN: Nếu kỳ tài chính chứa mốc thời gian đó đã bị CLOSED
+      if (currentPeriod.status === PeriodStatus.CLOSED) {
+        this.log.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PERIOD_LOCKED',
+          userId,
+        });
+        throw new BadRequestException(
+          `Financial period ${currentPeriod.periodName} is locked, transactions cannot be processed during this period.`,
+        );
+      }
+      this.log.debug(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+        status: LOG_STATUS.SUCCESS,
         userId,
-        endDate: { lte: closedPeriod.startDate },
-        status: PeriodStatus.OPEN,
-      },
+      });
+      return currentPeriod;
     });
-
-    if (previousOpenPeriod) {
-      throw new BadRequestException(
-        `You cannot execute a transaction in ${closedPeriod.periodName} because ${previousOpenPeriod.periodName} has not yet been closed.`,
-      );
-    }
   }
 }

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { PitMethod } from '@prisma/client';
 import { TAX_QUARTER_COOLDOWN_MS } from '../common/constants/tax-period-time.constant';
+import { MAX_EFFECTIVE_DATE } from 'src/common/constants/tax-config.constant';
 
 // ─── MOCK FACTORIES ─────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ const mockActiveConfig = (overrides = {}) => ({
   industryId: MOCK_TAX_CATEGORY_ID,
   taxGroupId: MOCK_TAX_GROUP_ID,
   applyFromDate: new Date(Date.now() - TAX_QUARTER_COOLDOWN_MS - 1000), // Đã qua đủ 90 ngày
-  applyToDate: null,
+  applyToDate: MAX_EFFECTIVE_DATE,
   vatRateSnapShot: 0.05,
   pitRateSnapShot: 0.02,
   ...overrides,
@@ -306,7 +307,7 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             id: activeConfig.id,
-            applyToDate: null,
+            applyToDate: MAX_EFFECTIVE_DATE,
           }),
           data: expect.objectContaining({ applyToDate: expect.any(Date) }),
         }),

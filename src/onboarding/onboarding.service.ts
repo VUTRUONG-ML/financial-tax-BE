@@ -19,6 +19,8 @@ import {
 import { TAX_QUARTER_COOLDOWN_MS } from '../common/constants/tax-period-time.constant';
 import { Decimal } from '@prisma/client/runtime/client';
 import { PitMethod, Prisma } from '@prisma/client';
+import { MAX_EFFECTIVE_DATE } from '../common/constants/tax-config.constant';
+import { moment } from '../common/utils/time.util';
 
 @Injectable()
 export class OnboardingService {
@@ -178,7 +180,7 @@ export class OnboardingService {
       // Check thêm taxGroup tồn tại hay không ở đây (tương tự như industry)
       const defaultPitMethod = await this.findTaxGroupValid(dto.taxGroupId, tx);
 
-      const now = new Date();
+      const now = moment().startOf('day').toDate();
 
       // 3. Tạo cấu hình mới (Mở applyFromDate) và lưu Snapshot của Tỷ lệ thuế
       const newConfig = await tx.taxConfiguration.create({
@@ -188,6 +190,7 @@ export class OnboardingService {
           taxGroupId: dto.taxGroupId,
           chosenPitMethod: defaultPitMethod,
           applyFromDate: now,
+          applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
           pitRateSnapShot: taxRates.pitRate,
         },
@@ -227,10 +230,14 @@ export class OnboardingService {
   ) {
     const { industryId, taxGroupId } = dto;
     return this.prisma.$transaction(async (tx) => {
-      const now = new Date();
+      const now = moment().startOf('day').toDate();
       // 1. Tìm cấu hình đang Active
       const currentActiveConfig = await tx.taxConfiguration.findFirst({
-        where: { userId: userId, applyToDate: null },
+        where: {
+          userId: userId,
+          applyFromDate: { lte: now },
+          applyToDate: MAX_EFFECTIVE_DATE,
+        },
       });
 
       if (!currentActiveConfig) {
@@ -244,7 +251,7 @@ export class OnboardingService {
         );
       }
 
-      // 2. Kiểm tra xem có phải hệ thống không
+      // 2. Kiểm tra xem có phải hệ thống không để kiểm tra xem qua mốc thời gian được update tax config chưa (khoảng thời gian TAX_QUARTER_COOLDOWN_MS)
       if (!options?.isSystemAutoUpgrade) {
         const timeSinceLastChange =
           now.getTime() - currentActiveConfig.applyFromDate.getTime();
@@ -275,7 +282,7 @@ export class OnboardingService {
       const closeResult = await tx.taxConfiguration.updateMany({
         where: {
           id: currentActiveConfig.id,
-          applyToDate: null, // Điều kiện sống còn: Chỉ đóng nếu nó CHƯA BỊ ĐÓNG
+          applyToDate: MAX_EFFECTIVE_DATE, // Điều kiện sống còn: Chỉ đóng nếu nó CHƯA BỊ ĐÓNG
         },
         data: { applyToDate: now },
       });
@@ -299,8 +306,8 @@ export class OnboardingService {
         'UPDATE',
         tableWrite.tax_configurations,
         currentActiveConfig.id,
-        currentActiveConfig,
-        { ...currentActiveConfig, applyToDate: now },
+        { applyToDate: currentActiveConfig.applyToDate },
+        { applyToDate: now },
       );
 
       // 5. Tạo cấu hình mới
@@ -311,7 +318,7 @@ export class OnboardingService {
           taxGroupId: dto.taxGroupId,
           chosenPitMethod: defaultPitMethod,
           applyFromDate: now,
-          applyToDate: null,
+          applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
           pitRateSnapShot: taxRates.pitRate,
         },

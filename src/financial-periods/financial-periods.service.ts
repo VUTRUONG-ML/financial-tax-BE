@@ -221,12 +221,13 @@ export class FinancialPeriodsService {
       },
     });
 
-    // 2. Nếu chưa có, tiến hành tạo mới (sử dụng logic tạo kỳ đã thảo luận)
+    // 2. Nếu chưa có, tiến hành tạo mới
     if (!period) {
       const taxConfig = await tx.taxConfiguration.findFirst({
         where: {
           userId,
-          applyToDate: null,
+          applyFromDate: { lte: targetDate },
+          applyToDate: { gte: targetDate },
         },
       });
       if (!taxConfig) {
@@ -290,7 +291,11 @@ export class FinancialPeriodsService {
       const now = moment().startOf('day').toDate();
       // 1. Lấy tax config
       const currentTaxConfig = await tx.taxConfiguration.findFirst({
-        where: { userId, applyToDate: null },
+        where: {
+          userId,
+          applyFromDate: { lte: now },
+          applyToDate: { gte: now },
+        },
       });
       if (!currentTaxConfig) {
         this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {

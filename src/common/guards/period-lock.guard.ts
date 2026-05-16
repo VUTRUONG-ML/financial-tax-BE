@@ -22,7 +22,9 @@ export class PeriodLockGuard implements CanActivate {
     if (!isCheckRequired) return true;
 
     // 2. Ép kiểu Request để xử lý Type Safe
-    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const request = context
+      .switchToHttp()
+      .getRequest<RequestWithUser & { financialPeriodId?: number }>();
     const user = request.user;
 
     if (!user || !user.id) return false;
@@ -33,8 +35,11 @@ export class PeriodLockGuard implements CanActivate {
       : moment().toDate();
 
     // 3. Gọi Service check
-    await this.validationService.checkIsPeriodClosed(user.id, checkDate);
-
+    const period = await this.validationService.getOrCreateAndValidatePeriod(
+      user.id,
+      checkDate,
+    );
+    request.financialPeriodId = period.id;
     return true;
   }
 }

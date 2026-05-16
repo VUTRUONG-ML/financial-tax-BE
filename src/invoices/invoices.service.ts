@@ -26,6 +26,7 @@ import { InvoiceResponseDto } from './dto/response-invoice.dto';
 import { CreateInvoiceDetailDto } from './dto/create-invoice-detail.dto';
 import { Decimal } from '@prisma/client/runtime/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { moment } from '../common/utils/time.util';
 
 @Injectable()
 export class InvoicesService {
@@ -223,7 +224,7 @@ export class InvoicesService {
       });
     }
 
-    const now = new Date();
+    const now = moment().toDate();
     await tx.invoice.update({
       where: {
         publicId,
