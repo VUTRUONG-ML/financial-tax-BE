@@ -83,10 +83,12 @@ export class InvoicesController {
   async cancelInvoice(
     @Param('invoicePublicId') invPublicId: string,
     @CurrentUser('id') userId: string,
+    @Body('cancellationReason') cancellationReason: string,
   ) {
     const result = await this.invoicesService.canceledInvoice(
       invPublicId,
       userId,
+      cancellationReason,
     );
     return {
       message: 'Invoice canceled success.',

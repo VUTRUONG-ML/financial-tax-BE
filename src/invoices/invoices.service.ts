@@ -74,7 +74,10 @@ export class InvoicesService {
         });
         throw new NotFoundException(`Product not found: ${productPublicId}`);
       }
-      if (product.currentStock < quantity) {
+      if (
+        product.productType !== 'SERVICE' &&
+        product.currentStock < quantity
+      ) {
         this.log.warn('VALIDATE_STOCK', {
           status: LOG_STATUS.FAILED,
           reason: 'OUT_OF_STOCK',
@@ -282,6 +285,20 @@ export class InvoicesService {
       // 1. Tạo Invoice header
       const invoiceSymbol = generateInvoiceSymbol();
 
+      const nowTime = new Date();
+      const activeTaxConfig = await tx.taxConfiguration.findFirst({
+        where: {
+          userId,
+          applyFromDate: { lte: nowTime },
+          applyToDate: { gte: nowTime },
+        },
+        orderBy: { applyFromDate: 'desc' },
+      });
+      const taxRate = activeTaxConfig
+        ? activeTaxConfig.vatRateSnapShot
+        : new Decimal(0);
+      const taxPayable = new Decimal(totalPayment).mul(taxRate);
+
       const invoice = await tx.invoice.create({
         data: {
           userId,
@@ -290,6 +307,11 @@ export class InvoicesService {
           buyerName: dto.buyerName,
           buyerTaxCode: dto.buyerTaxCode,
           buyerAddress: dto.buyerAddress,
+          buyerEmail: dto.buyerEmail,
+          buyerIdNumber: dto.buyerIdNumber,
+          paymentMethod: dto.paymentMethod,
+          taxRate,
+          taxPayable,
           totalPayment,
           // status mặc định DRAFT, isPaid mặc định false (từ schema)
         },
@@ -302,6 +324,8 @@ export class InvoicesService {
           productId: product.id,
           // SNAPSHOT: ghi chết tên & giá tại thời điểm bán
           productNameSnapshot: product.productName,
+          unit: product.unit,
+          productType: product.productType,
           unitPrice: product.sellingPrice,
           quantity,
           totalAmount: lineTotal,
@@ -414,6 +438,7 @@ export class InvoicesService {
       );
       // Trừ tồn kho
       for (const { product, quantity } of resolvedItems) {
+        if (product.productType === 'SERVICE') continue;
         const updateResult = await tx.product.updateMany({
           where: {
             id: product.id,
@@ -543,7 +568,11 @@ export class InvoicesService {
   }
 
   // Huy hoa don
-  async canceledInvoice(invPublicId: string, userId: string) {
+  async canceledInvoice(
+    invPublicId: string,
+    userId: string,
+    cancellationReason: string,
+  ) {
     // Kiem tra own
     const invoice = await this.validateInvoiceAccess(
       invPublicId,
@@ -556,7 +585,7 @@ export class InvoicesService {
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedInvoice = await tx.invoice.updateMany({
         where: { id: invoice.id, status: 'ISSUED' },
-        data: { status: 'CANCELED' },
+        data: { status: 'CANCELED', cancellationReason },
       });
       if (updatedInvoice.count === 0) {
         this.log.warn(LOG_ACTIONS.CANCEL_INVOICE, {
@@ -637,8 +666,13 @@ export class InvoicesService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 'id' FROM 'invoices' WHERE 'public_id' = ${publicId}`;
-      let finalTotalPayment = invoice.totalPayment;
+      await tx.invoice.update({
+        where: { publicId },
+        data: {},
+      });
+      let finalTotalPayment = new Decimal(invoice.totalPayment);
+      let finalTaxPayable = new Decimal(invoice.taxPayable);
+      let finalTaxRate = new Decimal(invoice.taxRate);
 
       // 3. Nếu có cập nhật chi tiết hàng hóa
       if (dto.details) {
@@ -668,11 +702,27 @@ export class InvoicesService {
         }
 
         // Tạo chi tiết mới
+        const nowTime = new Date();
+        const activeTaxConfig = await tx.taxConfiguration.findFirst({
+          where: {
+            userId,
+            applyFromDate: { lte: nowTime },
+            applyToDate: { gte: nowTime },
+          },
+          orderBy: { applyFromDate: 'desc' },
+        });
+        finalTaxRate = activeTaxConfig
+          ? activeTaxConfig.vatRateSnapShot
+          : new Decimal(0);
+        finalTaxPayable = new Decimal(newTotalPayment).mul(finalTaxRate);
+
         await tx.invoiceDetail.createMany({
           data: resolvedItems.map(({ product, quantity, lineTotal }) => ({
             invoiceId: invoice.id,
             productId: product.id,
             productNameSnapshot: product.productName,
+            unit: product.unit,
+            productType: product.productType,
             unitPrice: product.sellingPrice,
             quantity,
             totalAmount: lineTotal,
@@ -686,17 +736,17 @@ export class InvoicesService {
       const updatedInvoice = await tx.invoice.update({
         where: { id: invoice.id },
         data: {
-          isB2C: dto.isB2C ?? invoice.isB2C,
-          buyerName:
-            dto.buyerName !== undefined ? dto.buyerName : invoice.buyerName,
-          buyerTaxCode:
-            dto.buyerTaxCode !== undefined
-              ? dto.buyerTaxCode
-              : invoice.buyerTaxCode,
-          buyerAddress:
-            dto.buyerAddress !== undefined
-              ? dto.buyerAddress
-              : invoice.buyerAddress,
+          isB2C: dto.isB2C ?? undefined,
+          buyerName: dto.buyerName ?? undefined,
+          buyerTaxCode: dto.buyerTaxCode ?? undefined,
+          buyerAddress: dto.buyerAddress ?? undefined,
+
+          buyerEmail: dto.buyerEmail ?? undefined,
+          buyerIdNumber: dto.buyerIdNumber ?? undefined,
+          paymentMethod: dto.paymentMethod ?? undefined,
+
+          taxRate: finalTaxRate,
+          taxPayable: finalTaxPayable,
           totalPayment: finalTotalPayment,
         },
       });

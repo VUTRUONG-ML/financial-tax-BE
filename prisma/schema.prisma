@@ -235,13 +235,20 @@ model Invoice {
   isB2C Boolean @default(true) @map("is_b2c")
 
   // Thông tin người mua (optional với B2C)
-  buyerName    String? @map("buyer_name")
-  buyerTaxCode String? @map("buyer_tax_code")
-  buyerAddress String? @map("buyer_address")
+  buyerName     String? @map("buyer_name")
+  buyerTaxCode  String? @map("buyer_tax_code")
+  buyerAddress  String? @map("buyer_address")
+  buyerEmail    String? @map("buyer_email")
+  buyerIdNumber String? @map("buyer_id_number")
 
-  totalPayment Decimal @map("total_payment") @db.Decimal(18, 4)
+  paymentMethod PaymentMethod @default(CASH) @map("payment_method")
 
-  status InvoiceStatus @default(DRAFT)
+  taxRate       Decimal @default(0) @map("tax_rate") @db.Decimal(5, 4)
+  taxPayable    Decimal @default(0) @map("tax_payable") @db.Decimal(18, 4)
+  totalPayment  Decimal @map("total_payment") @db.Decimal(18, 4)
+
+  status             InvoiceStatus @default(DRAFT)
+  cancellationReason String?       @map("cancellation_reason")
 
   // Trạng thái thu tiền — tách biệt với status phát hành
   isPaid     Boolean @default(false) @map("is_paid")
@@ -274,8 +281,10 @@ model InvoiceDetail {
   productId Int @map("product_id")
 
   // SNAPSHOT — lưu chết tên & đơn giá tại thời điểm bán để bảo vệ tính bất biến chứng từ
-  productNameSnapshot String  @map("product_name_snapshot")
-  unitPrice           Decimal @map("unit_price") @db.Decimal(18, 4)
+  productNameSnapshot String      @map("product_name_snapshot")
+  unit                String      @map("unit")
+  productType         ProductType @map("product_type")
+  unitPrice           Decimal     @map("unit_price") @db.Decimal(18, 4)
 
   quantity    Int     @default(1)
   totalAmount Decimal @map("total_amount") @db.Decimal(18, 4)

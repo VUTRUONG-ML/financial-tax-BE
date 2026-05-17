@@ -6,8 +6,10 @@ import {
   IsOptional,
   IsString,
   ValidateNested,
+  IsEnum,
 } from 'class-validator';
 import { CreateInvoiceDetailDto } from './create-invoice-detail.dto';
+import { PaymentMethod } from '@prisma/client';
 
 export class CreateInvoiceDto {
   /**
@@ -31,6 +33,17 @@ export class CreateInvoiceDto {
   @IsString()
   @IsOptional()
   buyerAddress?: string;
+
+  @IsString()
+  @IsOptional()
+  buyerEmail?: string;
+
+  @IsString()
+  @IsOptional()
+  buyerIdNumber?: string;
+
+  @IsEnum(PaymentMethod)
+  paymentMethod!: PaymentMethod;
 
   /**
    * Danh sách hàng hóa trong hóa đơn. Tối thiểu 1 dòng.

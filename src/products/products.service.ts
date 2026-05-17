@@ -246,6 +246,8 @@ export class ProductsService {
       if (!currentProduct)
         throw new NotFoundException(`Product ID ${productId} not found.`);
 
+      if (currentProduct.productType === 'SERVICE') continue;
+
       const isDecrement = mode === 'DECREMENT';
 
       const updateResult = await tx.product.updateMany({
