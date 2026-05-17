@@ -3,49 +3,49 @@ import { Exclude, Expose, Type } from 'class-transformer';
 @Exclude()
 export class RevenueProgressDto {
   @Expose()
-  totalCurrentRevenue: number;
+  totalCurrentRevenue!: number;
 
   @Expose()
-  warningLevel: 'GREEN' | 'YELLOW' | 'RED';
+  warningLevel!: 'GREEN' | 'YELLOW' | 'RED';
 
   @Expose()
-  nextThreshold: number;
+  nextThreshold!: number;
 
   @Expose()
-  percentage: number;
+  percentage!: number;
 }
 
 @Exclude()
 export class TaxDeclarationCardDto {
   @Expose()
-  periodId: string;
+  periodId!: string;
 
   @Expose()
-  periodName: string;
+  periodName!: string;
 
   @Expose()
-  status: string;
+  status!: string;
 
   @Expose()
-  deadlineDate: string;
+  deadlineDate!: string;
 
   @Expose()
-  isOverdue: boolean;
+  isOverdue!: boolean;
 
   @Expose()
-  daysOverdue: number;
+  daysOverdue!: number;
 
   @Expose()
-  estimatedPenalty: number;
+  estimatedPenalty!: number;
 }
 
 @Exclude()
 export class DashboardSummaryResponseDto {
   @Expose()
   @Type(() => RevenueProgressDto)
-  revenueProgress: RevenueProgressDto;
+  revenueProgress!: RevenueProgressDto;
 
   @Expose()
   @Type(() => TaxDeclarationCardDto)
-  taxDeclarationCard: TaxDeclarationCardDto | null;
+  taxDeclarationCard!: TaxDeclarationCardDto | null;
 }
