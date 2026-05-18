@@ -88,7 +88,7 @@ export class InvoiceResponseDto {
   cancellationReason!: string;
 
   @Expose()
-  issuedAt!: Date;
+  issueDate!: Date;
 
   @Expose()
   createdAt!: Date;

@@ -45,11 +45,8 @@ export class FinancialPeriodsService {
     private readonly taxEngine: TaxEngineService,
   ) {}
 
-  private calculatePeriodMetadata(
-    transactionDate: Date,
-    filingPeriod: FilingPeriod,
-  ) {
-    const now = moment(transactionDate).startOf('day');
+  private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
+    const now = moment(issueDate).startOf('day');
 
     // 1. Xác định startDate/endDate trọn vẹn (Ví dụ: 01/04 - 30/06)
     const unit: 'quarter' | 'month' =
@@ -368,7 +365,7 @@ export class FinancialPeriodsService {
       const invalidInvoiceCount = await tx.invoice.count({
         where: {
           userId,
-          transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+          issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
           NOT: [
             { status: InvoiceStatus.ISSUED },
             { status: InvoiceStatus.CANCELED },
@@ -389,7 +386,7 @@ export class FinancialPeriodsService {
         _sum: { totalPayment: true },
         where: {
           userId,
-          transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+          issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
           status: InvoiceStatus.ISSUED, // Chỉ tính các hóa đơn đã phát hành
         },
       });
@@ -400,7 +397,7 @@ export class FinancialPeriodsService {
         _sum: { totalAmount: true },
         where: {
           userId,
-          transactionDate: {
+          issueDate: {
             gte: targetFp.startDate,
             lte: targetFp.endDate,
           },
@@ -692,7 +689,7 @@ export class FinancialPeriodsService {
       _sum: { totalPayment: true },
       where: {
         userId,
-        transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+        issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
         status: InvoiceStatus.ISSUED,
       },
     });
@@ -702,7 +699,7 @@ export class FinancialPeriodsService {
       _sum: { totalAmount: true },
       where: {
         userId,
-        transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+        issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
         status: InboundInvoiceStatus.ACTIVE,
       },
     });

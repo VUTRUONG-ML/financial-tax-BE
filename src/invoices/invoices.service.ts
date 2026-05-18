@@ -235,7 +235,6 @@ export class InvoicesService {
       data: {
         status: 'ISSUED',
         cqtCode,
-        issuedAt: now,
       },
     });
 
@@ -245,8 +244,8 @@ export class InvoicesService {
       'UPDATE',
       tableWrite.invoices,
       invoice.id,
-      { status: invoice.status, cqtCode: null, issuedAt: null },
-      { status: 'ISSUED', cqtCode, issuedAt: now },
+      { status: invoice.status, cqtCode: null },
+      { status: 'ISSUED', cqtCode },
     );
 
     this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
@@ -257,7 +256,7 @@ export class InvoicesService {
 
     // GHI VAO SỔ S01 (doanh thu) ------------------
     // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
-    return { ...invoice, status: 'ISSUED', cqtCode, issuedAt: now };
+    return { ...invoice, status: 'ISSUED', cqtCode };
   }
 
   /**
@@ -621,7 +620,7 @@ export class InvoicesService {
       // Trừ doanh thu
       await tx.revenueTracker.update({
         where: {
-          userId_year: { userId, year: invoice.transactionDate.getFullYear() },
+          userId_year: { userId, year: invoice.issueDate.getFullYear() },
         },
         data: { revenueYtd: { decrement: invoice.totalPayment } },
       });
@@ -694,7 +693,7 @@ export class InvoicesService {
           await tx.revenueTracker.updateMany({
             where: {
               userId,
-              year: invoice.transactionDate.getFullYear(),
+              year: invoice.issueDate.getFullYear(),
               revenueYtd: { gte: deltaPayment },
             },
             data: { revenueYtd: { increment: deltaPayment } },
@@ -809,7 +808,7 @@ export class InvoicesService {
       await tx.revenueTracker.updateMany({
         where: {
           userId,
-          year: invoice.transactionDate.getFullYear(),
+          year: invoice.issueDate.getFullYear(),
           revenueYtd: { gte: invoice.totalPayment },
         },
         data: { revenueYtd: { decrement: invoice.totalPayment } },

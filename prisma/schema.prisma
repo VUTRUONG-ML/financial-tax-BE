@@ -243,9 +243,9 @@ model Invoice {
 
   paymentMethod PaymentMethod @default(CASH) @map("payment_method")
 
-  taxRate       Decimal @default(0) @map("tax_rate") @db.Decimal(5, 4)
-  taxPayable    Decimal @default(0) @map("tax_payable") @db.Decimal(18, 4)
-  totalPayment  Decimal @map("total_payment") @db.Decimal(18, 4)
+  taxRate      Decimal @default(0) @map("tax_rate") @db.Decimal(5, 4)
+  taxPayable   Decimal @default(0) @map("tax_payable") @db.Decimal(18, 4)
+  totalPayment Decimal @map("total_payment") @db.Decimal(18, 4)
 
   status             InvoiceStatus @default(DRAFT)
   cancellationReason String?       @map("cancellation_reason")
@@ -262,15 +262,14 @@ model Invoice {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // Thông tin khi cơ quan thuế cấp mã 
-  cqtCode  String?   @map("cqt_code")
-  issuedAt DateTime? @map("issued_at")
+  cqtCode String? @map("cqt_code")
 
-  // Ngày tạo sản phẩm được bán 
-  transactionDate DateTime @default(now()) @map("transaction_date")
+  // Ngày phát hành hóa đơn (thay thế transactionDate và issuedAt)
+  issueDate DateTime @default(now()) @map("issue_date")
 
   // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
   @@index([userId, status])
-  @@index([userId, transactionDate])
+  @@index([userId, issueDate])
   @@map("invoices")
 }
 
@@ -329,13 +328,11 @@ model InboundInvoice {
   details  InboundInvoiceDetail[]
   vouchers Voucher[]
 
-  transactionDate DateTime @default(now()) @map("transaction_date")
-
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId])
-  @@index([userId, transactionDate])
+  @@index([userId, issueDate])
   @@map("inbound_invoices")
 }
 

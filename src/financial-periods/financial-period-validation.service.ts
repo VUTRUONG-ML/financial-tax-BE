@@ -27,7 +27,7 @@ export class FinancialPeriodValidationService {
    * @returns FinancialPeriod
    */
   async getOrCreateAndValidatePeriod(userId: string, date: Date) {
-    const transactionDate = moment(date).startOf('day').toDate();
+    const issueDate = moment(date).startOf('day').toDate();
 
     return await this.prisma.$transaction(async (tx) => {
       // KỸ THUẬT CỐT LÕI (Pessimistic Lock): Khóa luồng xử lý theo từng userId độc lập
@@ -41,17 +41,17 @@ export class FinancialPeriodValidationService {
       let currentPeriod = await tx.financialPeriod.findFirst({
         where: {
           userId,
-          startDate: { lte: transactionDate },
-          endDate: { gte: transactionDate },
+          startDate: { lte: issueDate },
+          endDate: { gte: issueDate },
         },
       });
 
       // 2. Nếu chưa có kì, tiến hành khởi tạo tự động
       if (!currentPeriod) {
-        const startOfMonth = moment(transactionDate).startOf('month').toDate();
+        const startOfMonth = moment(issueDate).startOf('month').toDate();
 
         // CHẶN: Kiểm tra xem kỳ tài chính liền trước đã đóng (CLOSED) chưa
-        // Tìm các kì kết thúc trước tháng của transactionDate (startOfMonth)
+        // Tìm các kì kết thúc trước tháng của issueDate (startOfMonth)
         const isPreviousOpenPeriod =
           (await tx.financialPeriod.count({
             where: {
@@ -75,7 +75,7 @@ export class FinancialPeriodValidationService {
         currentPeriod = await this.period.ensurePeriodExists(
           userId,
           tx,
-          transactionDate,
+          issueDate,
         );
       }
 
