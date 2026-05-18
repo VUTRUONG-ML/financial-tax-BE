@@ -21,6 +21,7 @@ import { FinancialPeriodResponseDto } from './dto/financial-period-response.dto'
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/interface/request-user.interface';
 import { ConfirmTaxPaymentDto } from './dto/confirm-financial-period.dto';
+import { CloseFinancialPeriodDto } from './dto/close-financial-period.dto';
 
 @ApiTags('Financial Periods')
 @ApiBearerAuth()
@@ -47,10 +48,12 @@ export class FinancialPeriodsController {
   async closePeriod(
     @CurrentUser() user: RequestUser,
     @Param('id') publicId: string,
+    @Body() dto: CloseFinancialPeriodDto,
   ) {
     const data = await this.financialPeriodsService.closeFinancialPeriod(
       user.id,
       publicId,
+      dto,
     );
     return { message: 'Close financial period success.', data };
   }

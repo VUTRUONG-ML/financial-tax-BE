@@ -9,6 +9,7 @@ import { moment } from '../common/utils/time.util';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { UpdateFinancialPeriodDto } from './dto/update-financial-period.dto';
 import { FinancialPeriodResponseDto } from './dto/financial-period-response.dto';
+import { CloseFinancialPeriodDto } from './dto/close-financial-period.dto';
 import { RequestUser } from '../common/interface/request-user.interface';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
@@ -285,7 +286,11 @@ export class FinancialPeriodsService {
   /**
    * Service dùng để chốt sổ cho người dùng
    */
-  async closeFinancialPeriod(userId: string, publicId: string) {
+  async closeFinancialPeriod(
+    userId: string,
+    publicId: string,
+    dto?: CloseFinancialPeriodDto,
+  ) {
     return await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT id FROM financial_periods WHERE public_id = ${publicId} FOR UPDATE`;
 
@@ -306,7 +311,7 @@ export class FinancialPeriodsService {
       }
 
       // 2. Lấy tax config
-      const currentTaxConfig = await tx.taxConfiguration.findFirst({
+      let currentTaxConfig = await tx.taxConfiguration.findFirst({
         where: {
           userId,
           applyFromDate: { lte: targetFp.endDate },
@@ -332,6 +337,15 @@ export class FinancialPeriodsService {
         });
         throw new BadRequestException('The financial period is closed.');
       }
+
+      // Nếu người dùng chọn một phương thức tính thuế cụ thể, cập nhật nó vào cấu hình
+      if (dto?.chosenPitMethod) {
+        currentTaxConfig = await tx.taxConfiguration.update({
+          where: { id: currentTaxConfig.id },
+          data: { chosenPitMethod: dto.chosenPitMethod },
+        });
+      }
+
       // Kiểm tra xem còn kì thuế nào chưa được đóng trước đây ko
       const openPeriodCount = await tx.financialPeriod.count({
         where: {
