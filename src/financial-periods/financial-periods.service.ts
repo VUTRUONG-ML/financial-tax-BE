@@ -288,26 +288,8 @@ export class FinancialPeriodsService {
   async closeFinancialPeriod(userId: string, publicId: string) {
     return await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT id FROM financial_periods WHERE public_id = ${publicId} FOR UPDATE`;
-      const now = moment().startOf('day').toDate();
-      // 1. Lấy tax config
-      const currentTaxConfig = await tx.taxConfiguration.findFirst({
-        where: {
-          userId,
-          applyFromDate: { lte: now },
-          applyToDate: { gte: now },
-        },
-      });
-      if (!currentTaxConfig) {
-        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
-          status: LOG_STATUS.FAILED,
-          reason: 'TAX_CONFIG_NOT_FOUND',
-          userId,
-        });
-        throw new ConflictException(
-          'You have not set up the tax configuration for this tax period.',
-        );
-      }
-      // 2. Kiểm tra kì thuế
+
+      // 1. Kiểm tra kì thuế
       const targetFp = await tx.financialPeriod.findUnique({
         where: {
           publicId, // Tìm theo ID cụ thể
@@ -321,6 +303,25 @@ export class FinancialPeriodsService {
           userId,
         });
         throw new NotFoundException('Financial period not found.');
+      }
+
+      // 2. Lấy tax config
+      const currentTaxConfig = await tx.taxConfiguration.findFirst({
+        where: {
+          userId,
+          applyFromDate: { lte: targetFp.endDate },
+          applyToDate: { gte: targetFp.endDate },
+        },
+      });
+      if (!currentTaxConfig) {
+        this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
+          status: LOG_STATUS.FAILED,
+          reason: 'TAX_CONFIG_NOT_FOUND',
+          userId,
+        });
+        throw new ConflictException(
+          'You have not set up the tax configuration for this tax period.',
+        );
       }
       if (targetFp.status === PeriodStatus.CLOSED) {
         this.log.warn(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
@@ -630,5 +631,83 @@ export class FinancialPeriodsService {
         actualPaymentDate: paymentDate,
       });
     });
+  }
+
+  /**
+   * So sánh hai phương pháp tính thuế PIT cho mức doanh thu thứ 2
+   */
+  async comparePit(userId: string, publicId: string) {
+    // 1. Kiểm tra kì thuế
+    const targetFp = await this.prisma.financialPeriod.findUnique({
+      where: {
+        publicId,
+      },
+    });
+
+    if (!targetFp || targetFp.userId !== userId) {
+      this.log.warn(LOG_ACTIONS.CALCULATE_TAX, {
+        status: LOG_STATUS.FAILED,
+        reason: 'FINANCIAL_PERIOD_NOT_FOUND',
+        userId,
+      });
+      throw new NotFoundException('Financial period not found.');
+    }
+
+    // 2. Lấy tax config
+    const currentTaxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: targetFp.endDate },
+        applyToDate: { gte: targetFp.endDate },
+      },
+    });
+
+    if (!currentTaxConfig) {
+      this.log.warn(LOG_ACTIONS.CALCULATE_TAX, {
+        status: LOG_STATUS.FAILED,
+        reason: 'TAX_CONFIG_NOT_FOUND',
+        userId,
+      });
+      throw new ConflictException(
+        'You have not set up the tax configuration for this tax period.',
+      );
+    }
+
+    // 3. Tính tổng doanh thu và chi phí
+    const aggregateInvoice = await this.prisma.invoice.aggregate({
+      _sum: { totalPayment: true },
+      where: {
+        userId,
+        transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+        status: InvoiceStatus.ISSUED,
+      },
+    });
+    const taxableRevenue = aggregateInvoice._sum.totalPayment || new Decimal(0);
+
+    const aggregateInbound = await this.prisma.inboundInvoice.aggregate({
+      _sum: { totalAmount: true },
+      where: {
+        userId,
+        transactionDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+        status: InboundInvoiceStatus.ACTIVE,
+      },
+    });
+    const expense = aggregateInbound._sum.totalAmount || new Decimal(0);
+
+    // 4. Gọi tax-engine với mức doanh thu thứ 2 (taxGroupId = 2) để mô phỏng
+    const pitAmountDetails = this.taxEngine.calculatePitAmount(
+      taxableRevenue,
+      expense,
+      currentTaxConfig,
+    );
+
+    this.log.log(LOG_ACTIONS.CALCULATE_TAX, {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      financialPeriodId: targetFp.id,
+      detail: 'Compare PIT methods for tax group 2',
+    });
+
+    return pitAmountDetails;
   }
 }

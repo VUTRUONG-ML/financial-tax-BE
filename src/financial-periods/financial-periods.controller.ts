@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -81,6 +82,19 @@ export class FinancialPeriodsController {
       dto,
     );
     return { message: 'Confirm tax payment success.', data };
+  }
+
+  @Get(':id/compare-pit')
+  @ApiOperation({ summary: 'So sánh mức thuế PIT ở mức doanh thu thứ 2' })
+  async comparePit(
+    @CurrentUser() user: RequestUser,
+    @Param('id') publicId: string,
+  ) {
+    const data = await this.financialPeriodsService.comparePit(
+      user.id,
+      publicId,
+    );
+    return { message: 'Compare PIT success.', data };
   }
 
   @Patch(':id')
