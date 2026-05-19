@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Param,
   Patch,
-  Post,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -15,7 +14,6 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { FinancialPeriodsService } from './financial-periods.service';
-import { CreateFinancialPeriodDto } from './dto/create-financial-period.dto';
 import { UpdateFinancialPeriodDto } from './dto/update-financial-period.dto';
 import { FinancialPeriodResponseDto } from './dto/financial-period-response.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -50,12 +48,12 @@ export class FinancialPeriodsController {
     @Param('id') publicId: string,
     @Body() dto: CloseFinancialPeriodDto,
   ) {
-    const data = await this.financialPeriodsService.closeFinancialPeriod(
+    const { period } = await this.financialPeriodsService.closeFinancialPeriod(
       user.id,
       publicId,
       dto,
     );
-    return { message: 'Close financial period success.', data };
+    return { message: 'Close financial period success.', data: period };
   }
 
   @Patch(':id/reopen')

@@ -17,6 +17,8 @@ export enum tableWrite {
   internal_production_orders = 'internal_production_orders',
   period = 'financial_periods',
   revenue = 'revenue_trackers',
+  tax_declaration = 'tax_declarations',
+  tax_declaration_draft = 'tax_declaration_drafts',
 }
 @Injectable()
 export class AuditLogService {

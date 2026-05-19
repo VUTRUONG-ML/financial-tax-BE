@@ -38,6 +38,7 @@ model User {
   voucherCategories VoucherCategory[]
   vouchers          Voucher[]
 
+
   setUpCompletedAt DateTime? @map("setup_completed_at")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -45,6 +46,7 @@ model User {
   productionOrders InternalProductionOrder[]
   financialPeriods FinancialPeriod[]
   revenueTrackers  RevenueTracker[]
+  taxDeclarationDraft   TaxDeclarationDraft[]
 
   @@map("users")
 }
@@ -491,7 +493,7 @@ model FinancialPeriod {
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   taxDeclaration TaxDeclaration?
-
+  taxDeclarationDraft   TaxDeclarationDraft?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -519,6 +521,38 @@ model TaxDeclaration {
 
   @@map("tax_declarations")
 }
+
+model TaxDeclarationDraft {
+  id                String          @id @default(uuid()) @map("id")
+  userId            String          @map("user_id")
+  financialPeriodId Int             @unique @map("financial_period_id")
+
+  // Bước 1: Thông tin Hộ kinh doanh (MST, Tên, Ngành nghề, Địa chỉ...) tinh chỉnh từ Profile
+  // Cấu trúc dự kiến: { taxCode: string, businessName: string, ownerName: string, cccdNumber: string, provinceCity: string }
+  step1Data Json? @map("step_1_data")
+
+  // Bước 2: Kê khai Doanh thu chịu thuế (Số tổng đã xác nhận làm mốc đối chiếu realtime)
+  // Cấu trúc dự kiến: { confirmedRevenue: number }
+  step2Data Json? @map("step_2_data")
+
+  // Bước 3: Khai báo Tồn kho Hàng hóa (Mảng danh sách kiểm kê chi tiết thực tế)
+  // Cấu trúc dự kiến: [ { productPublicId: string, actualClosingQuantity: number }, ... ]
+  step3Data Json? @map("step_3_data")
+
+  // Bước 4: Kê khai Chi phí quản lý (Số tổng chi phí đã chốt)
+  // Cấu trúc dự kiến: { totalExpense: number }
+  step4Data Json? @map("step_4_data")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Thiết lập các mối quan hệ (Relations)
+  financialPeriod FinancialPeriod @relation(fields: [financialPeriodId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("tax_declaration_drafts")
+}
+
 
 enum FilingPeriod {
   MONTHLY // Khai thuế theo tháng

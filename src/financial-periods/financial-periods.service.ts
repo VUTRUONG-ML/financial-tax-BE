@@ -18,12 +18,12 @@ import {
 } from '../common/constants/log-events.constant';
 import {
   FilingPeriod,
-  FinancialPeriod,
-  InboundInvoiceStatus,
   InvoiceStatus,
   PeriodStatus,
   Prisma,
   Role,
+  VoucherStatus,
+  VoucherType,
 } from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import {
@@ -281,21 +281,60 @@ export class FinancialPeriodsService {
   }
 
   /**
-   * Service dùng để chốt sổ cho người dùng
+   * Tính toán doanh thu và chi phí thực tế trong kỳ
+   */
+  async calculateRealtimeTaxData(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<{ revenue: Decimal; expense: Decimal }> {
+    const aggregateInvoice = await tx.invoice.aggregate({
+      _sum: { totalPayment: true },
+      where: {
+        userId,
+        issueDate: { gte: startDate, lte: endDate },
+        status: InvoiceStatus.ISSUED, // Chỉ tính các hóa đơn đã phát hành
+      },
+    });
+    const revenue = aggregateInvoice._sum.totalPayment || new Decimal(0);
+
+    const aggregateVoucher = await tx.voucher.aggregate({
+      _sum: { amount: true },
+      where: {
+        userId,
+        transactionAt: { gte: startDate, lte: endDate },
+        voucherType: VoucherType.PAYMENT,
+        isDeductibleExpense: true,
+        status: VoucherStatus.ACTIVE,
+      },
+    });
+    const expense = aggregateVoucher._sum.amount || new Decimal(0);
+
+    return { revenue, expense };
+  }
+
+  /**
+   * Service dùng để chốt sổ cho người dùng.
+   * Nếu truyền vào tx thì chạy chung transaction với caller.
+   * Trả về thêm vatAmount và pitAmount để caller dùng tạo TaxDeclaration.
    */
   async closeFinancialPeriod(
     userId: string,
     publicId: string,
     dto?: CloseFinancialPeriodDto,
-  ) {
-    return await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT id FROM financial_periods WHERE public_id = ${publicId} FOR UPDATE`;
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<{
+    period: FinancialPeriodResponseDto;
+    vatAmount: Decimal;
+    pitAmount: Decimal;
+  }> {
+    const run = async (client: Prisma.TransactionClient) => {
+      await client.$executeRaw`SELECT id FROM financial_periods WHERE public_id = ${publicId} FOR UPDATE`;
 
       // 1. Kiểm tra kì thuế
-      const targetFp = await tx.financialPeriod.findUnique({
-        where: {
-          publicId, // Tìm theo ID cụ thể
-        },
+      const targetFp = await client.financialPeriod.findUnique({
+        where: { publicId },
       });
 
       if (!targetFp || targetFp.userId !== userId) {
@@ -308,7 +347,7 @@ export class FinancialPeriodsService {
       }
 
       // 2. Lấy tax config
-      let currentTaxConfig = await tx.taxConfiguration.findFirst({
+      let currentTaxConfig = await client.taxConfiguration.findFirst({
         where: {
           userId,
           applyFromDate: { lte: targetFp.endDate },
@@ -337,14 +376,14 @@ export class FinancialPeriodsService {
 
       // Nếu người dùng chọn một phương thức tính thuế cụ thể, cập nhật nó vào cấu hình
       if (dto?.chosenPitMethod) {
-        currentTaxConfig = await tx.taxConfiguration.update({
+        currentTaxConfig = await client.taxConfiguration.update({
           where: { id: currentTaxConfig.id },
           data: { chosenPitMethod: dto.chosenPitMethod },
         });
       }
 
       // Kiểm tra xem còn kì thuế nào chưa được đóng trước đây ko
-      const openPeriodCount = await tx.financialPeriod.count({
+      const openPeriodCount = await client.financialPeriod.count({
         where: {
           userId,
           status: PeriodStatus.OPEN,
@@ -362,7 +401,7 @@ export class FinancialPeriodsService {
         );
       }
       // 3. Kiểm tra danh sách invoice và tính tổng doanh thu issued
-      const invalidInvoiceCount = await tx.invoice.count({
+      const invalidInvoiceCount = await client.invoice.count({
         where: {
           userId,
           issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
@@ -382,40 +421,43 @@ export class FinancialPeriodsService {
           'Some invoices are still in draft or sync failed status, please check again.',
         );
       }
-      const aggregateInvoice = await tx.invoice.aggregate({
-        _sum: { totalPayment: true },
-        where: {
-          userId,
-          issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
-          status: InvoiceStatus.ISSUED, // Chỉ tính các hóa đơn đã phát hành
-        },
-      });
-      const taxableRevenue =
-        aggregateInvoice._sum.totalPayment || new Decimal(0);
 
-      const aggregateInbound = await tx.inboundInvoice.aggregate({
-        _sum: { totalAmount: true },
-        where: {
+      // Hàm này giờ sẽ cho tính revenue với expense từ tham số đầu vào nếu người dùng muốn chốt sổ với một doanh thu khác với doanh thu thực tế.
+      let taxableRevenue = new Decimal(0);
+      let expense = new Decimal(0);
+
+      if (dto?.revenue !== undefined && dto?.expense !== undefined) {
+        taxableRevenue = new Decimal(dto.revenue);
+        expense = new Decimal(dto.expense);
+      } else {
+        const realtimeData = await this.calculateRealtimeTaxData(
           userId,
-          issueDate: {
-            gte: targetFp.startDate,
-            lte: targetFp.endDate,
-          },
-          status: InboundInvoiceStatus.ACTIVE,
-        },
-      });
-      const expense = aggregateInbound._sum.totalAmount || new Decimal(0);
+          targetFp.startDate,
+          targetFp.endDate,
+          client,
+        );
+        taxableRevenue = realtimeData.revenue;
+        expense = realtimeData.expense;
+      }
+
       // Dùng service tính thuế với pitRate và vatRate trong taxConfiguration
       const taxResult = this.taxEngine.calculateTotalTax(
         taxableRevenue,
         expense,
         currentTaxConfig,
       );
+      const vatAmount = taxResult.vatAmount;
+      // Lấy pit amount đã được dùng để tính tổng thuế dựa theo phương thức đã chọn
+      const pitAmount =
+        currentTaxConfig.chosenPitMethod === 'PERCENTAGE' &&
+        currentTaxConfig.taxGroupId === 2
+          ? (taxResult.pitAmountDetails.percentageMethodAmount ??
+            new Decimal(0))
+          : (taxResult.pitAmountDetails.profitMethodAmount ?? new Decimal(0));
       const totalTax = taxResult.totalTaxDue;
-      const updatedFp = await tx.financialPeriod.update({
-        where: {
-          id: targetFp.id,
-        },
+
+      const updatedFp = await client.financialPeriod.update({
+        where: { id: targetFp.id },
         data: {
           taxAmount: totalTax,
           vatRateSnapShot: currentTaxConfig.vatRateSnapShot,
@@ -424,7 +466,7 @@ export class FinancialPeriodsService {
         },
       });
       await this.auditLog.logChange(
-        tx,
+        client,
         userId,
         'UPDATE',
         tableWrite.period,
@@ -448,8 +490,18 @@ export class FinancialPeriodsService {
         userId,
         financialPeriodId: targetFp.id,
       });
-      return mapToDto(FinancialPeriodResponseDto, updatedFp);
-    });
+      return {
+        period: mapToDto(FinancialPeriodResponseDto, updatedFp),
+        vatAmount,
+        pitAmount,
+      };
+    };
+
+    // Nếu caller đã truyền tx thực sự (không phải prisma), chạy trực tiếp không tạo transaction mới
+    if (tx !== (this.prisma as unknown as Prisma.TransactionClient)) {
+      return run(tx);
+    }
+    return this.prisma.$transaction(run);
   }
 
   /**
@@ -684,26 +736,14 @@ export class FinancialPeriodsService {
       );
     }
 
-    // 3. Tính tổng doanh thu và chi phí
-    const aggregateInvoice = await this.prisma.invoice.aggregate({
-      _sum: { totalPayment: true },
-      where: {
-        userId,
-        issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
-        status: InvoiceStatus.ISSUED,
-      },
-    });
-    const taxableRevenue = aggregateInvoice._sum.totalPayment || new Decimal(0);
-
-    const aggregateInbound = await this.prisma.inboundInvoice.aggregate({
-      _sum: { totalAmount: true },
-      where: {
-        userId,
-        issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
-        status: InboundInvoiceStatus.ACTIVE,
-      },
-    });
-    const expense = aggregateInbound._sum.totalAmount || new Decimal(0);
+    // 3. Tính tổng doanh thu và chi phí bằng hàm dùng chung
+    const realtimeData = await this.calculateRealtimeTaxData(
+      userId,
+      targetFp.startDate,
+      targetFp.endDate,
+    );
+    const taxableRevenue = realtimeData.revenue;
+    const expense = realtimeData.expense;
 
     // 4. Gọi tax-engine với mức doanh thu thứ 2 (taxGroupId = 2) để mô phỏng
     const pitAmountDetails = this.taxEngine.calculatePitAmount(

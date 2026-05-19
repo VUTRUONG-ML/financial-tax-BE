@@ -25,6 +25,7 @@ import { InternalProductionOrdersModule } from './internal-production-orders/int
 import { FinancialPeriodsModule } from './financial-periods/financial-periods.module';
 import { TaxEngineModule } from './tax-engine/tax-engine.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { TaxDeclarationModule } from './tax-declaration/tax-declaration.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     FinancialPeriodsModule,
     TaxEngineModule,
     DashboardModule,
+    TaxDeclarationModule,
   ],
   controllers: [AppController],
   providers: [

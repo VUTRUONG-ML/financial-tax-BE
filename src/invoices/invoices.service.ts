@@ -18,7 +18,7 @@ import {
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
-import { Invoice, InvoiceStatus, Prisma, Product } from '@prisma/client';
+import { InvoiceStatus, Prisma, Product } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
 import { mapToDto } from '../common/utils/mapper.util';
@@ -26,7 +26,6 @@ import { InvoiceResponseDto } from './dto/response-invoice.dto';
 import { CreateInvoiceDetailDto } from './dto/create-invoice-detail.dto';
 import { Decimal } from '@prisma/client/runtime/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
-import { moment } from '../common/utils/time.util';
 
 @Injectable()
 export class InvoicesService {
@@ -226,8 +225,6 @@ export class InvoicesService {
         publicId,
       });
     }
-
-    const now = moment().toDate();
     await tx.invoice.update({
       where: {
         publicId,
@@ -396,8 +393,6 @@ export class InvoicesService {
    * @returns InvoiceResponseDto
    */
   async publishInvoice(publicId: string, userId: string) {
-    const yearNow = new Date().getFullYear();
-
     // 1. Cập nhật trạng thái PENDING_ISSUED / trừ tồn kho, cộng doanh thu trước khi gọi api cơ quan thuế
     const phaseFirst = await this.prisma.$transaction(async (tx) => {
       // Kiểm tra quyền sở hữu và invoice phải ở trạng thái khác ISSUED, CANCELED, hoặc PENDING_ISSUED

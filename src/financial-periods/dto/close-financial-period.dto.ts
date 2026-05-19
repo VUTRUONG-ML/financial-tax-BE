@@ -1,10 +1,29 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional } from 'class-validator';
 import { PitMethod } from '@prisma/client';
+import { Type } from 'class-transformer';
 
 export class CloseFinancialPeriodDto {
   @ApiPropertyOptional({ enum: PitMethod })
   @IsOptional()
   @IsEnum(PitMethod)
   chosenPitMethod?: PitMethod;
+
+  @ApiPropertyOptional({
+    description: 'Declared taxable revenue',
+    type: Number,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  revenue?: number;
+
+  @ApiPropertyOptional({
+    description: 'Declared deductible expense',
+    type: Number,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  expense?: number;
 }
