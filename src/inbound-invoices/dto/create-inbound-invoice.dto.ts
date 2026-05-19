@@ -7,7 +7,9 @@ import {
   IsArray,
   ValidateNested,
   IsNumber,
+  IsInt,
   ArrayMinSize,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -17,11 +19,13 @@ export class CreateInboundInvoiceItemDto {
   productPublicId!: string; // ID public sản phẩm đã có trong danh mục
 
   @IsNotEmpty()
-  @IsNumber()
+  @IsInt({ message: 'quantity must be an integer' })
+  @Min(1, { message: 'quantity must be at least 1' })
   quantity!: number; // Số lượng nhập vật lý
 
   @IsNotEmpty()
   @IsNumber()
+  @Min(0, { message: 'unitCost must not be negative' })
   unitCost!: number; // Đơn giá mua vào
 }
 

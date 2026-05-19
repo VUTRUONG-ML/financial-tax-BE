@@ -1,14 +1,23 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class InventoryItemDto {
   @ApiProperty({ description: 'Public ID of the product' })
   @IsString()
+  @IsNotEmpty()
   productPublicId: string;
 
-  @ApiProperty()
-  @IsNumber()
+  @ApiProperty({ description: 'Actual physical closing stock quantity (>= 0)' })
+  @IsInt({ message: 'actualClosingQuantity must be an integer' })
+  @Min(0, { message: 'actualClosingQuantity must not be negative' })
   actualClosingQuantity: number;
 }
 
