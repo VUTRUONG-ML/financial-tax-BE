@@ -12,9 +12,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/interface/request-user.interface';
 import { StartSessionDto } from './dto/start-session.dto';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
-import { SaveStep2Dto } from './dto/save-step-2.dto';
 import { SaveStep3Dto } from './dto/save-step-3.dto';
-import { SaveStep4Dto } from './dto/save-step-4.dto';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 
@@ -74,13 +72,14 @@ export class TaxDeclarationController {
 
   @Post('step-2/save/:publicId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Lưu dữ liệu Bước 2' })
+  @ApiOperation({
+    summary: 'Xác nhận Bước 2: Snapshot doanh thu thực tế từ DB vào draft',
+  })
   async saveStep2(
     @CurrentUser() user: RequestUser,
     @Param('publicId') publicId: string,
-    @Body() dto: SaveStep2Dto,
   ) {
-    return await this.taxDeclarationService.saveStep2(user.id, publicId, dto);
+    return await this.taxDeclarationService.saveStep2(user.id, publicId);
   }
 
   @Get('step-3/:publicId')
@@ -114,13 +113,14 @@ export class TaxDeclarationController {
 
   @Post('step-4/save/:publicId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Lưu dữ liệu Bước 4 (Có đánh chặn B2, B3)' })
+  @ApiOperation({
+    summary: 'Xác nhận Bước 4: Snapshot chi phí thực tế từ DB vào draft',
+  })
   async saveStep4(
     @CurrentUser() user: RequestUser,
     @Param('publicId') publicId: string,
-    @Body() dto: SaveStep4Dto,
   ) {
-    return await this.taxDeclarationService.saveStep4(user.id, publicId, dto);
+    return await this.taxDeclarationService.saveStep4(user.id, publicId);
   }
 
   @Get('step-5/preview/:publicId')

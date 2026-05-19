@@ -9,9 +9,7 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
-import { SaveStep2Dto } from './dto/save-step-2.dto';
 import { SaveStep3Dto } from './dto/save-step-3.dto';
-import { SaveStep4Dto } from './dto/save-step-4.dto';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
 import { Prisma, PeriodStatus, PitMethod } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
@@ -171,10 +169,22 @@ export class TaxDeclarationService {
     return step2;
   }
 
-  async saveStep2(userId: string, publicId: string, dto: SaveStep2Dto) {
+  /**
+   * Step 2 POST: Không nhận body từ client.
+   * Backend tự query realtime và snapshot vào draft để tránh client giả mạo số liệu.
+   */
+  async saveStep2(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
 
-    const step2: Step2Data = { confirmedRevenue: dto.confirmedRevenue };
+    const realtimeData =
+      await this.financialPeriodsService.calculateRealtimeTaxData(
+        userId,
+        period.startDate,
+        period.endDate,
+      );
+    const step2: Step2Data = {
+      confirmedRevenue: realtimeData.revenue.toNumber(),
+    };
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
@@ -221,7 +231,28 @@ export class TaxDeclarationService {
         errorCode: 'STEP_2_NOT_COMPLETED',
       });
 
-    // Đánh chặn: kiểm tra doanh thu realtime có khớp với step2 đã lưu không
+    // Validate: tất cả productPublicId phải thuộc về userId này
+    const incomingPublicIds = dto.inventoryItems.map((i) => i.productPublicId);
+    const ownedProducts = await this.prisma.product.findMany({
+      where: {
+        publicId: { in: incomingPublicIds },
+        userId,
+        productType: { not: 'SERVICE' },
+      },
+      select: { publicId: true },
+    });
+    const ownedPublicIds = new Set(ownedProducts.map((p) => p.publicId));
+    const invalidIds = incomingPublicIds.filter(
+      (id) => !ownedPublicIds.has(id),
+    );
+    if (invalidIds.length > 0) {
+      throw new BadRequestException({
+        message: `Invalid product IDs: ${invalidIds.join(', ')}. Products do not belong to this user or are SERVICE type.`,
+        errorCode: 'INVALID_PRODUCT_IDS',
+      });
+    }
+
+    // Đánh chặn: kiểm tra doanh thu realtime có khớp với step2 đã snapshot không
     const step2Data = draft.step2Data as unknown as Step2Data;
     const realtimeData =
       await this.financialPeriodsService.calculateRealtimeTaxData(
@@ -267,7 +298,11 @@ export class TaxDeclarationService {
     return step4;
   }
 
-  async saveStep4(userId: string, publicId: string, dto: SaveStep4Dto) {
+  /**
+   * Step 4 POST: Không nhận body từ client.
+   * Backend tự query realtime và snapshot vào draft để tránh client giả mạo số liệu.
+   */
+  async saveStep4(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
 
     const draft = await this.findDraftByPeriodId(period.id);
@@ -276,15 +311,14 @@ export class TaxDeclarationService {
         message: 'Please complete Step 2 first.',
         errorCode: 'STEP_2_NOT_COMPLETED',
       });
-
-    // Đánh chặn lũy tiến: kiểm tra cả revenue và step3 đã hoàn thành
-    const step2Data = draft.step2Data as unknown as Step2Data;
     if (!draft.step3Data)
       throw new BadRequestException({
         message: 'Please complete Step 3 first.',
         errorCode: 'STEP_3_NOT_COMPLETED',
       });
 
+    // Đánh chặn lũy tiến: doanh thu không được lệch với Step 2 đã snapshot
+    const step2Data = draft.step2Data as unknown as Step2Data;
     const realtimeData =
       await this.financialPeriodsService.calculateRealtimeTaxData(
         userId,
@@ -298,7 +332,8 @@ export class TaxDeclarationService {
       });
     }
 
-    const step4: Step4Data = { totalExpense: dto.totalExpense };
+    // Snapshot chi phí thực tế từ DB vào draft
+    const step4: Step4Data = { totalExpense: realtimeData.expense.toNumber() };
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
