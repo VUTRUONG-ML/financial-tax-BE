@@ -1,4 +1,4 @@
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus, PaymentMethod, ProductType } from '@prisma/client';
 import { Expose, Transform, Type } from 'class-transformer';
 
 export class InvoiceDetailResponseDto {
@@ -23,6 +23,12 @@ export class InvoiceDetailResponseDto {
   @Expose()
   @Transform(({ obj }) => obj.product?.publicId)
   productPublicId!: string;
+
+  @Expose()
+  unit!: string;
+
+  @Expose()
+  productType!: ProductType;
 }
 
 export class InvoiceResponseDto {
@@ -62,7 +68,27 @@ export class InvoiceResponseDto {
   cqtCode!: string; // Mã của cơ quan thuế
 
   @Expose()
-  issuedAt!: Date;
+  paymentMethod!: PaymentMethod;
+
+  @Expose()
+  buyerEmail!: string;
+
+  @Expose()
+  buyerIdNumber!: string;
+
+  @Expose()
+  @Transform(({ value }) => (value ? Number(value) : 0))
+  taxRate!: number;
+
+  @Expose()
+  @Transform(({ value }) => (value ? Number(value) : 0))
+  taxPayable!: number;
+
+  @Expose()
+  cancellationReason!: string;
+
+  @Expose()
+  issueDate!: Date;
 
   @Expose()
   createdAt!: Date;

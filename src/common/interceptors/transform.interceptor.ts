@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { map, Observable } from 'rxjs';
 import { Request, Response as ExpressResponse } from 'express';
+import { moment } from '../utils/time.util';
 export interface Response<T> {
   success: boolean;
   statusCode: number;
@@ -54,18 +55,43 @@ export class TransformInterceptor<T> implements NestInterceptor<
             resultData = obj.data;
           }
         }
+        const processedData = this.transformDates(resultData);
         return {
           success: true,
           statusCode: statusCode,
           timestamp: new Date().toISOString(),
           message: message,
           data:
-            resultData === undefined || resultData === null
+            processedData === undefined || processedData === null
               ? null
-              : (resultData as T),
+              : (processedData as T),
           meta: meta,
         };
       }),
     );
+  }
+  private transformDates(data: any): any {
+    if (data === null || data === undefined) return data;
+
+    // Nếu là đối tượng Date (từ Prisma/DB trả về)
+    if (data instanceof Date) {
+      // Sử dụng dayjs để ép về múi giờ VN (UTC+7)
+      return moment(data).tz().format('YYYY-MM-DD HH:mm:ss');
+    }
+
+    // Nếu là mảng (ví dụ danh sách hóa đơn)
+    if (Array.isArray(data)) {
+      return data.map((item) => this.transformDates(item));
+    }
+
+    // Nếu là Object lồng nhau
+    if (typeof data === 'object') {
+      for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+          data[key] = this.transformDates(data[key]);
+        }
+      }
+    }
+    return data;
   }
 }

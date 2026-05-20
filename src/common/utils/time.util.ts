@@ -1,3 +1,19 @@
+import dayjs from 'dayjs';
+// Thay đổi cách import plugin
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+import quarterOfYear from 'dayjs/plugin/quarterOfYear';
+
+// Kích hoạt plugin
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(quarterOfYear);
+
+// Cấu hình mặc định cho hộ kinh doanh tại VN
+dayjs.tz.setDefault('Asia/Ho_Chi_Minh');
+
+export const moment = dayjs;
+
 /**
  * Chuyển đổi chuỗi thời gian cơ bản sang GIÂY (Seconds)
  * Hỗ trợ: 's' (giây), 'm' (phút), 'h' (giờ), 'd' (ngày)

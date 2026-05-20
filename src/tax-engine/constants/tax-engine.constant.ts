@@ -1,0 +1,2 @@
+export const PENALTY_LATE_PAYMENT_RATE = 0.0003; // 0.03%
+export const TAX_EXEMPT_REVENUE_THRESHOLD = 500000000; // 500 triệu

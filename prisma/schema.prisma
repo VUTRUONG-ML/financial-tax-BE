@@ -38,11 +38,15 @@ model User {
   voucherCategories VoucherCategory[]
   vouchers          Voucher[]
 
+
   setUpCompletedAt DateTime? @map("setup_completed_at")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   productionOrders InternalProductionOrder[]
+  financialPeriods FinancialPeriod[]
+  revenueTrackers  RevenueTracker[]
+  taxDeclarationDraft   TaxDeclarationDraft[]
 
   @@map("users")
 }
@@ -116,13 +120,14 @@ model TaxConfiguration {
   industryId Int    @map("industry_id")
   taxGroupId Int    @map("tax_group_id")
 
-  chosenPitMethod PitMethod @map("chosen_pit_method")
-  applyFromDate   DateTime  @map("apply_from_date")
-  applyToDate     DateTime? @map("apply_to_date")
+  chosenPitMethod PitMethod? @map("chosen_pit_method")
+  applyFromDate   DateTime   @map("apply_from_date")
+  applyToDate     DateTime?  @map("apply_to_date")
 
-  vatRateSnapShot Decimal @map("vat_rate_snapshot") @db.Decimal(5, 4)
-  pitRateSnapShot Decimal @map("pit_rate_snapshot") @db.Decimal(5, 4)
-  isVatReducible  Boolean @default(false) @map("is_vat_reducible")
+  vatRateSnapShot Decimal      @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot Decimal      @map("pit_rate_snapshot") @db.Decimal(5, 4)
+  isVatReducible  Boolean      @default(false) @map("is_vat_reducible")
+  vatFilingPeriod FilingPeriod @default(QUARTERLY) @map("vat_filing_period")
 
   user     User        @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   industry TaxCategory @relation(fields: [industryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -131,7 +136,7 @@ model TaxConfiguration {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  @@index([userId, applyToDate])
+  @@index([userId, applyFromDate, applyToDate])
   @@map("tax_configurations")
 }
 
@@ -212,6 +217,7 @@ enum ProductType {
 
 enum InvoiceStatus {
   DRAFT
+  PENDING_ISSUED
   ISSUED
   SYNC_FAILED
   CANCELED
@@ -231,13 +237,20 @@ model Invoice {
   isB2C Boolean @default(true) @map("is_b2c")
 
   // Thông tin người mua (optional với B2C)
-  buyerName    String? @map("buyer_name")
-  buyerTaxCode String? @map("buyer_tax_code")
-  buyerAddress String? @map("buyer_address")
+  buyerName     String? @map("buyer_name")
+  buyerTaxCode  String? @map("buyer_tax_code")
+  buyerAddress  String? @map("buyer_address")
+  buyerEmail    String? @map("buyer_email")
+  buyerIdNumber String? @map("buyer_id_number")
 
+  paymentMethod PaymentMethod @default(CASH) @map("payment_method")
+
+  taxRate      Decimal @default(0) @map("tax_rate") @db.Decimal(5, 4)
+  taxPayable   Decimal @default(0) @map("tax_payable") @db.Decimal(18, 4)
   totalPayment Decimal @map("total_payment") @db.Decimal(18, 4)
 
-  status InvoiceStatus @default(DRAFT)
+  status             InvoiceStatus @default(DRAFT)
+  cancellationReason String?       @map("cancellation_reason")
 
   // Trạng thái thu tiền — tách biệt với status phát hành
   isPaid     Boolean @default(false) @map("is_paid")
@@ -251,11 +264,14 @@ model Invoice {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // Thông tin khi cơ quan thuế cấp mã 
-  cqtCode  String?   @map("cqt_code")
-  issuedAt DateTime? @map("issued_at")
+  cqtCode String? @map("cqt_code")
+
+  // Ngày phát hành hóa đơn (thay thế transactionDate và issuedAt)
+  issueDate DateTime @default(now()) @map("issue_date")
 
   // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
   @@index([userId, status])
+  @@index([userId, issueDate])
   @@map("invoices")
 }
 
@@ -266,8 +282,10 @@ model InvoiceDetail {
   productId Int @map("product_id")
 
   // SNAPSHOT — lưu chết tên & đơn giá tại thời điểm bán để bảo vệ tính bất biến chứng từ
-  productNameSnapshot String  @map("product_name_snapshot")
-  unitPrice           Decimal @map("unit_price") @db.Decimal(18, 4)
+  productNameSnapshot String      @map("product_name_snapshot")
+  unit                String      @map("unit")
+  productType         ProductType @map("product_type")
+  unitPrice           Decimal     @map("unit_price") @db.Decimal(18, 4)
 
   quantity    Int     @default(1)
   totalAmount Decimal @map("total_amount") @db.Decimal(18, 4)
@@ -316,6 +334,7 @@ model InboundInvoice {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId])
+  @@index([userId, issueDate])
   @@map("inbound_invoices")
 }
 
@@ -411,23 +430,24 @@ enum ProductionTransactionType {
   ISSUE_MATERIAL
   RECEIVE_PRODUCT
 }
+
 enum ProductionStatus {
   ACTIVE
   CANCELED
 }
 
 model InternalProductionOrder {
-  id          Int      @id @default(autoincrement())
-  userId      String   @map("user_id")
-  orderCode   String   @map("order_code") // Ví dụ: LSX-0426-0001
-  notes       String?  @db.Text
-  status      ProductionStatus  @default(ACTIVE)
-  
-  user        User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details     ProductionDetail[]
+  id        Int              @id @default(autoincrement())
+  userId    String           @map("user_id")
+  orderCode String           @map("order_code") // Ví dụ: LSX-0426-0001
+  notes     String?          @db.Text
+  status    ProductionStatus @default(ACTIVE)
 
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user    User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details ProductionDetail[]
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([userId, orderCode])
   @@index([userId, createdAt])
@@ -439,7 +459,7 @@ model ProductionDetail {
   orderId         Int                       @map("order_id")
   productId       Int                       @map("product_id")
   transactionType ProductionTransactionType @map("transaction_type")
-  quantity        Int                       // Số lượng vật lý
+  quantity        Int // Số lượng vật lý
 
   order   InternalProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   product Product                 @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -449,3 +469,107 @@ model ProductionDetail {
   @@map("production_details")
 }
 
+// ─── FINANCIAL PERIODS (Kỳ Tài Chính) ───────────────────────────────────────
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model FinancialPeriod {
+  id                Int          @id @default(autoincrement())
+  publicId          String       @unique @default(cuid()) @map("public_id")
+  userId            String       @map("user_id")
+  periodName        String       @map("period_name")
+  vatFilingPeriod   FilingPeriod @default(QUARTERLY) @map("vat_filing_period")
+  startDate         DateTime     @map("start_date") @db.Date
+  endDate           DateTime     @map("end_date") @db.Date
+  deadlineDate      DateTime     @map("deadline_date") @db.Date
+  status            PeriodStatus @default(OPEN)
+  vatRateSnapShot   Decimal?     @map("vat_rate_snapshot") @db.Decimal(5, 4)
+  pitRateSnapShot   Decimal?     @map("pit_rate_snapshot") @db.Decimal(5, 4)
+  taxAmount         Decimal      @default(0.00) @map("tax_amount") @db.Decimal(18, 4)
+  actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  taxDeclaration TaxDeclaration?
+  taxDeclarationDraft   TaxDeclarationDraft?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, periodName, startDate], name: "userId_periodName_startDate")
+  @@index([userId, status])
+  @@index([userId, startDate, endDate])
+  @@map("financial_periods")
+}
+
+model TaxDeclaration {
+  id              Int       @id @default(autoincrement())
+  periodId        Int       @unique @map("period_id")
+  declaredRevenue Decimal   @map("declared_revenue") @db.Decimal(18, 4)
+  declaredExpense Decimal   @map("declared_expense") @db.Decimal(18, 4)
+  vatTaxAmount    Decimal   @map("vat_tax_amount") @db.Decimal(18, 4)
+  pitTaxAmount    Decimal   @map("pit_tax_amount") @db.Decimal(18, 4)
+  totalTaxAmount  Decimal   @map("total_tax_amount") @db.Decimal(18, 4)
+  chosenPitMethod PitMethod @map("chosen_pit_method")
+  xmlContent      String    @map("xml_content") @db.Text
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("tax_declarations")
+}
+
+model TaxDeclarationDraft {
+  id                String          @id @default(uuid()) @map("id")
+  userId            String          @map("user_id")
+  financialPeriodId Int             @unique @map("financial_period_id")
+
+  // Bước 1: Thông tin Hộ kinh doanh (MST, Tên, Ngành nghề, Địa chỉ...) tinh chỉnh từ Profile
+  // Cấu trúc dự kiến: { taxCode: string, businessName: string, ownerName: string, cccdNumber: string, provinceCity: string }
+  step1Data Json? @map("step_1_data")
+
+  // Bước 2: Kê khai Doanh thu chịu thuế (Số tổng đã xác nhận làm mốc đối chiếu realtime)
+  // Cấu trúc dự kiến: { confirmedRevenue: number }
+  step2Data Json? @map("step_2_data")
+
+  // Bước 3: Khai báo Tồn kho Hàng hóa (Mảng danh sách kiểm kê chi tiết thực tế)
+  // Cấu trúc dự kiến: [ { productPublicId: string, actualClosingQuantity: number }, ... ]
+  step3Data Json? @map("step_3_data")
+
+  // Bước 4: Kê khai Chi phí quản lý (Số tổng chi phí đã chốt)
+  // Cấu trúc dự kiến: { totalExpense: number }
+  step4Data Json? @map("step_4_data")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Thiết lập các mối quan hệ (Relations)
+  financialPeriod FinancialPeriod @relation(fields: [financialPeriodId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("tax_declaration_drafts")
+}
+
+
+enum FilingPeriod {
+  MONTHLY // Khai thuế theo tháng
+  QUARTERLY // Khai thuế theo quý
+  YEARLY // Khai thuế theo năm (hoặc thông báo doanh thu năm)
+  HALF_YEARLY // Khai thuế 2 lần/năm (Bán niên)
+  PER_OCCURRENCE // Khai thuế theo từng lần phát sinh
+}
+
+model RevenueTracker {
+  id         String  @id @default(cuid())
+  userId     String  @map("user_id")
+  year       Int // Theo dõi theo từng năm tài chính
+  revenueYtd Decimal @default(0.00) @map("revenue_ytd") @db.Decimal(15, 2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([userId, year])
+  @@map("revenue_trackers")
+}

@@ -25,7 +25,7 @@ This domain is responsible for initializing and updating tax configurations (ind
 - **Rule 2 (Automatic System):** When the system detects revenue exceeding the threshold, it is allowed to bypass Rule 2 to force the user to upgrade their account. The audit log will record `actionBy: SYSTEM_AUTO`.
 - **Rule 3 (Recursive Rate Inheritance):** Ensure you can always find the tax rate even if the sub-sector doesn't have a specific rate defined.
 - **Rule 4 (Race Condition Prevention):** Prevents users from double-clicking to create two configurations simultaneously.
-- **Technique:** Apply Optimistic Locking (`updateMany` with the condition `applyToDate: null`).
+- **Technique:** Apply Optimistic Locking (`updateMany` with the condition `applyToDate: MAX_EFFECTIVE_DATE`).
 
 ## 3. Audit Log
 

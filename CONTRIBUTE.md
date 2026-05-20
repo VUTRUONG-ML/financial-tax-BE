@@ -17,6 +17,7 @@ Tài liệu này quy định các tiêu chuẩn lập trình bắt buộc dành 
 ```
 
 - **HTTP Code:** Luôn khai báo `@HttpCode(HttpStatus.OK)` cho các phương thức không phải GET nếu xử lý thành công.
+- **Data Mapping:** Hãy sử dụng hàm `mapToDto` trong `src/common/utils/mapper.util.ts` và viết `response.dto` cho riêng một module nào đó để chuẩn hóa dữ liệu trả về (tự động loại bỏ các trường không cần thiết thông qua `excludeExtraneousValues`).
 
 ## 2. 📝 QUY CHUẨN LOGGING NGHIỆP VỤ (STRUCTURED LOGGING)
 
@@ -76,14 +77,15 @@ this.log.log(LOG_ACTIONS.UPDATE_ONBOARDING, {
   - Table: `snake_case` số nhiều, ví dụ: `tax_records`
   - File: `kebab-case`
   - Function: `camelCase`
+- Nếu có chỉnh sửa với Schema thì buộc phải sử dụng `pnpm db:migrate` và `pnpm db:gen`
 
 ## 5. 📋 DANH SÁCH CONSTANTS LOG (Gợi ý thêm)
 
-| LOG_ACTIONS | LOG_STATUS | Ý nghĩa |
-|---|---|---|
-| `UPDATE_ONBOARDING` | SUCCESS / FAILED | Cập nhật hồ sơ thuế ban đầu |
-| `CREATE_INVOICE` | SUCCESS / FAILED | Tạo hóa đơn bán hàng |
-| `CALCULATE_TAX` | SUCCESS / FAILED | Tính toán số thuế phải nộp |
-| `REVOKE_TOKEN` | DANGER | Phát hiện hành vi chiếm đoạt token |
+| LOG_ACTIONS         | LOG_STATUS       | Ý nghĩa                            |
+| ------------------- | ---------------- | ---------------------------------- |
+| `UPDATE_ONBOARDING` | SUCCESS / FAILED | Cập nhật hồ sơ thuế ban đầu        |
+| `CREATE_INVOICE`    | SUCCESS / FAILED | Tạo hóa đơn bán hàng               |
+| `CALCULATE_TAX`     | SUCCESS / FAILED | Tính toán số thuế phải nộp         |
+| `REVOKE_TOKEN`      | DANGER           | Phát hiện hành vi chiếm đoạt token |
 
 **Lưu ý:** Nếu phát hiện lỗi hệ thống chưa được định nghĩa `reason`, hãy bổ sung vào file `constants/log-events.constant.ts`.
