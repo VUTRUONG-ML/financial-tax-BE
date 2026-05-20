@@ -16,6 +16,7 @@ This document describes the request and response data structures of the core API
   - [2.3. Get All Invoices](#23-get-all-invoices)
   - [2.4. Get Invoice Details](#24-get-invoice-details)
   - [2.5. Cancel Invoice](#25-cancel-invoice)
+  - [2.6. Update Invoice](#26-update-invoice)
 - [3. Inbound Invoices](#3-inbound-invoices)
   - [3.1. Create Inbound Invoice](#31-create-inbound-invoice)
   - [3.2. Get All Inbound Invoices](#32-get-all-inbound-invoices)
@@ -43,6 +44,33 @@ This document describes the request and response data structures of the core API
   - [7.1. Get Onboarding Init Data](#71-get-onboarding-init-data)
   - [7.2. Setup Tax Configuration](#72-setup-tax-configuration)
   - [7.3. Update Tax Configuration](#73-update-tax-configuration)
+- [8. Users](#8-users)
+  - [8.1. Update User Profile](#81-update-user-profile)
+- [9. Dashboard](#9-dashboard)
+  - [9.1. Get Dashboard Summary](#91-get-dashboard-summary)
+- [10. Financial Periods](#10-financial-periods)
+  - [10.1. Reopen Financial Period](#101-reopen-financial-period)
+  - [10.2. Confirm Tax Payment](#102-confirm-tax-payment)
+  - [10.3. Compare PIT](#103-compare-pit)
+- [11. Internal Production Orders](#11-internal-production-orders)
+  - [11.1. Create Production Order](#111-create-production-order)
+  - [11.2. Cancel Production Order](#112-cancel-production-order)
+  - [11.3. Get All Production Orders](#113-get-all-production-orders)
+- [12. Tax Declaration](#12-tax-declaration)
+  - [12.1. Init Tax Declaration](#121-init-tax-declaration)
+  - [12.2. Start Session](#122-start-session)
+  - [12.3. Get Step 1](#123-get-step-1)
+  - [12.4. Save Step 1](#124-save-step-1)
+  - [12.5. Get Step 2](#125-get-step-2)
+  - [12.6. Save Step 2](#126-save-step-2)
+  - [12.7. Get Step 3](#127-get-step-3)
+  - [12.8. Save Step 3](#128-save-step-3)
+  - [12.9. Get Step 4](#129-get-step-4)
+  - [12.10. Save Step 4](#1210-save-step-4)
+  - [12.11. Step 5 Preview](#1211-step-5-preview)
+  - [12.12. Submit Declaration](#1212-submit-declaration)
+  - [12.13. Submit Force](#1213-submit-force)
+  - [12.14. Submit Ignore Warning](#1214-submit-ignore-warning)
 
 ---
 
@@ -76,7 +104,7 @@ This document describes the request and response data structures of the core API
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Product created successfully.",
   "data": {
     "publicId": "string",
@@ -90,7 +118,7 @@ This document describes the request and response data structures of the core API
     "sellingPrice": "number",
     "openingStockUnitCost": "number",
     "openingStockValue": "number",
-    "createdAt": "Date string (ISO 8601)"
+    "createdAt": "Date string"
   },
   "meta": null
 }
@@ -112,7 +140,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Products retrieved successfully.",
   "data": [
     {
@@ -127,7 +155,7 @@ None
       "sellingPrice": "number",
       "openingStockUnitCost": "number",
       "openingStockValue": "number",
-      "createdAt": "Date string (ISO 8601)"
+      "createdAt": "Date string"
     }
   ],
   "meta": null
@@ -150,7 +178,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Product retrieved successfully.",
   "data": {
     "publicId": "string",
@@ -164,7 +192,7 @@ None
     "sellingPrice": "number",
     "openingStockUnitCost": "number",
     "openingStockValue": "number",
-    "createdAt": "Date string (ISO 8601)"
+    "createdAt": "Date string"
   },
   "meta": null
 }
@@ -198,7 +226,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Product updated successfully.",
   "data": {
     "publicId": "string",
@@ -212,7 +240,7 @@ None
     "sellingPrice": "number",
     "openingStockUnitCost": "number",
     "openingStockValue": "number",
-    "createdAt": "Date string (ISO 8601)"
+    "createdAt": "Date string"
   },
   "meta": null
 }
@@ -234,7 +262,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Product deleted successfully.",
   "data": null,
   "meta": null
@@ -259,11 +287,13 @@ None
   "buyerName": "string (Optional)",
   "buyerTaxCode": "string (Optional)",
   "buyerAddress": "string (Optional)",
+  "buyerEmail": "string (Optional)",
+  "buyerIdNumber": "string (Optional)",
+  "paymentMethod": "\"CASH\" | \"BANK\"",
   "details": [
     {
       "productPublicId": "string",
-      "quantity": "number",
-      "unitPrice": "number"
+      "quantity": "number"
     }
   ]
 }
@@ -275,23 +305,29 @@ None
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Invoice created successfully.",
   "data": {
     "publicId": "string",
     "invoiceSymbol": "string",
     "isB2C": "boolean",
-    "buyerName": "string",
-    "buyerTaxCode": "string",
-    "buyerAddress": "string",
-    "status": "\"DRAFT\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
+    "buyerName": "string | null",
+    "buyerTaxCode": "string | null",
+    "buyerAddress": "string | null",
+    "status": "\"DRAFT\" | \"PENDING_ISSUED\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
     "isPaid": "boolean",
     "totalPayment": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "cqtCode": "string",
-    "issuedAt": "Date string (ISO 8601)",
-    "createdAt": "Date string (ISO 8601)",
+    "cqtCode": "string | null",
+    "paymentMethod": "\"CASH\" | \"BANK\"",
+    "buyerEmail": "string | null",
+    "buyerIdNumber": "string | null",
+    "taxRate": "number",
+    "taxPayable": "number",
+    "cancellationReason": "string | null",
+    "issueDate": "Date string",
+    "createdAt": "Date string",
     "details": [
       {
         "id": "number",
@@ -299,7 +335,9 @@ None
         "quantity": "number",
         "unitPrice": "number",
         "totalAmount": "number",
-        "productPublicId": "string"
+        "productPublicId": "string",
+        "unit": "string",
+        "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\""
       }
     ]
   },
@@ -323,23 +361,41 @@ None
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Complete the process of calling the tax authority for the code.",
   "data": {
     "publicId": "string",
     "invoiceSymbol": "string",
     "isB2C": "boolean",
-    "buyerName": "string",
-    "buyerTaxCode": "string",
-    "buyerAddress": "string",
-    "status": "\"DRAFT\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
+    "buyerName": "string | null",
+    "buyerTaxCode": "string | null",
+    "buyerAddress": "string | null",
+    "status": "\"DRAFT\" | \"PENDING_ISSUED\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
     "isPaid": "boolean",
     "totalPayment": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "cqtCode": "string",
-    "issuedAt": "Date string (ISO 8601)",
-    "createdAt": "Date string (ISO 8601)"
+    "cqtCode": "string | null",
+    "paymentMethod": "\"CASH\" | \"BANK\"",
+    "buyerEmail": "string | null",
+    "buyerIdNumber": "string | null",
+    "taxRate": "number",
+    "taxPayable": "number",
+    "cancellationReason": "string | null",
+    "issueDate": "Date string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "productNameSnapshot": "string",
+        "quantity": "number",
+        "unitPrice": "number",
+        "totalAmount": "number",
+        "productPublicId": "string",
+        "unit": "string",
+        "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\""
+      }
+    ]
   },
   "meta": null
 }
@@ -361,24 +417,30 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Get all invoice own success",
   "data": [
     {
       "publicId": "string",
       "invoiceSymbol": "string",
       "isB2C": "boolean",
-      "buyerName": "string",
-      "buyerTaxCode": "string",
-      "buyerAddress": "string",
-      "status": "\"DRAFT\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
+      "buyerName": "string | null",
+      "buyerTaxCode": "string | null",
+      "buyerAddress": "string | null",
+      "status": "\"DRAFT\" | \"PENDING_ISSUED\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
       "isPaid": "boolean",
       "totalPayment": "number",
       "paidAmount": "number",
       "remainingAmount": "number",
-      "cqtCode": "string",
-      "issuedAt": "Date string (ISO 8601)",
-      "createdAt": "Date string (ISO 8601)",
+      "cqtCode": "string | null",
+      "paymentMethod": "\"CASH\" | \"BANK\"",
+      "buyerEmail": "string | null",
+      "buyerIdNumber": "string | null",
+      "taxRate": "number",
+      "taxPayable": "number",
+      "cancellationReason": "string | null",
+      "issueDate": "Date string",
+      "createdAt": "Date string",
       "details": [
         {
           "id": "number",
@@ -386,7 +448,9 @@ None
           "quantity": "number",
           "unitPrice": "number",
           "totalAmount": "number",
-          "productPublicId": "string"
+          "productPublicId": "string",
+          "unit": "string",
+          "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\""
         }
       ]
     }
@@ -415,24 +479,30 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Get detail success.",
   "data": [
     {
       "publicId": "string",
       "invoiceSymbol": "string",
       "isB2C": "boolean",
-      "buyerName": "string",
-      "buyerTaxCode": "string",
-      "buyerAddress": "string",
-      "status": "\"DRAFT\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
+      "buyerName": "string | null",
+      "buyerTaxCode": "string | null",
+      "buyerAddress": "string | null",
+      "status": "\"DRAFT\" | \"PENDING_ISSUED\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
       "isPaid": "boolean",
       "totalPayment": "number",
       "paidAmount": "number",
       "remainingAmount": "number",
-      "cqtCode": "string",
-      "issuedAt": "Date string (ISO 8601)",
-      "createdAt": "Date string (ISO 8601)",
+      "cqtCode": "string | null",
+      "paymentMethod": "\"CASH\" | \"BANK\"",
+      "buyerEmail": "string | null",
+      "buyerIdNumber": "string | null",
+      "taxRate": "number",
+      "taxPayable": "number",
+      "cancellationReason": "string | null",
+      "issueDate": "Date string",
+      "createdAt": "Date string",
       "details": [
         {
           "id": "number",
@@ -440,7 +510,9 @@ None
           "quantity": "number",
           "unitPrice": "number",
           "totalAmount": "number",
-          "productPublicId": "string"
+          "productPublicId": "string",
+          "unit": "string",
+          "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\""
         }
       ]
     }
@@ -457,9 +529,13 @@ _(Note: Service returns an array `response` for `detailInvoice` because `findMan
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
-#### Request Body
+#### Request Body (JSON)
 
-None
+```json
+{
+  "cancellationReason": "string"
+}
+```
 
 #### Response Data (JSON)
 
@@ -467,23 +543,29 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Invoice canceled success.",
   "data": {
     "publicId": "string",
     "invoiceSymbol": "string",
     "isB2C": "boolean",
-    "buyerName": "string",
-    "buyerTaxCode": "string",
-    "buyerAddress": "string",
+    "buyerName": "string | null",
+    "buyerTaxCode": "string | null",
+    "buyerAddress": "string | null",
     "status": "\"CANCELED\"",
     "isPaid": "boolean",
     "totalPayment": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "cqtCode": "string",
-    "issuedAt": "Date string (ISO 8601)",
-    "createdAt": "Date string (ISO 8601)",
+    "cqtCode": "string | null",
+    "paymentMethod": "\"CASH\" | \"BANK\"",
+    "buyerEmail": "string | null",
+    "buyerIdNumber": "string | null",
+    "taxRate": "number",
+    "taxPayable": "number",
+    "cancellationReason": "string",
+    "issueDate": "Date string",
+    "createdAt": "Date string",
     "details": [
       {
         "id": "number",
@@ -491,13 +573,89 @@ None
         "quantity": "number",
         "unitPrice": "number",
         "totalAmount": "number",
-        "productPublicId": "string"
+        "productPublicId": "string",
+        "unit": "string",
+        "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\""
       }
     ]
   },
   "meta": null
 }
 ```
+
+### 2.6. Update Invoice
+
+- **Route:** `/invoices/:invoicePublicId`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "isB2C": "boolean (Optional)",
+  "buyerName": "string (Optional)",
+  "buyerTaxCode": "string (Optional)",
+  "buyerAddress": "string (Optional)",
+  "buyerEmail": "string (Optional)",
+  "buyerIdNumber": "string (Optional)",
+  "paymentMethod": "\"CASH\" | \"BANK\" (Optional)",
+  "details": [
+    {
+      "productPublicId": "string",
+      "quantity": "number"
+    }
+  ] (Optional)
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Invoice updated successfully.",
+  "data": {
+    "publicId": "string",
+    "invoiceSymbol": "string",
+    "isB2C": "boolean",
+    "buyerName": "string | null",
+    "buyerTaxCode": "string | null",
+    "buyerAddress": "string | null",
+    "status": "\"DRAFT\" | \"PENDING_ISSUED\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
+    "isPaid": "boolean",
+    "totalPayment": "number",
+    "paidAmount": "number",
+    "remainingAmount": "number",
+    "cqtCode": "string | null",
+    "paymentMethod": "\"CASH\" | \"BANK\"",
+    "buyerEmail": "string | null",
+    "buyerIdNumber": "string | null",
+    "taxRate": "number",
+    "taxPayable": "number",
+    "cancellationReason": "string | null",
+    "issueDate": "Date string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "productNameSnapshot": "string",
+        "quantity": "number",
+        "unitPrice": "number",
+        "totalAmount": "number",
+        "productPublicId": "string",
+        "unit": "string",
+        "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\""
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+````
 
 ---
 
@@ -516,7 +674,7 @@ None
   "sellerName": "string",
   "sellerTaxCode": "string (Optional)",
   "invoiceNo": "string",
-  "issueDate": "Date string (ISO 8601)",
+  "issueDate": "Date string",
   "attachmentUrl": "string (Optional)",
   "isSyncedToInventory": "boolean (Optional)",
   "items": [
@@ -527,7 +685,7 @@ None
     }
   ]
 }
-```
+````
 
 #### Response Data (JSON)
 
@@ -535,14 +693,14 @@ None
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Create success.",
   "data": {
     "publicId": "string",
     "sellerName": "string",
     "sellerTaxCode": "string",
     "invoiceNo": "string",
-    "issueDate": "Date string (ISO 8601)",
+    "issueDate": "Date string",
     "attachmentUrl": "string",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "isSyncedToInventory": "boolean",
@@ -550,7 +708,7 @@ None
     "totalAmount": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "details": [
       {
         "id": "number",
@@ -582,7 +740,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Get all inbound invoice success.",
   "data": [
     {
@@ -590,7 +748,7 @@ None
       "sellerName": "string",
       "sellerTaxCode": "string",
       "invoiceNo": "string",
-      "issueDate": "Date string (ISO 8601)",
+      "issueDate": "Date string",
       "attachmentUrl": "string",
       "status": "\"ACTIVE\" | \"CANCELED\"",
       "isSyncedToInventory": "boolean",
@@ -598,7 +756,7 @@ None
       "totalAmount": "number",
       "paidAmount": "number",
       "remainingAmount": "number",
-      "createdAt": "Date string (ISO 8601)",
+      "createdAt": "Date string",
       "details": [
         {
           "id": "number",
@@ -635,14 +793,14 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Get detail inbound invoice success.",
   "data": {
     "publicId": "string",
     "sellerName": "string",
     "sellerTaxCode": "string",
     "invoiceNo": "string",
-    "issueDate": "Date string (ISO 8601)",
+    "issueDate": "Date string",
     "attachmentUrl": "string",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "isSyncedToInventory": "boolean",
@@ -650,7 +808,7 @@ None
     "totalAmount": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "details": [
       {
         "id": "number",
@@ -682,14 +840,14 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Cancel inbound invoice success.",
   "data": {
     "publicId": "string",
     "sellerName": "string",
     "sellerTaxCode": "string",
     "invoiceNo": "string",
-    "issueDate": "Date string (ISO 8601)",
+    "issueDate": "Date string",
     "attachmentUrl": "string",
     "status": "\"CANCELED\"",
     "isSyncedToInventory": "boolean",
@@ -697,7 +855,7 @@ None
     "totalAmount": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "details": [
       {
         "id": "number",
@@ -729,14 +887,14 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Sync to inventory success.",
   "data": {
     "publicId": "string",
     "sellerName": "string",
     "sellerTaxCode": "string",
     "invoiceNo": "string",
-    "issueDate": "Date string (ISO 8601)",
+    "issueDate": "Date string",
     "attachmentUrl": "string",
     "status": "\"ACTIVE\"",
     "isSyncedToInventory": "boolean",
@@ -744,7 +902,7 @@ None
     "totalAmount": "number",
     "paidAmount": "number",
     "remainingAmount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "details": [
       {
         "id": "number",
@@ -791,18 +949,18 @@ None
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher created successfully",
   "data": {
     "voucherCode": "string",
     "voucherType": "\"RECEIPT\" | \"PAYMENT\"",
-    "transactionAt": "Date string (ISO 8601)",
+    "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
     "isDeductibleExpense": "boolean",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "amount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "category": {
       "id": "number",
       "categoryName": "string",
@@ -834,19 +992,19 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Vouchers retrieved successfully",
   "data": [
     {
       "voucherCode": "string",
       "voucherType": "\"RECEIPT\" | \"PAYMENT\"",
-      "transactionAt": "Date string (ISO 8601)",
+      "transactionAt": "Date string",
       "content": "string",
       "paymentMethod": "\"CASH\" | \"BANK\"",
       "isDeductibleExpense": "boolean",
       "status": "\"ACTIVE\" | \"CANCELED\"",
       "amount": "number",
-      "createdAt": "Date string (ISO 8601)",
+      "createdAt": "Date string",
       "category": {
         "id": "number",
         "categoryName": "string",
@@ -883,18 +1041,18 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher details retrieved successfully",
   "data": {
     "voucherCode": "string",
     "voucherType": "\"RECEIPT\" | \"PAYMENT\"",
-    "transactionAt": "Date string (ISO 8601)",
+    "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
     "isDeductibleExpense": "boolean",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "amount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "category": {
       "id": "number",
       "categoryName": "string",
@@ -935,18 +1093,18 @@ _(Note: Fields like `voucherType`, `amount`, and `invoicePublicId` cannot be upd
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher updated successfully",
   "data": {
     "voucherCode": "string",
     "voucherType": "\"RECEIPT\" | \"PAYMENT\"",
-    "transactionAt": "Date string (ISO 8601)",
+    "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
     "isDeductibleExpense": "boolean",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "amount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "category": {
       "id": "number",
       "categoryName": "string",
@@ -978,18 +1136,18 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher canceled successfully",
   "data": {
     "voucherCode": "string",
     "voucherType": "\"RECEIPT\" | \"PAYMENT\"",
-    "transactionAt": "Date string (ISO 8601)",
+    "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
     "isDeductibleExpense": "boolean",
     "status": "\"CANCELED\"",
     "amount": "number",
-    "createdAt": "Date string (ISO 8601)",
+    "createdAt": "Date string",
     "category": {
       "id": "number",
       "categoryName": "string",
@@ -1030,7 +1188,7 @@ None
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher category created successfully",
   "data": {
     "id": "number",
@@ -1058,7 +1216,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher categories retrieved successfully",
   "data": [
     {
@@ -1093,7 +1251,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher category updated successfully",
   "data": {
     "id": "number",
@@ -1121,7 +1279,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Voucher category deleted successfully",
   "data": null,
   "meta": null
@@ -1158,7 +1316,7 @@ None
 {
   "success": true,
   "statusCode": 201,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Register success",
   "data": {
     "phoneNumber": "string",
@@ -1169,9 +1327,9 @@ None
     "cccdNumber": "string",
     "provinceCity": "string",
     "isActive": "boolean",
-    "setUpCompletedAt": "Date string (ISO 8601) | null",
-    "createdAt": "Date string (ISO 8601)",
-    "updatedAt": "Date string (ISO 8601)"
+    "setUpCompletedAt": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
   },
   "meta": null
 }
@@ -1198,7 +1356,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Login success.",
   "data": {
     "user": {
@@ -1210,9 +1368,9 @@ None
       "cccdNumber": "string",
       "provinceCity": "string",
       "isActive": "boolean",
-      "setUpCompletedAt": "Date string (ISO 8601) | null",
-      "createdAt": "Date string (ISO 8601)",
-      "updatedAt": "Date string (ISO 8601)"
+      "setUpCompletedAt": "Date string | null",
+      "createdAt": "Date string",
+      "updatedAt": "Date string"
     },
     "accessToken": "string"
   },
@@ -1238,7 +1396,7 @@ None
 {
   "success": true,
   "statusCode": 202,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "string",
   "data": {
     "phoneNumber": "string",
@@ -1249,9 +1407,9 @@ None
     "cccdNumber": "string",
     "provinceCity": "string",
     "isActive": "boolean",
-    "setUpCompletedAt": "Date string (ISO 8601) | null",
-    "createdAt": "Date string (ISO 8601)",
-    "updatedAt": "Date string (ISO 8601)"
+    "setUpCompletedAt": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
   },
   "meta": null
 }
@@ -1273,7 +1431,7 @@ None
 {
   "success": true,
   "statusCode": 202,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Refresh success.",
   "data": {
     "accessToken": "string"
@@ -1300,7 +1458,7 @@ None
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Logout success.",
   "data": {
     "userId": "string"
@@ -1314,19 +1472,22 @@ None
 ## 7. Onboarding
 
 ### 7.1. Get Onboarding Init Data
+
 - **Route:** `/metadata/onboarding-init`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body
+
 None
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "string",
   "data": {
     "industries": [
@@ -1353,11 +1514,13 @@ None
 ```
 
 ### 7.2. Setup Tax Configuration
+
 - **Route:** `/onboarding/tax-config`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "industryId": "number",
@@ -1369,11 +1532,12 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "User onboarding success",
   "data": {
     "id": "string",
@@ -1381,24 +1545,26 @@ None
     "industryId": "number",
     "taxGroupId": "number",
     "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
-    "applyFromDate": "Date string (ISO 8601)",
-    "applyToDate": "Date string (ISO 8601) | null",
+    "applyFromDate": "Date string",
+    "applyToDate": "Date string | null",
     "vatRateSnapShot": "number",
     "pitRateSnapShot": "number",
     "isVatReducible": "boolean",
-    "createdAt": "Date string (ISO 8601)",
-    "updatedAt": "Date string (ISO 8601)"
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
   },
   "meta": null
 }
 ```
 
 ### 7.3. Update Tax Configuration
+
 - **Route:** `/onboarding/tax-config`
 - **Method:** `PUT`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 #### Request Body (JSON)
+
 ```json
 {
   "industryId": "number",
@@ -1410,11 +1576,12 @@ None
 ```
 
 #### Response Data (JSON)
+
 ```json
 {
   "success": true,
   "statusCode": 200,
-  "timestamp": "Date string (ISO 8601)",
+  "timestamp": "Date string",
   "message": "Update onboarding success",
   "data": {
     "id": "string",
@@ -1422,13 +1589,904 @@ None
     "industryId": "number",
     "taxGroupId": "number",
     "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
-    "applyFromDate": "Date string (ISO 8601)",
-    "applyToDate": "Date string (ISO 8601) | null",
+    "applyFromDate": "Date string",
+    "applyToDate": "Date string | null",
     "vatRateSnapShot": "number",
     "pitRateSnapShot": "number",
     "isVatReducible": "boolean",
-    "createdAt": "Date string (ISO 8601)",
-    "updatedAt": "Date string (ISO 8601)"
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 8. Users
+
+### 8.1. Update User Profile
+
+- **Route:** `/users`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "taxCode": "string (Optional)",
+  "businessName": "string (Optional)",
+  "ownerName": "string (Optional)",
+  "provinceCity": "string (Optional)"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Update user success.",
+  "data": {
+    "id": "string",
+    "phoneNumber": "string",
+    "role": "\"ADMIN\" | \"STAFF\"",
+    "taxCode": "string",
+    "businessName": "string",
+    "ownerName": "string",
+    "cccdNumber": "string",
+    "provinceCity": "string",
+    "isActive": "boolean",
+    "setUpCompletedAt": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 9. Dashboard
+
+### 9.1. Get Dashboard Summary
+
+- **Route:** `/dashboard/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve dashboard summary successfully",
+  "data": {
+    "revenueProgress": {
+      "totalCurrentRevenue": "number",
+      "warningLevel": "\"GREEN\" | \"YELLOW\" | \"RED\"",
+      "nextThreshold": "number",
+      "percentage": "number"
+    },
+    "taxDeclarationCard": {
+      "periodId": "string",
+      "periodName": "string",
+      "status": "\"OPEN\" | \"CLOSED\" | \"PENDING_CLOSURE\" | \"OVERDUE_NO_DATA\" | \"OVERDUE_WITH_DATA\"",
+      "deadlineDate": "string",
+      "isOverdue": "boolean",
+      "daysOverdue": "number",
+      "estimatedPenalty": "number"
+    } | null
+  },
+  "meta": null
+}
+```
+
+---
+
+## 10. Financial Periods
+
+### 10.1. Reopen Financial Period
+
+- **Route:** `/financial-periods/:id/reopen`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Reopen financial period success.",
+  "data": {
+    "publicId": "string",
+    "periodName": "string",
+    "startDate": "Date string",
+    "endDate": "Date string",
+    "deadlineDate": "Date string",
+    "status": "\"OPEN\"",
+    "taxAmount": "number",
+    "actualPaymentDate": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 10.2. Confirm Tax Payment
+
+- **Route:** `/financial-periods/:id/confirm-payment`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "paymentDate": "Date string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Confirm tax payment success.",
+  "data": {
+    "publicId": "string",
+    "periodName": "string",
+    "startDate": "Date string",
+    "endDate": "Date string",
+    "deadlineDate": "Date string",
+    "status": "\"CLOSED\"",
+    "taxAmount": "number",
+    "actualPaymentDate": "Date string",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 10.3. Compare PIT
+
+- **Route:** `/financial-periods/:id/compare-pit`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Compare PIT success.",
+  "data": {
+    "profitMethodAmount": "number | null",
+    "percentageMethodAmount": "number | null"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 11. Internal Production Orders
+
+### 11.1. Create Production Order
+
+- **Route:** `/internal-production-orders`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "notes": "string (Optional)",
+  "details": [
+    {
+      "productPublicId": "string",
+      "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+      "quantity": "number"
+    }
+  ]
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "timestamp": "Date string",
+  "message": "Create success.",
+  "data": {
+    "orderCode": "string",
+    "notes": "string | null",
+    "status": "\"ACTIVE\" | \"CANCELED\"",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+        "quantity": "number",
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 11.2. Cancel Production Order
+
+- **Route:** `/internal-production-orders/:orderCode/cancel`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Cancel success.",
+  "data": {
+    "orderCode": "string",
+    "notes": "string | null",
+    "status": "\"CANCELED\"",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+        "quantity": "number",
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 11.3. Get All Production Orders
+
+- **Route:** `/internal-production-orders`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Get all production order success.",
+  "data": [
+    {
+      "orderCode": "string",
+      "notes": "string | null",
+      "status": "\"ACTIVE\" | \"CANCELED\"",
+      "createdAt": "Date string",
+      "details": [
+        {
+          "id": "number",
+          "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+          "quantity": "number",
+          "productPublicId": "string",
+          "productName": "string",
+          "skuCode": "string"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": "number",
+    "page": "number",
+    "lastPage": "number"
+  }
+}
+```
+
+---
+
+## 12. Tax Declaration
+
+### 12.1. Init Tax Declaration
+
+- **Route:** `/tax-declaration/init`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Tax declaration init success.",
+  "data": {
+    "isFirstTime": "boolean",
+    "availablePeriods": [
+      {
+        "publicId": "string",
+        "periodName": "string",
+        "startDate": "Date string",
+        "endDate": "Date string",
+        "deadlineDate": "Date string",
+        "status": "\"OPEN\" | \"CLOSED\"",
+        "taxAmount": "number",
+        "actualPaymentDate": "Date string | null",
+        "createdAt": "Date string",
+        "updatedAt": "Date string"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 12.2. Start Session
+
+- **Route:** `/tax-declaration/start`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "periodIdPublicId": "string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "financialPeriodId": "number",
+    "step1Data": "object | null",
+    "step2Data": "object | null",
+    "step3Data": "object | null",
+    "step4Data": "object | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 12.3. Get Step 1
+
+- **Route:** `/tax-declaration/step-1/:publicId`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "taxCode": "string",
+    "businessName": "string",
+    "ownerName": "string",
+    "cccdNumber": "string",
+    "provinceCity": "string"
+  },
+  "meta": null
+}
+```
+
+### 12.4. Save Step 1
+
+- **Route:** `/tax-declaration/step-1/save/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "taxCode": "string (Optional)",
+  "businessName": "string (Optional)",
+  "provinceCity": "string (Optional)",
+  "cccdNumber": "string (Optional)",
+  "ownerName": "string (Optional)"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "financialPeriodId": "number",
+    "step1Data": {
+      "taxCode": "string",
+      "businessName": "string",
+      "ownerName": "string",
+      "cccdNumber": "string",
+      "provinceCity": "string"
+    },
+    "step2Data": "object | null",
+    "step3Data": "object | null",
+    "step4Data": "object | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 12.5. Get Step 2
+
+- **Route:** `/tax-declaration/step-2/:publicId`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "confirmedRevenue": "number"
+  },
+  "meta": null
+}
+```
+
+### 12.6. Save Step 2
+
+- **Route:** `/tax-declaration/step-2/save/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "financialPeriodId": "number",
+    "step1Data": "object | null",
+    "step2Data": {
+      "confirmedRevenue": "number"
+    },
+    "step3Data": "object | null",
+    "step4Data": "object | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 12.7. Get Step 3
+
+- **Route:** `/tax-declaration/step-3/:publicId`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": [
+    {
+      "productPublicId": "string",
+      "productName": "string",
+      "unit": "string",
+      "actualClosingQuantity": "number"
+    }
+  ],
+  "meta": null
+}
+```
+
+### 12.8. Save Step 3
+
+- **Route:** `/tax-declaration/step-3/save/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "inventoryItems": [
+    {
+      "productPublicId": "string",
+      "actualClosingQuantity": "number"
+    }
+  ]
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "financialPeriodId": "number",
+    "step1Data": "object | null",
+    "step2Data": "object | null",
+    "step3Data": [
+      {
+        "productPublicId": "string",
+        "actualClosingQuantity": "number"
+      }
+    ],
+    "step4Data": "object | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 12.9. Get Step 4
+
+- **Route:** `/tax-declaration/step-4/:publicId`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "totalExpense": "number"
+  },
+  "meta": null
+}
+```
+
+### 12.10. Save Step 4
+
+- **Route:** `/tax-declaration/step-4/save/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "id": "string",
+    "userId": "string",
+    "financialPeriodId": "number",
+    "step1Data": "object | null",
+    "step2Data": "object | null",
+    "step3Data": "object | null",
+    "step4Data": {
+      "totalExpense": "number"
+    },
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+### 12.11. Step 5 Preview
+
+- **Route:** `/tax-declaration/step-5/preview/:publicId`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "period": {
+      "publicId": "string",
+      "periodName": "string",
+      "startDate": "Date string",
+      "endDate": "Date string",
+      "deadlineDate": "Date string",
+      "status": "\"OPEN\" | \"CLOSED\"",
+      "taxAmount": "number",
+      "actualPaymentDate": "Date string | null",
+      "createdAt": "Date string",
+      "updatedAt": "Date string"
+    },
+    "step1Data": {
+      "taxCode": "string",
+      "businessName": "string",
+      "ownerName": "string",
+      "cccdNumber": "string",
+      "provinceCity": "string"
+    } | null,
+    "step2Data": {
+      "confirmedRevenue": "number"
+    } | null,
+    "step3Data": [
+      {
+        "productPublicId": "string",
+        "actualClosingQuantity": "number"
+      }
+    ] | null,
+    "step4Data": {
+      "totalExpense": "number"
+    } | null
+  },
+  "meta": null
+}
+```
+
+### 12.12. Submit Declaration
+
+- **Route:** `/tax-declaration/submit/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\""
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "closedPeriod": {
+      "publicId": "string",
+      "periodName": "string",
+      "startDate": "Date string",
+      "endDate": "Date string",
+      "deadlineDate": "Date string",
+      "status": "\"CLOSED\"",
+      "taxAmount": "number",
+      "actualPaymentDate": "Date string | null",
+      "createdAt": "Date string",
+      "updatedAt": "Date string"
+    },
+    "declaration": {
+      "id": "number",
+      "periodId": "number",
+      "declaredRevenue": "number",
+      "declaredExpense": "number",
+      "vatTaxAmount": "number",
+      "pitTaxAmount": "number",
+      "totalTaxAmount": "number",
+      "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+      "xmlContent": "string",
+      "createdAt": "Date string"
+    }
+  },
+  "meta": null
+}
+```
+
+### 12.13. Submit Force
+
+- **Route:** `/tax-declaration/submit-force/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\""
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "closedPeriod": {
+      "publicId": "string",
+      "periodName": "string",
+      "startDate": "Date string",
+      "endDate": "Date string",
+      "deadlineDate": "Date string",
+      "status": "\"CLOSED\"",
+      "taxAmount": "number",
+      "actualPaymentDate": "Date string | null",
+      "createdAt": "Date string",
+      "updatedAt": "Date string"
+    },
+    "declaration": {
+      "id": "number",
+      "periodId": "number",
+      "declaredRevenue": "number",
+      "declaredExpense": "number",
+      "vatTaxAmount": "number",
+      "pitTaxAmount": "number",
+      "totalTaxAmount": "number",
+      "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+      "xmlContent": "string",
+      "createdAt": "Date string"
+    }
+  },
+  "meta": null
+}
+```
+
+### 12.14. Submit Ignore Warning
+
+- **Route:** `/tax-declaration/submit-ignore-warning/:publicId`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\""
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "closedPeriod": {
+      "publicId": "string",
+      "periodName": "string",
+      "startDate": "Date string",
+      "endDate": "Date string",
+      "deadlineDate": "Date string",
+      "status": "\"CLOSED\"",
+      "taxAmount": "number",
+      "actualPaymentDate": "Date string | null",
+      "createdAt": "Date string",
+      "updatedAt": "Date string"
+    },
+    "declaration": {
+      "id": "number",
+      "periodId": "number",
+      "declaredRevenue": "number",
+      "declaredExpense": "number",
+      "vatTaxAmount": "number",
+      "pitTaxAmount": "number",
+      "totalTaxAmount": "number",
+      "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+      "xmlContent": "string",
+      "createdAt": "Date string"
+    }
   },
   "meta": null
 }
