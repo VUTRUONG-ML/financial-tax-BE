@@ -21,6 +21,7 @@ import { Decimal } from '@prisma/client/runtime/client';
 import { PitMethod, Prisma } from '@prisma/client';
 import { MAX_EFFECTIVE_DATE } from '../common/constants/tax-config.constant';
 import { moment } from '../common/utils/time.util';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 
 @Injectable()
 export class OnboardingService {
@@ -28,6 +29,7 @@ export class OnboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly financialPeriodsService: FinancialPeriodsService,
   ) {}
   private async findTaxGroupValid(
     taxGroupId: number,
@@ -201,6 +203,13 @@ export class OnboardingService {
         where: { id: userId, setUpCompletedAt: null },
         data: { setUpCompletedAt: now },
       });
+
+      // 5. Khởi tạo kì thuế đầu tiên
+      await this.financialPeriodsService.createInitialPeriod(
+        userId,
+        newConfig.id,
+        tx,
+      );
 
       await this.auditLog.logChange(
         tx,
