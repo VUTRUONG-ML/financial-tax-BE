@@ -1,6 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient, PitMethod, VoucherType } from '@prisma/client';
 import 'dotenv/config';
+import * as bcrypt from 'bcrypt';
 
 // Chỉ cần khởi tạo Client cơ bản cho script chạy local
 const prisma = new PrismaClient({
@@ -154,6 +155,98 @@ async function main() {
         categoryName: vc.categoryName,
         userId: null,
       },
+    });
+  }
+
+  // 5. Seed cho 3 tài khoản kiểm thử đại diện cho 3 nhóm thuế
+  console.log('--- Đang khởi tạo 3 tài khoản kiểm thử ---');
+  const saltRounds = 10;
+  const commonPasswordHash = await bcrypt.hash('Password123!', saltRounds);
+
+  const testUsers = [
+    {
+      phoneNumber: '0900000001',
+      passwordHash: commonPasswordHash,
+      taxCode: '0123456781',
+      cccdNumber: '001090000001',
+      businessName: 'Hộ kinh doanh Nhóm Một (Miễn thuế)',
+      ownerName: 'Nguyễn Văn Miễn Thuế',
+      provinceCity: 'Hà Nội',
+      role: 'ADMIN' as const,
+      isActive: true,
+    },
+    {
+      phoneNumber: '0900000002',
+      passwordHash: commonPasswordHash,
+      taxCode: '0123456782',
+      cccdNumber: '001090000002',
+      businessName: 'Hộ kinh doanh Nhóm Hai (So sánh AI)',
+      ownerName: 'Nguyễn Văn Linh Hoạt',
+      provinceCity: 'Hồ Chí Minh',
+      role: 'ADMIN' as const,
+      isActive: true,
+    },
+    {
+      phoneNumber: '0900000003',
+      passwordHash: commonPasswordHash,
+      taxCode: '0123456783',
+      cccdNumber: '001090000003',
+      businessName: 'Hộ kinh doanh Nhóm Ba (Bắt buộc theo lợi nhuận)',
+      ownerName: 'Nguyễn Văn Lợi Nhuận',
+      provinceCity: 'Đà Nẵng',
+      role: 'ADMIN' as const,
+      isActive: true,
+    },
+  ];
+
+  for (const u of testUsers) {
+    // Để tránh lỗi trùng lặp khi chạy đi chạy lại seed, ta sẽ dọn dẹp các bản ghi cũ trùng MST/CCCD trước nếu số điện thoại khác
+    await prisma.user.deleteMany({
+      where: {
+        OR: [
+          { taxCode: u.taxCode, NOT: { phoneNumber: u.phoneNumber } },
+          { cccdNumber: u.cccdNumber, NOT: { phoneNumber: u.phoneNumber } }
+        ]
+      }
+    });
+
+    const existing = await prisma.user.findUnique({
+      where: { phoneNumber: u.phoneNumber },
+      select: { id: true }
+    });
+
+    if (existing) {
+      const userId = existing.id;
+      // Xóa tất cả dữ liệu liên quan để reset hoàn toàn trạng thái về chưa Onboarding
+      await prisma.productionDetail.deleteMany({ where: { order: { userId } } });
+      await prisma.internalProductionOrder.deleteMany({ where: { userId } });
+      await prisma.voucher.deleteMany({ where: { userId } });
+      await prisma.inboundInvoiceDetail.deleteMany({ where: { invoice: { userId } } });
+      await prisma.inboundInvoice.deleteMany({ where: { userId } });
+      await prisma.invoiceDetail.deleteMany({ where: { invoice: { userId } } });
+      await prisma.invoice.deleteMany({ where: { userId } });
+      await prisma.taxDeclarationDraft.deleteMany({ where: { userId } });
+      await prisma.financialPeriod.deleteMany({ where: { userId } });
+      await prisma.taxConfiguration.deleteMany({ where: { userId } });
+      await prisma.revenueTracker.deleteMany({ where: { userId } });
+      await prisma.auditLog.deleteMany({ where: { userId } });
+      await prisma.product.deleteMany({ where: { userId } });
+    }
+
+    await prisma.user.upsert({
+      where: { phoneNumber: u.phoneNumber },
+      update: {
+        passwordHash: u.passwordHash,
+        taxCode: u.taxCode,
+        cccdNumber: u.cccdNumber,
+        businessName: u.businessName,
+        ownerName: u.ownerName,
+        provinceCity: u.provinceCity,
+        role: u.role,
+        isActive: u.isActive,
+        setUpCompletedAt: null, // Reset trạng thái onboarding
+      },
+      create: u,
     });
   }
 
