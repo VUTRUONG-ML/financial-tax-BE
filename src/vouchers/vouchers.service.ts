@@ -15,6 +15,7 @@ import {
 import {
   InboundInvoiceStatus,
   InvoiceStatus,
+  PaymentMethod,
   Prisma,
   Voucher,
   VoucherStatus,
@@ -62,6 +63,8 @@ export class VouchersService {
     userId: string,
     voucherType: VoucherType,
     amount: Decimal,
+    paymentMethod: PaymentMethod,
+    isDeductibleExpense?: boolean,
     inInvoicePublicId?: string,
     outInvoicePublicId?: string,
   ) {
@@ -134,6 +137,20 @@ export class VouchersService {
       });
       return { id: currentOutInvoice.id, type: 'OUTBOUND' };
     }
+
+    // Theo Luật Thuế, giao dịch từ 5 triệu VNĐ trở lên bắt buộc phải chuyển khoản (BANK) để được tính vào chi phí hợp lý.
+    if (
+      isDeductibleExpense &&
+      paymentMethod === PaymentMethod.CASH &&
+      amount.gte(5_000_000)
+    ) {
+      throw new BadRequestException({
+        message:
+          'Transactions of 5 million VND or more must be made via bank transfer.',
+        errorCode: 'INVALID_TAX_DEDUCTIBLE_METHOD',
+      });
+    }
+
     // ------------Trường hợp là hóa đơn nhập kho---------------------------------------
     if (inInvoicePublicId && voucherType === VoucherType.PAYMENT) {
       const currentInboundInvoice = await tx.inboundInvoice.findUnique({
@@ -194,6 +211,14 @@ export class VouchersService {
       });
 
       return { id: currentInboundInvoice.id, type: 'INBOUND' };
+    }
+
+    // Nếu nó vượt qua bước trên mà xuống được đây thì có nghĩa là nó đã không truyền inboundInvoice
+    if (isDeductibleExpense === true) {
+      throw new BadRequestException({
+        message: 'The deductible expense does not apply to any invoice.',
+        errorCode: 'MISSING_INBOUND_INVOICE_DEDUCT',
+      });
     }
   }
 
@@ -311,6 +336,8 @@ export class VouchersService {
           userId,
           createVoucherDto.voucherType,
           createVoucherDto.amount,
+          createVoucherDto.paymentMethod,
+          createVoucherDto.isDeductibleExpense,
           createVoucherDto.inboundInvoicePublicId,
           createVoucherDto.outboundInvoicePublicId,
         );
@@ -476,6 +503,16 @@ export class VouchersService {
         ) {
           throw new BadRequestException('Invalid voucher category');
         }
+      }
+
+      if (
+        updateVoucherDto.isDeductibleExpense === true &&
+        existing.inboundInvoiceId === null
+      ) {
+        throw new BadRequestException({
+          message: 'The deductible expense does not apply to any invoice.',
+          errorCode: 'MISSING_INBOUND_INVOICE_DEDUCT',
+        });
       }
 
       const updated = await tx.voucher.update({
