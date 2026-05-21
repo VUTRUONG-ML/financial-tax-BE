@@ -11,4 +11,9 @@ export class MetadataService {
   async findAllIndustry() {
     return await this.prisma.uiPopularTag.findMany();
   }
+  async findAllUiPopular() {
+    return await this.prisma.uiPopularTag.findMany({
+      omit: { mappedTaxId: true },
+    });
+  }
 }
