@@ -146,6 +146,9 @@ export class InternalProductionOrdersService {
             userId,
             orderCode,
             notes: createDto.notes,
+            transactionAt: createDto.transactionAt
+              ? new Date(createDto.transactionAt)
+              : new Date(),
             details: {
               create: createDto.details.map((detail) => {
                 const product = productsMap.get(detail.productPublicId)!;

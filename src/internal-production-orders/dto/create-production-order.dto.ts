@@ -1,6 +1,7 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -33,6 +34,10 @@ export class CreateProductionOrderDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsDateString()
+  @IsOptional()
+  transactionAt?: string;
 
   @IsArray()
   @ArrayMinSize(1)

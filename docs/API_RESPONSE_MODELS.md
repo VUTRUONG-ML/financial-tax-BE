@@ -1808,6 +1808,7 @@ None
 ```json
 {
   "notes": "string (Optional)",
+  "transactionAt": "Date string",
   "details": [
     {
       "productPublicId": "string",
@@ -1830,6 +1831,7 @@ None
     "orderCode": "string",
     "notes": "string | null",
     "status": "\"ACTIVE\" | \"CANCELED\"",
+    "transactionAt": "Date string",
     "createdAt": "Date string",
     "details": [
       {
@@ -1868,6 +1870,7 @@ None
     "orderCode": "string",
     "notes": "string | null",
     "status": "\"CANCELED\"",
+    "transactionAt": "Date string",
     "createdAt": "Date string",
     "details": [
       {
