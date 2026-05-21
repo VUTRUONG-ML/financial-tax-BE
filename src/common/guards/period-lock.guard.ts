@@ -29,7 +29,7 @@ export class PeriodLockGuard implements CanActivate {
 
     if (!user || !user.id) return false;
 
-    const issueDate = request.body?.issueDate;
+    const issueDate = request.body?.issueDate || request.body?.transactionAt || request.body?.date || null;
     const checkDate = issueDate
       ? moment(issueDate).toDate()
       : moment().toDate();
