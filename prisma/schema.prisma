@@ -489,6 +489,8 @@ model FinancialPeriod {
   vatRateSnapShot   Decimal?     @map("vat_rate_snapshot") @db.Decimal(5, 4)
   pitRateSnapShot   Decimal?     @map("pit_rate_snapshot") @db.Decimal(5, 4)
   taxAmount         Decimal      @default(0.00) @map("tax_amount") @db.Decimal(18, 4)
+  vatAmount         Decimal?     @map("vat_amount") @db.Decimal(18, 4)
+  pitAmount         Decimal?     @map("pit_amount") @db.Decimal(18, 4)
   actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)

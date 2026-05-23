@@ -24,6 +24,12 @@ export class FinancialPeriodResponseDto {
   taxAmount: number;
 
   @ApiProperty({ required: false, nullable: true })
+  vatAmount: number | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  pitAmount: number | null;
+
+  @ApiProperty({ required: false, nullable: true })
   actualPaymentDate: Date | null;
 
   @ApiProperty()
@@ -40,6 +46,8 @@ export class FinancialPeriodResponseDto {
     this.deadlineDate = partial.deadlineDate!;
     this.status = partial.status!;
     this.taxAmount = partial.taxAmount ? Number(partial.taxAmount) : 0;
+    this.vatAmount = partial.vatAmount ? Number(partial.vatAmount) : null;
+    this.pitAmount = partial.pitAmount ? Number(partial.pitAmount) : null;
     this.actualPaymentDate = partial.actualPaymentDate ?? null;
     this.createdAt = partial.createdAt!;
     this.updatedAt = partial.updatedAt!;
