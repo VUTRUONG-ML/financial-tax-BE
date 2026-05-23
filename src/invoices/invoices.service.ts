@@ -300,6 +300,7 @@ export class InvoicesService {
           userId,
           invoiceSymbol,
           isB2C: dto.isB2C ?? true,
+          issueDate: new Date(dto.issueDate),
           buyerName: dto.buyerName,
           buyerTaxCode: dto.buyerTaxCode,
           buyerAddress: dto.buyerAddress,

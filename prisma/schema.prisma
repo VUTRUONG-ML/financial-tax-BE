@@ -269,9 +269,7 @@ model Invoice {
   // Ngày phát hành hóa đơn (thay thế transactionDate và issuedAt)
   issueDate DateTime @default(now()) @map("issue_date")
 
-  // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
-  @@index([userId, status])
-  @@index([userId, issueDate])
+  @@index([userId, issueDate, status])
   @@map("invoices")
 }
 
