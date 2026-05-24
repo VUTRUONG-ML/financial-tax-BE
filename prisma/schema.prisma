@@ -510,6 +510,8 @@ model TaxDeclaration {
   periodId        Int       @unique @map("period_id")
   declaredRevenue Decimal   @map("declared_revenue") @db.Decimal(18, 4)
   declaredExpense Decimal   @map("declared_expense") @db.Decimal(18, 4)
+  ytdRevenue      Decimal   @default(0.00) @map("ytd_revenue") @db.Decimal(18, 4)
+  ytdExpense      Decimal   @default(0.00) @map("ytd_expense") @db.Decimal(18, 4)
   vatTaxAmount    Decimal   @map("vat_tax_amount") @db.Decimal(18, 4)
   pitTaxAmount    Decimal   @map("pit_tax_amount") @db.Decimal(18, 4)
   totalTaxAmount  Decimal   @map("total_tax_amount") @db.Decimal(18, 4)
