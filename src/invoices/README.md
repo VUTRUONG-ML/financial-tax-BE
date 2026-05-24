@@ -88,10 +88,9 @@ Tránh việc giữ DB Lock quá lâu:
 **Giai đoạn 2 — ACID Transaction**
 1. **Header**: Tạo `Invoice` mới (mặc định status `DRAFT`).
 2. **Details**: Lưu snapshot giá (`unitPrice`) và tên (`productNameSnapshot`) tại thời điểm bán (đảm bảo tính bất biến).
-3. **Doanh thu**: Sử dụng `upsert` cộng `totalPayment` vào `RevenueTracker` của năm hiện tại (`revenueYtd: { increment }`).
-4. **Audit**: `auditLog.logChange` ghi nhận thao tác `CREATE`.
+3. **Audit**: `auditLog.logChange` ghi nhận thao tác `CREATE`.
 
-> 💡 **Quan trọng**: Ở bước này, hóa đơn DRAFT **CHƯA** trừ tồn kho thật sự, chỉ mới cộng doanh thu. Kho sẽ bị trừ khi thực sự `publish`.
+> 💡 **Quan trọng**: Ở bước này, hóa đơn DRAFT **CHƯA** trừ tồn kho thật sự, và **CHƯA** cộng doanh thu. Tồn kho và doanh thu chỉ biến động ở quá trình phát hành (`publish`).
 
 ### 2. `publishInvoice` — Phát hành hóa đơn
 
@@ -108,7 +107,7 @@ Thực hiện đồng bộ với Cơ quan Thuế (CQT) và chốt số lượng 
 - Gọi `taxAuthorityService.requestTaxCode`.
 
 **Phase 3: Xử lý Kết quả (Resolve / Rollback)**
-- **Thành công (success = true)**: Gọi tiếp hàm `lockInvoice` để chốt status `ISSUED`, gán `cqtCode`, ghi Audit Trail.
+- **Thành công (success = true)**: Gọi tiếp hàm `lockInvoice` để chốt status `ISSUED`, gán `cqtCode`, **cộng doanh thu vào `RevenueTracker`**, và ghi Audit Trail.
 - **Thất bại (success = false)**: Mở 1 DB Transaction mới cập nhật status thành `SYNC_FAILED` và **hoàn trả hàng (increment) vào kho**, giúp user có thể "Retry" gửi lại lần sau.
 
 ### 3. `updateInvoice` — Cập nhật hóa đơn chưa phát hành
@@ -118,7 +117,6 @@ Chỉ được thực hiện khi hóa đơn ở trạng thái `DRAFT` hoặc `SY
 2. Kiểm tra thông tin B2B/B2C hợp lệ.
 3. **Transaction**:
    - Nếu có truyền chi tiết hóa đơn (`details`): Xóa details cũ, check tồn kho lần nữa, tạo details mới.
-   - Tính toán bù trừ doanh thu: Nếu tổng tiền mới khác tổng tiền cũ, update vào bảng `RevenueTracker`.
    - Update header của Invoice.
    - Ghi lại AuditLog sự thay đổi bằng JSON.
 
@@ -152,3 +150,22 @@ Bám sát quy tắc bảo mật từ `CONTRIBUTE.md`:
 
 Các đối tượng DTO quan trọng nằm trong `src/invoices/dto/`.
 Dữ liệu trả về luôn sử dụng tiện ích `mapToDto(InvoiceResponseDto, data)` để ẩn khóa ngoại (`userId`, `id` hệ thống), đảm bảo tính trừu tượng.
+
+---
+
+## 🚀 Kế hoạch tương lai: Kiến trúc hàng đợi (BullMQ)
+
+Hiện tại, việc gọi API CQT và validate/cập nhật DB đang bị dồn chung vào một luồng request. Điều này tiềm ẩn rủi ro: Nếu API CQT cấp mã thành công, nhưng DB bị lỗi (rớt mạng, server sập) ở bước lưu `ISSUED` và cộng doanh thu, thì CQT đã ghi nhận nhưng hệ thống của chúng ta lại bị sai lệch. 
+
+Để giải quyết, bắt buộc validate toàn bộ nội bộ DB trước khi gọi API CQT để bắn lỗi sớm. Nhưng nếu gọi API thành công mà thao tác ghi nhận sau đó thất bại, buộc phải có một Job ngoài để retry lại hành động cập nhật DB. Tương tự, nếu `ISSUED` lỗi và phải rollback (về `SYNC_FAILED` và hoàn kho), quá trình rollback đó cũng có thể lỗi và gây sai sót dữ liệu, do đó cũng cần Job chạy retry.
+
+### 1. Kiến trúc hàng đợi xử lý hóa đơn (Queue Architecture)
+
+Thay vì xử lý tất cả trong Service, chúng ta sẽ chia thành 2 Job chính:
+
+- **Job 1 (SyncTaxAuthority):** Gọi API CQT. Nếu CQT thành công nhưng quá trình lưu DB (cập nhật status thành `ISSUED`, cộng doanh thu) bị lỗi, Job này sẽ retry việc cập nhật status thành `ISSUED` cho đến khi được.
+- **Job 2 (CompensatingRollback):** Chỉ chạy khi Job 1 xác nhận CQT thất bại (do API trả về lỗi hợp lệ) và chính Job 2 lại gặp lỗi khi đang hoàn kho. Job này sẽ liên tục retry việc hoàn lại hàng hóa về kho cho đến khi thành công.
+
+### 2. Triển khai Worker xử lý Retry (Gợi ý Logic)
+
+Sẽ cần tạo một Processor (Worker) để xử lý các hóa đơn đang bị "kẹt". Đây là cách xử lý tình huống "cố quá không được" (VD: vượt quá số lần retry tối đa): Hệ thống sẽ gửi cảnh báo khẩn cấp (Alert) cho Admin/Dev để can thiệp thủ công, tránh mất đồng bộ với Cơ quan thuế.
