@@ -1,4 +1,5 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsDateString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsDateString, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export enum TimeFrame {
   THANG_NAY = 'thang_nay',
@@ -28,4 +29,16 @@ export class GetRevenueBookDto {
   @IsDateString()
   @IsOptional()
   endDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
 }

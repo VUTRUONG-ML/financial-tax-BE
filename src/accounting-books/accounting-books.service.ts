@@ -11,10 +11,18 @@ import {
 } from './constant/accounting-books.constant';
 import { parseDateRange } from 'src/common/utils/date-range-parser.util';
 import { Invoice, TaxConfiguration } from '@prisma/client';
+import { TaxEngineService } from '../tax-engine/tax-engine.service';
+import { Decimal } from '@prisma/client/runtime/client';
+import { moment } from 'src/common/utils/time.util';
+import { plainToInstance } from 'class-transformer';
+import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
 
 @Injectable()
 export class AccountingBooksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly taxEngine: TaxEngineService,
+  ) {}
 
   async generateBookMetadata(
     bookKey: AccountingBookKey,
@@ -46,6 +54,8 @@ export class AccountingBooksService {
     userId: string,
     timeFrame: string,
     customRange?: { startDate: Date; endDate: Date },
+    page: number = 1,
+    limit: number = 20,
   ) {
     // 1. Phân tích mốc thời gian
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
@@ -81,20 +91,40 @@ export class AccountingBooksService {
       throw new NotFoundException('Tax configuration not found for this user.');
     }
 
-    // 3. Truy vấn danh sách hóa đơn bán ra hợp lệ (ISSUED)
-    const invoices = await this.prisma.invoice.findMany({
-      where: {
-        userId,
-        status: 'ISSUED',
-        issueDate: {
-          gte: startDate,
-          lte: endDate,
+    // 3. Truy vấn danh sách hóa đơn phân trang
+    const skip = (page - 1) * limit;
+    const [invoices, aggregateInvoices] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: {
+          userId,
+          status: 'ISSUED',
+          issueDate: {
+            gte: startDate,
+            lte: endDate,
+          },
         },
-      },
-      orderBy: {
-        issueDate: 'asc',
-      },
-    });
+        orderBy: {
+          issueDate: 'asc',
+        },
+        skip,
+        take: limit,
+      }),
+      this.prisma.invoice.aggregate({
+        _sum: { totalPayment: true },
+        _count: { id: true },
+        where: {
+          userId,
+          status: 'ISSUED',
+          issueDate: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+      }),
+    ]);
+
+    const tong_doanh_thu = Number(aggregateInvoices._sum.totalPayment || 0);
+    const so_luong_don_hang = aggregateInvoices._count.id;
 
     const taxGroupId = taxConfig.taxGroupId;
 
@@ -104,42 +134,65 @@ export class AccountingBooksService {
     // 4. Rẽ nhánh theo tax_group để tính toán các sổ được phép truy cập
     if (taxGroupId === 1) {
       books['S1a-HKD'] = await this.calculateS1a(
-        invoices,
-        taxConfig,
-        taxConfig.industry.categoryName,
         userId,
         startDate,
         endDate,
+        tong_doanh_thu,
+        so_luong_don_hang,
+        page,
+        limit,
       );
       activeBookKey = 'S1a-HKD';
     } else if (taxGroupId === 2) {
       books['S2a-HKD'] = await this.calculateS2a(
-        invoices,
         taxConfig,
-        taxConfig.industry.categoryName,
         userId,
         startDate,
         endDate,
+        tong_doanh_thu,
+        so_luong_don_hang,
+        page,
+        limit,
       );
       books['S2b-HKD'] = await this.calculateS2b(
-        invoices,
         taxConfig,
-        taxConfig.industry.categoryName,
         userId,
         startDate,
         endDate,
+        tong_doanh_thu,
+        so_luong_don_hang,
+        page,
+        limit,
       );
       activeBookKey = 'S2a-HKD';
     } else {
       books['S2b-HKD'] = await this.calculateS2b(
-        invoices,
         taxConfig,
-        taxConfig.industry.categoryName,
         userId,
         startDate,
         endDate,
+        tong_doanh_thu,
+        so_luong_don_hang,
+        page,
+        limit,
       );
       activeBookKey = 'S2b-HKD';
+    }
+
+    const mappedInvoices = invoices.map((inv) => ({
+      ...inv,
+      Dien_Giai: inv.buyerName || taxConfig.industry.categoryName,
+      Thue_GTGT: Number(inv.taxPayable),
+    }));
+
+    if (books['S1a-HKD']) {
+      books['S1a-HKD'].rows = plainToInstance(S1ARowDto, mappedInvoices);
+    }
+    if (books['S2a-HKD']) {
+      books['S2a-HKD'].rows = plainToInstance(S2ARowDto, mappedInvoices);
+    }
+    if (books['S2b-HKD']) {
+      books['S2b-HKD'].rows = plainToInstance(S2BRowDto, mappedInvoices);
     }
 
     return {
@@ -149,22 +202,14 @@ export class AccountingBooksService {
   }
 
   async calculateS1a(
-    invoices: Invoice[],
-    taxConfig: TaxConfiguration,
-    dienGiai: string,
     userId: string,
     startDate: Date,
     endDate: Date,
+    tong_doanh_thu: number,
+    so_luong_don_hang: number,
+    page: number,
+    limit: number,
   ) {
-    const rows = invoices.map((invoice) => ({
-      Ngay_Thang: invoice.issueDate,
-      Dien_Giai: invoice.buyerName || dienGiai,
-      So_Tien: Number(invoice.totalPayment),
-    }));
-
-    const tong_doanh_thu = rows.reduce((sum, r) => sum + r.So_Tien, 0);
-    const so_luong_don_hang = invoices.length;
-
     const bookMetadata = await this.generateBookMetadata(
       'S1A',
       userId,
@@ -176,7 +221,12 @@ export class AccountingBooksService {
       bookMetadata,
       bookKey: 'S1A',
       timeFrame: { startDate, endDate },
-      rows,
+      meta: {
+        total: so_luong_don_hang,
+        page,
+        lastPage: Math.ceil(so_luong_don_hang / limit) || 1,
+      },
+      rows: [],
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
@@ -185,32 +235,79 @@ export class AccountingBooksService {
   }
 
   async calculateS2a(
-    invoices: Invoice[],
     taxConfig: TaxConfiguration,
-    dienGiai: string,
     userId: string,
     startDate: Date,
     endDate: Date,
+    tong_doanh_thu: number,
+    so_luong_don_hang: number,
+    page: number,
+    limit: number,
   ) {
+    // Thuế GTGT được tính từ tổng doanh thu nhân với tỷ lệ thuế
     const vatRate = Number(taxConfig.vatRateSnapShot);
-    const pitRate = Number(taxConfig.pitRateSnapShot);
+    const tongThueGTGT = tong_doanh_thu * vatRate;
 
-    const rows = invoices.map((invoice) => {
-      const amount = Number(invoice.totalPayment);
-      const thueGTGT = amount * vatRate;
-      return {
-        So_Hieu_Chung_Tu: invoice.invoiceSymbol || invoice.id.toString(),
-        Ngay_Thang: invoice.issueDate,
-        Dien_Giai: invoice.buyerName || dienGiai,
-        So_Tien: amount,
-        Thue_GTGT: thueGTGT,
-      };
+    // Tính Thuế TNCN (PIT) lũy kế YTD --------------------------------------------------------
+    const startOfYear = moment(startDate).startOf('year').toDate();
+
+    // 1. Tính tổng doanh thu và chi phí từ đầu năm đến trước startDate
+    const [revBefore, expBefore] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        _sum: { totalPayment: true },
+        where: {
+          userId,
+          status: 'ISSUED',
+          issueDate: { gte: startOfYear, lt: startDate },
+        },
+      }),
+      this.prisma.voucher.aggregate({
+        _sum: { amount: true },
+        where: {
+          userId,
+          transactionAt: { gte: startOfYear, lt: startDate },
+          voucherType: 'PAYMENT',
+          isDeductibleExpense: true,
+          status: 'ACTIVE',
+        },
+      }),
+    ]);
+    const ytdRevenueBefore = revBefore._sum.totalPayment || new Decimal(0);
+    const ytdExpenseBefore = expBefore._sum.amount || new Decimal(0);
+
+    // 2. Tính chi phí trong kỳ (doanh thu trong kỳ chính là tong_doanh_thu)
+    const expInPeriod = await this.prisma.voucher.aggregate({
+      _sum: { amount: true },
+      where: {
+        userId,
+        transactionAt: { gte: startDate, lte: endDate },
+        voucherType: 'PAYMENT',
+        isDeductibleExpense: true,
+        status: 'ACTIVE',
+      },
     });
+    const expenseInPeriod = expInPeriod._sum.amount || new Decimal(0);
 
-    const tong_doanh_thu = rows.reduce((sum, r) => sum + r.So_Tien, 0);
-    const so_luong_don_hang = invoices.length;
-    const tongThueGTGT = rows.reduce((sum, r) => sum + r.Thue_GTGT, 0);
-    const tongThueTNCN = tong_doanh_thu * pitRate;
+    // 3. Tính YTD đến cuối kỳ
+    const ytdRevenueEnd = ytdRevenueBefore.add(tong_doanh_thu);
+    const ytdExpenseEnd = ytdExpenseBefore.add(expenseInPeriod);
+
+    // 4. Tính thuế lũy kế 2 mốc
+    const taxBefore = this.taxEngine.calculateTotalTax(
+      ytdRevenueBefore,
+      ytdExpenseBefore,
+      taxConfig,
+    );
+    const taxEnd = this.taxEngine.calculateTotalTax(
+      ytdRevenueEnd,
+      ytdExpenseEnd,
+      taxConfig,
+    );
+
+    // 5. Lấy phần PIT phát sinh trong kỳ (TaxEnd - TaxBefore) bằng cách lấy tổng thuế trừ đi VAT
+    const pitBefore = taxBefore.totalTaxDue.sub(taxBefore.vatAmount);
+    const pitEnd = taxEnd.totalTaxDue.sub(taxEnd.vatAmount);
+    const tongThueTNCN = Number(Decimal.max(0, pitEnd.sub(pitBefore)));
 
     const bookMetadata = await this.generateBookMetadata(
       'S2A',
@@ -223,41 +320,35 @@ export class AccountingBooksService {
       bookMetadata,
       bookKey: 'S2A',
       timeFrame: { startDate, endDate },
-      rows,
+      meta: {
+        total: so_luong_don_hang,
+        page,
+        lastPage: Math.ceil(so_luong_don_hang / limit) || 1,
+      },
+      rows: [],
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
         Tong_Thue_TNCN_Phai_Nop: tongThueTNCN,
-        Tong_So_Thue_GTGT_Phai_Nop: tongThueGTGT,
+        Tong_So_Thue_GTGT_Phai_Nop: Number(tongThueGTGT),
       },
     };
   }
 
   async calculateS2b(
-    invoices: Invoice[],
     taxConfig: TaxConfiguration,
-    dienGiai: string,
     userId: string,
     startDate: Date,
     endDate: Date,
+    tong_doanh_thu: number,
+    so_luong_don_hang: number,
+    page: number,
+    limit: number,
   ) {
     const vatRate = Number(taxConfig.vatRateSnapShot);
 
-    const rows = invoices.map((invoice) => {
-      const amount = Number(invoice.totalPayment);
-      const thueGTGT = amount * vatRate;
-      return {
-        So_Hieu_Chung_Tu: invoice.invoiceSymbol || invoice.id.toString(),
-        Ngay_Thang: invoice.issueDate,
-        Dien_Giai: invoice.buyerName ?? dienGiai,
-        So_Tien: amount,
-        Thue_GTGT: thueGTGT,
-      };
-    });
-
-    const tong_doanh_thu = rows.reduce((sum, r) => sum + r.So_Tien, 0);
-    const so_luong_don_hang = invoices.length;
-    const tongThueGTGT = rows.reduce((sum, r) => sum + r.Thue_GTGT, 0);
+    // Thuế GTGT được tính từ tổng doanh thu nhân với tỷ lệ thuế
+    const tongThueGTGT = tong_doanh_thu * vatRate;
 
     const bookMetadata = await this.generateBookMetadata(
       'S2B',
@@ -270,7 +361,12 @@ export class AccountingBooksService {
       bookMetadata,
       bookKey: 'S2B',
       timeFrame: { startDate, endDate },
-      rows,
+      meta: {
+        total: so_luong_don_hang,
+        page,
+        lastPage: Math.ceil(so_luong_don_hang / limit) || 1,
+      },
+      rows: [],
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,

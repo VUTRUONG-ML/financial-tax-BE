@@ -29,6 +29,8 @@ export class AccountingBooksController {
       user.id,
       query.timeFrame,
       customRange,
+      query.page,
+      query.limit,
     );
 
     return {
