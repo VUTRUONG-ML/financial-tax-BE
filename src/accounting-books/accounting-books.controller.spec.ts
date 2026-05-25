@@ -10,13 +10,11 @@ describe('AccountingBooksController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AccountingBooksController],
       providers: [
-        AccountingBooksService,
         {
-          provide: PrismaService,
+          provide: AccountingBooksService,
           useValue: {
-            user: { findUnique: jest.fn() },
-            taxConfiguration: { findFirst: jest.fn() },
-            invoice: { findMany: jest.fn() },
+            getRevenueBookSummary: jest.fn(),
+            getRevenueBookRecords: jest.fn(),
           },
         },
       ],

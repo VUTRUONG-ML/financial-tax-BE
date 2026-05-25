@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsDateString, IsInt, Min } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum TimeFrame {
@@ -41,4 +41,8 @@ export class GetRevenueBookDto {
   @IsInt()
   @Min(1)
   limit?: number;
+
+  @IsOptional()
+  @IsString()
+  syncCode?: string;
 }

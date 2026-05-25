@@ -12,8 +12,8 @@ export class AccountingBooksController {
     private readonly accountingBooksService: AccountingBooksService,
   ) {}
 
-  @Get('revenue')
-  async getRevenueBook(
+  @Get('revenue/summary')
+  async getRevenueBookSummary(
     @CurrentUser() user: RequestUser,
     @Query() query: GetRevenueBookDto,
   ) {
@@ -25,12 +25,39 @@ export class AccountingBooksController {
           }
         : undefined;
 
-    const data = await this.accountingBooksService.getRevenueBook(
+    const data = await this.accountingBooksService.getRevenueBookSummary(
+      user.id,
+      query.timeFrame,
+      customRange,
+    );
+
+    return {
+      success: true,
+      message: 'Retrieve revenue book summary successfully',
+      data,
+    };
+  }
+
+  @Get('revenue/records')
+  async getRevenueBookRecords(
+    @CurrentUser() user: RequestUser,
+    @Query() query: GetRevenueBookDto,
+  ) {
+    const customRange =
+      query.startDate && query.endDate
+        ? {
+            startDate: new Date(query.startDate),
+            endDate: new Date(query.endDate),
+          }
+        : undefined;
+
+    const data = await this.accountingBooksService.getRevenueBookRecords(
       user.id,
       query.timeFrame,
       customRange,
       query.page,
       query.limit,
+      query.syncCode,
     );
 
     return {

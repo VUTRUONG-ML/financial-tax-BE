@@ -17,6 +17,7 @@ This document describes the request and response data structures of the core API
   - [2.4. Get Invoice Details](#24-get-invoice-details)
   - [2.5. Cancel Invoice](#25-cancel-invoice)
   - [2.6. Update Invoice](#26-update-invoice)
+  - [2.7. Delete Invoice](#27-delete-invoice)
 - [3. Inbound Invoices](#3-inbound-invoices)
   - [3.1. Create Inbound Invoice](#31-create-inbound-invoice)
   - [3.2. Get All Inbound Invoices](#32-get-all-inbound-invoices)
@@ -71,6 +72,9 @@ This document describes the request and response data structures of the core API
   - [12.12. Submit Declaration](#1212-submit-declaration)
   - [12.13. Submit Force](#1213-submit-force)
   - [12.14. Submit Ignore Warning](#1214-submit-ignore-warning)
+- [13. Accounting Books](#13-accounting-books)
+  - [13.1. Get Revenue Book Summary](#131-get-revenue-book-summary)
+  - [13.2. Get Revenue Book Records](#132-get-revenue-book-records)
 
 ---
 
@@ -407,6 +411,11 @@ None
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+
 #### Request Body
 
 None
@@ -655,7 +664,49 @@ _(Note: Service returns an array `response` for `detailInvoice` because `findMan
 }
 ```
 
-````
+### 2.7. Delete Invoice
+
+- **Route:** `/invoices/:invoicePublicId`
+- **Method:** `DELETE`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Invoice deleted successfully.",
+  "data": {
+    "publicId": "string",
+    "invoiceSymbol": "string",
+    "isB2C": "boolean",
+    "buyerName": "string | null",
+    "buyerTaxCode": "string | null",
+    "buyerAddress": "string | null",
+    "status": "\"DRAFT\" | \"PENDING_ISSUED\" | \"ISSUED\" | \"SYNC_FAILED\" | \"CANCELED\"",
+    "isPaid": "boolean",
+    "totalPayment": "number",
+    "paidAmount": "number",
+    "remainingAmount": "number",
+    "cqtCode": "string | null",
+    "paymentMethod": "\"CASH\" | \"BANK\"",
+    "buyerEmail": "string | null",
+    "buyerIdNumber": "string | null",
+    "taxRate": "number",
+    "taxPayable": "number",
+    "cancellationReason": "string | null",
+    "issueDate": "Date string",
+    "createdAt": "Date string"
+  },
+  "meta": null
+}
+```
 
 ---
 
@@ -685,7 +736,7 @@ _(Note: Service returns an array `response` for `detailInvoice` because `findMan
     }
   ]
 }
-````
+```
 
 #### Response Data (JSON)
 
@@ -2494,3 +2545,111 @@ None
   "meta": null
 }
 ```
+
+---
+
+## 13. Accounting Books
+
+### 13.1. Get Revenue Book Summary
+
+- **Route:** `/accounting-books/revenue/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve revenue book summary successfully",
+  "data": {
+    "books": {
+      "S1a-HKD": {
+        "bookMetadata": {
+          "businessName": "string",
+          "taxCode": "string",
+          "bookTitle": "string",
+          "ownerName": "string",
+          "templateStyle": "string"
+        },
+        "bookKey": "string",
+        "timeFrame": {
+          "startDate": "Date string",
+          "endDate": "Date string"
+        },
+        "summary": {
+          "tong_doanh_thu": "number",
+          "so_luong_don_hang": "number"
+        }
+      }
+    },
+    "activeBookKey": "string",
+    "syncCode": "string"
+  },
+  "meta": null
+}
+```
+
+_(Note: `books` structure varies depending on `activeBookKey` being `S1a-HKD`, `S2a-HKD`, or `S2b-HKD`. Included above is an example for `S1a-HKD`)_
+
+### 13.2. Get Revenue Book Records
+
+- **Route:** `/accounting-books/revenue/records`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `syncCode`: `string (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve revenue book successfully",
+  "data": {
+    "rows": [
+      {
+        "Ngay_Thang": "Date string",
+        "Dien_Giai": "string",
+        "So_Tien": "number"
+      }
+    ],
+    "meta": {
+      "total": "number",
+      "page": "number",
+      "lastPage": "number"
+    },
+    "activeBookKey": "string",
+    "syncCode": "string",
+    "isSummaryOutdated": "boolean"
+  },
+  "meta": null
+}
+```
+
+_(Note: `rows` objects format will adapt to the active book schema `S1ARowDto`, `S2ARowDto` or `S2BRowDto`. Provided above is `S1ARowDto` format)_

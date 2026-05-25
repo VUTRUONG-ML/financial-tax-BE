@@ -56,3 +56,21 @@ Trong kỳ `[startDate, endDate]` có lãi ($R_2 > E_2$).
 ## 🔒 Bảo mật và Hiệu suất
 - Mọi câu truy vấn Database (`aggregate`) đều được thiết lập điều kiện chặt chẽ theo `userId` (Owner) để phòng chống IDOR.
 - Sử dụng Promise.all() cho các câu query độc lập (VD: Tính YTD trước kỳ cho cả Revenue và Expense) nhằm tối ưu hóa thời gian phản hồi API.
+
+---
+
+## 🚀 Tách API & Cơ chế Đồng bộ hóa (Sync Code)
+
+Để tối ưu hóa hiệu năng trải nghiệm người dùng, hệ thống đã tách việc lấy dữ liệu sổ sách ra làm 2 luồng riêng biệt:
+
+1. **API Phân trang (Records)**: Nhanh gọn, trả về ngay danh sách hóa đơn theo trang.
+2. **API Tổng hợp (Summary)**: Thực hiện các truy vấn aggregation nặng để tính toán ra được các sổ thuế YTD phức tạp ở phía trên. Không trả về mảng chi tiết (rows).
+
+### Cơ chế Sync Code (Flag phát hiện thay đổi)
+Do dữ liệu tổng hợp (summary) rất nặng, chúng ta không gọi API này lại sau mỗi lần người dùng bấm qua trang mới ở giao diện phân trang. Thay vào đó:
+
+- Backend sinh ra một mã `syncCode` mỗi khi truy vấn. Mã này được tạo ra cực kỳ nhanh thông qua việc lấy tổng số lượng (count) và mốc thời gian cập nhật mới nhất (max updatedAt) của bảng `Invoice` và `Voucher` trong khoảng thời gian đang tra cứu.
+  *Ví dụ Hash:* `[invCount]-[invMaxTime]-[vchCount]-[vchMaxTime]`
+- Khi Frontend gọi API Records (phân trang), nó gửi kèm `syncCode` hiện tại.
+- Backend so sánh mã cũ và mã mới. Nếu dữ liệu có thay đổi (có hóa đơn mới xuất, phiếu chi mới,...), Backend sẽ gán cờ `isSummaryOutdated: true`.
+- Giao diện (Frontend) dựa vào cờ này để chủ động gọi lại API Summary một lần duy nhất nhằm cập nhật lại số liệu thuế mà không cần load lại toàn trang.

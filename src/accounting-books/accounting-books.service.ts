@@ -14,8 +14,8 @@ import { Invoice, TaxConfiguration } from '@prisma/client';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from 'src/common/utils/time.util';
-import { plainToInstance } from 'class-transformer';
 import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
+import { plainToInstance } from 'class-transformer';
 
 @Injectable()
 export class AccountingBooksService {
@@ -50,12 +50,41 @@ export class AccountingBooksService {
     };
   }
 
-  async getRevenueBook(
+  private async generateSyncCode(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<string> {
+    const [invoiceAgg, voucherAgg] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          issueDate: { gte: startDate, lte: endDate },
+        },
+      }),
+      this.prisma.voucher.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          transactionAt: { gte: startDate, lte: endDate },
+        },
+      }),
+    ]);
+    const invCount = invoiceAgg._count.id;
+    const invMaxTime = invoiceAgg._max.updatedAt?.getTime() || 0;
+    const vchCount = voucherAgg._count.id;
+    const vchMaxTime = voucherAgg._max.updatedAt?.getTime() || 0;
+
+    return `${invCount}-${invMaxTime}-${vchCount}-${vchMaxTime}`;
+  }
+
+  async getRevenueBookSummary(
     userId: string,
     timeFrame: string,
     customRange?: { startDate: Date; endDate: Date },
-    page: number = 1,
-    limit: number = 20,
   ) {
     // 1. Phân tích mốc thời gian
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
@@ -91,37 +120,18 @@ export class AccountingBooksService {
       throw new NotFoundException('Tax configuration not found for this user.');
     }
 
-    // 3. Truy vấn danh sách hóa đơn phân trang
-    const skip = (page - 1) * limit;
-    const [invoices, aggregateInvoices] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where: {
-          userId,
-          status: 'ISSUED',
-          issueDate: {
-            gte: startDate,
-            lte: endDate,
-          },
+    const aggregateInvoices = await this.prisma.invoice.aggregate({
+      _sum: { totalPayment: true },
+      _count: { id: true },
+      where: {
+        userId,
+        status: 'ISSUED',
+        issueDate: {
+          gte: startDate,
+          lte: endDate,
         },
-        orderBy: {
-          issueDate: 'asc',
-        },
-        skip,
-        take: limit,
-      }),
-      this.prisma.invoice.aggregate({
-        _sum: { totalPayment: true },
-        _count: { id: true },
-        where: {
-          userId,
-          status: 'ISSUED',
-          issueDate: {
-            gte: startDate,
-            lte: endDate,
-          },
-        },
-      }),
-    ]);
+      },
+    });
 
     const tong_doanh_thu = Number(aggregateInvoices._sum.totalPayment || 0);
     const so_luong_don_hang = aggregateInvoices._count.id;
@@ -139,8 +149,6 @@ export class AccountingBooksService {
         endDate,
         tong_doanh_thu,
         so_luong_don_hang,
-        page,
-        limit,
       );
       activeBookKey = 'S1a-HKD';
     } else if (taxGroupId === 2) {
@@ -151,8 +159,6 @@ export class AccountingBooksService {
         endDate,
         tong_doanh_thu,
         so_luong_don_hang,
-        page,
-        limit,
       );
       books['S2b-HKD'] = await this.calculateS2b(
         taxConfig,
@@ -161,8 +167,6 @@ export class AccountingBooksService {
         endDate,
         tong_doanh_thu,
         so_luong_don_hang,
-        page,
-        limit,
       );
       activeBookKey = 'S2a-HKD';
     } else {
@@ -173,11 +177,71 @@ export class AccountingBooksService {
         endDate,
         tong_doanh_thu,
         so_luong_don_hang,
-        page,
-        limit,
       );
       activeBookKey = 'S2b-HKD';
     }
+
+    const syncCode = await this.generateSyncCode(userId, startDate, endDate);
+
+    return {
+      books,
+      activeBookKey,
+      syncCode,
+    };
+  }
+
+  async getRevenueBookRecords(
+    userId: string,
+    timeFrame: string,
+    customRange?: { startDate: Date; endDate: Date },
+    page: number = 1,
+    limit: number = 20,
+    currentSyncCode?: string,
+  ) {
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const taxConfig =
+      (await this.prisma.taxConfiguration.findFirst({
+        where: {
+          userId,
+          applyFromDate: { lte: endDate },
+          applyToDate: { gte: startDate },
+        },
+        include: { taxGroup: true, industry: true },
+        orderBy: { applyFromDate: 'desc' },
+      })) ||
+      (await this.prisma.taxConfiguration.findFirst({
+        where: { userId },
+        include: { taxGroup: true, industry: true },
+        orderBy: { applyFromDate: 'desc' },
+      }));
+
+    if (!taxConfig) {
+      throw new NotFoundException('Tax configuration not found for this user.');
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [invoices, totalInvoices, syncCode] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: {
+          userId,
+          status: 'ISSUED',
+          issueDate: { gte: startDate, lte: endDate },
+        },
+        orderBy: { issueDate: 'asc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.invoice.count({
+        where: {
+          userId,
+          status: 'ISSUED',
+          issueDate: { gte: startDate, lte: endDate },
+        },
+      }),
+      this.generateSyncCode(userId, startDate, endDate),
+    ]);
 
     const mappedInvoices = invoices.map((inv) => ({
       ...inv,
@@ -185,19 +249,31 @@ export class AccountingBooksService {
       Thue_GTGT: Number(inv.taxPayable),
     }));
 
-    if (books['S1a-HKD']) {
-      books['S1a-HKD'].rows = plainToInstance(S1ARowDto, mappedInvoices);
-    }
-    if (books['S2a-HKD']) {
-      books['S2a-HKD'].rows = plainToInstance(S2ARowDto, mappedInvoices);
-    }
-    if (books['S2b-HKD']) {
-      books['S2b-HKD'].rows = plainToInstance(S2BRowDto, mappedInvoices);
+    let rows: S1ARowDto[] | S2ARowDto[] | S2BRowDto[] = [];
+    let activeBookKey = '';
+    const taxGroupId = taxConfig.taxGroupId;
+
+    if (taxGroupId === 1) {
+      rows = plainToInstance(S1ARowDto, mappedInvoices);
+      activeBookKey = 'S1a-HKD';
+    } else if (taxGroupId === 2) {
+      rows = plainToInstance(S2ARowDto, mappedInvoices);
+      activeBookKey = 'S2a-HKD';
+    } else {
+      rows = plainToInstance(S2BRowDto, mappedInvoices);
+      activeBookKey = 'S2b-HKD';
     }
 
     return {
-      books,
+      rows,
+      meta: {
+        total: totalInvoices,
+        page,
+        lastPage: Math.ceil(totalInvoices / limit) || 1,
+      },
       activeBookKey,
+      syncCode,
+      isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
     };
   }
 
@@ -207,8 +283,6 @@ export class AccountingBooksService {
     endDate: Date,
     tong_doanh_thu: number,
     so_luong_don_hang: number,
-    page: number,
-    limit: number,
   ) {
     const bookMetadata = await this.generateBookMetadata(
       'S1A',
@@ -221,12 +295,6 @@ export class AccountingBooksService {
       bookMetadata,
       bookKey: 'S1A',
       timeFrame: { startDate, endDate },
-      meta: {
-        total: so_luong_don_hang,
-        page,
-        lastPage: Math.ceil(so_luong_don_hang / limit) || 1,
-      },
-      rows: [],
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
@@ -241,8 +309,6 @@ export class AccountingBooksService {
     endDate: Date,
     tong_doanh_thu: number,
     so_luong_don_hang: number,
-    page: number,
-    limit: number,
   ) {
     // Thuế GTGT được tính từ tổng doanh thu nhân với tỷ lệ thuế
     const vatRate = Number(taxConfig.vatRateSnapShot);
@@ -320,12 +386,6 @@ export class AccountingBooksService {
       bookMetadata,
       bookKey: 'S2A',
       timeFrame: { startDate, endDate },
-      meta: {
-        total: so_luong_don_hang,
-        page,
-        lastPage: Math.ceil(so_luong_don_hang / limit) || 1,
-      },
-      rows: [],
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
@@ -342,8 +402,6 @@ export class AccountingBooksService {
     endDate: Date,
     tong_doanh_thu: number,
     so_luong_don_hang: number,
-    page: number,
-    limit: number,
   ) {
     const vatRate = Number(taxConfig.vatRateSnapShot);
 
@@ -361,12 +419,6 @@ export class AccountingBooksService {
       bookMetadata,
       bookKey: 'S2B',
       timeFrame: { startDate, endDate },
-      meta: {
-        total: so_luong_don_hang,
-        page,
-        lastPage: Math.ceil(so_luong_don_hang / limit) || 1,
-      },
-      rows: [],
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,

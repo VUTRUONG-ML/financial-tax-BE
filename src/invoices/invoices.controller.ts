@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
@@ -54,8 +56,18 @@ export class InvoicesController {
   }
 
   @Get()
-  async getAllInvoice(@CurrentUser('id') userId: string) {
-    const result = await this.invoicesService.findAll(userId);
+  async getAllInvoice(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.invoicesService.findAll(
+      userId,
+      pageNumber,
+      limitNumber,
+    );
     return {
       message: 'Get all invoice own success',
       ...result,
@@ -109,6 +121,20 @@ export class InvoicesController {
       userId,
       dto,
     );
+    return {
+      message: 'Invoice updated successfully.',
+      data,
+    };
+  }
+
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @CheckPeriod()
+  @Delete('/:invoicePublicId')
+  async deleteInvoice(
+    @Param('invoicePublicId') invPublicId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    const data = await this.invoicesService.delete(invPublicId, userId);
     return {
       message: 'Invoice updated successfully.',
       data,

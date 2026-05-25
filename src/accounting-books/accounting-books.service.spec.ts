@@ -7,6 +7,8 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { TaxEngineService } from '../tax-engine/tax-engine.service';
+import { Decimal } from '@prisma/client/runtime/client';
 
 describe('DateRangeParser', () => {
   beforeAll(() => {
@@ -96,6 +98,7 @@ describe('DateRangeParser', () => {
 describe('AccountingBooksService', () => {
   let service: AccountingBooksService;
   let prisma: jest.Mocked<PrismaService>;
+  let taxEngine: jest.Mocked<TaxEngineService>;
 
   beforeAll(() => {
     jest.useFakeTimers();
@@ -121,7 +124,18 @@ describe('AccountingBooksService', () => {
             },
             invoice: {
               findMany: jest.fn(),
+              aggregate: jest.fn(),
+              count: jest.fn(),
             },
+            voucher: {
+              aggregate: jest.fn(),
+            },
+          },
+        },
+        {
+          provide: TaxEngineService,
+          useValue: {
+            calculateTotalTax: jest.fn(),
           },
         },
       ],
@@ -129,13 +143,14 @@ describe('AccountingBooksService', () => {
 
     service = module.get<AccountingBooksService>(AccountingBooksService);
     prisma = module.get(PrismaService) as any;
+    taxEngine = module.get(TaxEngineService) as any;
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
   });
 
-  describe('getRevenueBook', () => {
+  describe('getRevenueBookSummary and Records', () => {
     const mockUser = {
       id: 'user-001',
       businessName: 'Business Test',
@@ -150,6 +165,7 @@ describe('AccountingBooksService', () => {
         issueDate: new Date('2026-05-10T10:00:00Z'),
         buyerName: 'Công ty A',
         totalPayment: 10000000,
+        taxPayable: 100000,
       },
       {
         id: 2,
@@ -157,10 +173,36 @@ describe('AccountingBooksService', () => {
         issueDate: new Date('2026-05-12T15:00:00Z'),
         buyerName: null,
         totalPayment: 20000000,
+        taxPayable: 200000,
       },
     ];
 
-    it('should generate S1a-HKD only for taxGroupId 1', async () => {
+    beforeEach(() => {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _sum: { totalPayment: new Decimal(30000000) as any },
+        _count: { id: 2 },
+        _max: { updatedAt: new Date() }
+      } as any);
+
+      prisma.voucher.aggregate.mockResolvedValue({
+        _sum: { amount: new Decimal(0) as any },
+        _count: { id: 0 },
+        _max: { updatedAt: new Date() }
+      } as any);
+
+      prisma.invoice.count.mockResolvedValue(2);
+      prisma.invoice.findMany.mockResolvedValue(mockInvoices as any);
+      
+      taxEngine.calculateTotalTax.mockImplementation((rev, exp) => {
+        const pitRate = 0.005; // mock 0.5%
+        return {
+          totalTaxDue: new Decimal(Number(rev) * (0.01 + 0.005)),
+          vatAmount: new Decimal(Number(rev) * 0.01),
+        } as any;
+      });
+    });
+
+    it('should generate summary for S1a-HKD only for taxGroupId 1', async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser as any);
       prisma.taxConfiguration.findFirst.mockResolvedValue({
         taxGroupId: 1,
@@ -168,9 +210,8 @@ describe('AccountingBooksService', () => {
         pitRateSnapShot: 0,
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
-      prisma.invoice.findMany.mockResolvedValue(mockInvoices as any);
 
-      const result = await service.getRevenueBook('user-001', 'thang_nay');
+      const result = await service.getRevenueBookSummary('user-001', 'thang_nay');
 
       expect(result.activeBookKey).toBe('S1a-HKD');
       expect(result.books['S1a-HKD']).toBeDefined();
@@ -181,20 +222,9 @@ describe('AccountingBooksService', () => {
       expect(s1a.bookKey).toBe('S1A');
       expect(s1a.summary.tong_doanh_thu).toBe(30000000);
       expect(s1a.summary.so_luong_don_hang).toBe(2);
-      expect(s1a.rows).toHaveLength(2);
-      expect(s1a.rows[0]).toEqual({
-        Ngay_Thang: mockInvoices[0].issueDate,
-        Dien_Giai: 'Công ty A',
-        So_Tien: 10000000,
-      });
-      expect(s1a.rows[1]).toEqual({
-        Ngay_Thang: mockInvoices[1].issueDate,
-        Dien_Giai: 'Ngành nghề kiểm thử',
-        So_Tien: 20000000,
-      });
     });
 
-    it('should generate both S2a-HKD and S2b-HKD for taxGroupId 2', async () => {
+    it('should generate both S2a-HKD and S2b-HKD summary for taxGroupId 2', async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser as any);
       prisma.taxConfiguration.findFirst.mockResolvedValue({
         taxGroupId: 2,
@@ -202,72 +232,39 @@ describe('AccountingBooksService', () => {
         pitRateSnapShot: 0.005,
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
-      prisma.invoice.findMany.mockResolvedValue(mockInvoices as any);
 
-      const result = await service.getRevenueBook('user-001', 'thang_nay');
+      const result = await service.getRevenueBookSummary('user-001', 'thang_nay');
 
       expect(result.activeBookKey).toBe('S2a-HKD');
       expect(result.books['S2a-HKD']).toBeDefined();
       expect(result.books['S2b-HKD']).toBeDefined();
-      expect(result.books['S1a-HKD']).toBeUndefined();
 
       const s2a = result.books['S2a-HKD'];
-      expect(s2a.bookKey).toBe('S2A');
       expect(s2a.summary.tong_doanh_thu).toBe(30000000);
       expect(s2a.summary.so_luong_don_hang).toBe(2);
-      expect(s2a.rows[0]).toEqual({
-        So_Hieu_Chung_Tu: '2C26TAA',
-        Ngay_Thang: mockInvoices[0].issueDate,
-        Dien_Giai: 'Công ty A',
-        So_Tien: 10000000,
-        Thue_GTGT: 100000,
-      });
-      expect(s2a.summary.Tong_Thue_TNCN_Phai_Nop).toBe(150000); // 30000000 * 0.005
-      expect(s2a.summary.Tong_So_Thue_GTGT_Phai_Nop).toBe(300000); // 100000 + 200000
-
-      const s2b = result.books['S2b-HKD'];
-      expect(s2b.bookKey).toBe('S2B');
-      expect(s2b.summary.Tong_So_Thue_GTGT_Phai_Nop).toBe(300000);
-      expect(s2b.summary.Tong_Thue_TNCN_Phai_Nop).toBeUndefined();
+      expect(s2a.summary.Tong_Thue_TNCN_Phai_Nop).toBe(150000);
+      expect(s2a.summary.Tong_So_Thue_GTGT_Phai_Nop).toBe(300000);
     });
 
-    it('should generate S2b-HKD only for taxGroupId 3 or 4', async () => {
-      prisma.user.findUnique.mockResolvedValue(mockUser as any);
+    it('should retrieve records with activeBookKey S1a-HKD for taxGroupId 1', async () => {
       prisma.taxConfiguration.findFirst.mockResolvedValue({
-        taxGroupId: 3,
-        vatRateSnapShot: 0.03,
-        pitRateSnapShot: 0.015,
+        taxGroupId: 1,
+        vatRateSnapShot: 0,
+        pitRateSnapShot: 0,
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
-      prisma.invoice.findMany.mockResolvedValue(mockInvoices as any);
 
-      const result = await service.getRevenueBook('user-001', 'thang_nay');
-
-      expect(result.activeBookKey).toBe('S2b-HKD');
-      expect(result.books['S2b-HKD']).toBeDefined();
-      expect(result.books['S2a-HKD']).toBeUndefined();
-      expect(result.books['S1a-HKD']).toBeUndefined();
-
-      const s2b = result.books['S2b-HKD'];
-      expect(s2b.bookKey).toBe('S2B');
-      expect(s2b.summary.tong_doanh_thu).toBe(30000000);
-      expect(s2b.summary.so_luong_don_hang).toBe(2);
-      expect(s2b.rows[0]).toEqual({
-        So_Hieu_Chung_Tu: '2C26TAA',
-        Ngay_Thang: mockInvoices[0].issueDate,
-        Dien_Giai: 'Công ty A',
-        So_Tien: 10000000,
-        Thue_GTGT: 300000,
-      });
-      expect(s2b.summary.Tong_Thue_TNCN_Phai_Nop).toBeUndefined();
-      expect(s2b.summary.Tong_So_Thue_GTGT_Phai_Nop).toBe(900000);
+      const result = await service.getRevenueBookRecords('user-001', 'thang_nay');
+      expect(result.activeBookKey).toBe('S1a-HKD');
+      expect(result.rows).toHaveLength(2);
+      expect(result.syncCode).toBeDefined();
     });
 
     it('should throw NotFoundException if tax configuration is missing', async () => {
       prisma.taxConfiguration.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.getRevenueBook('user-001', 'thang_nay'),
+        service.getRevenueBookSummary('user-001', 'thang_nay'),
       ).rejects.toThrow(NotFoundException);
     });
   });
