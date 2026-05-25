@@ -16,13 +16,13 @@ export class BaseRevenueRowDto {
 
 export class S1ARowDto extends BaseRevenueRowDto {}
 
-export class S2ARowDto extends BaseRevenueRowDto {
+export class S2BRowDto extends BaseRevenueRowDto {
   @Expose({ name: 'So_Hieu_Chung_Tu' })
   @Transform(({ obj }) => obj.invoiceSymbol || obj.publicId.toString())
   So_Hieu_Chung_Tu: string;
 }
 
-export class S2BRowDto extends S2ARowDto {
+export class S2ARowDto extends S2BRowDto {
   @Expose({ name: 'Thue_GTGT' })
   Thue_GTGT: number;
 }
