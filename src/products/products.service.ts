@@ -108,13 +108,27 @@ export class ProductsService {
   }
 
   // ─── FIND ALL ─────────────────────────────────────────────────────────────
-  async findAll(userId: string) {
-    const products = await this.prisma.product.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(userId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
 
-    return mapToDto(ProductResponseDto, products);
+    const [total, data] = await Promise.all([
+      this.prisma.product.count({ where: { userId } }),
+      this.prisma.product.findMany({
+        where: { userId },
+        take: limit, // LIMIT
+        skip: skip, // OFFSET
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return {
+      data: mapToDto(ProductResponseDto, data),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
   }
 
   // ─── FIND ONE ─────────────────────────────────────────────────────────────

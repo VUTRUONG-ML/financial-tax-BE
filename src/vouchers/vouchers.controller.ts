@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { VouchersService } from './vouchers.service';
 import { CreateVoucherDto } from './dto/create-voucher.dto';
@@ -29,8 +30,18 @@ export class VouchersController {
   }
 
   @Get()
-  async findAll(@CurrentUser('id') userId: string) {
-    const result = await this.vouchersService.findAll(userId);
+  async findAll(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.vouchersService.findAll(
+      userId,
+      pageNumber,
+      limitNumber,
+    );
     return { message: 'Vouchers retrieved successfully', ...result };
   }
 

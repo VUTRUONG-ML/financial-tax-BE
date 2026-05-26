@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { InboundInvoicesService } from './inbound-invoices.service';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
@@ -11,9 +19,18 @@ export class InboundInvoicesController {
   ) {}
 
   @Get()
-  async findAllInboundInvoice(@CurrentUser('id') userId: string) {
-    const result =
-      await this.inboundInvoicesService.findAllInboundInvoices(userId);
+  async findAllInboundInvoice(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.inboundInvoicesService.findAllInboundInvoices(
+      userId,
+      pageNumber,
+      limitNumber,
+    );
     return {
       message: 'Get all inbound invoice success.',
       ...result,

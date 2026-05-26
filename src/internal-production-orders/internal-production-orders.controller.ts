@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { InternalProductionOrdersService } from './internal-production-orders.service';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
@@ -54,8 +55,18 @@ export class InternalProductionOrdersController {
   }
 
   @Get()
-  async findAll(@CurrentUser('id') userId: string) {
-    const result = await this.internalProductionOrdersService.findAll(userId);
+  async findAll(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.internalProductionOrdersService.findAll(
+      userId,
+      pageNumber,
+      limitNumber,
+    );
     return {
       message: 'Internal production orders retrieved successfully',
       ...result,

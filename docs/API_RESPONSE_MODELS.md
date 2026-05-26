@@ -134,6 +134,11 @@ This document describes the request and response data structures of the core API
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+
 #### Request Body
 
 None
@@ -162,7 +167,11 @@ None
       "createdAt": "Date string"
     }
   ],
-  "meta": null
+  "meta": {
+    "total": "number",
+    "page": "number",
+    "lastPage": "number"
+  }
 }
 ```
 
@@ -781,6 +790,11 @@ None
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+
 #### Request Body
 
 None
@@ -1032,6 +1046,11 @@ None
 - **Route:** `/vouchers`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
 
 #### Request Body
 
@@ -1943,6 +1962,11 @@ None
 - **Route:** `/internal-production-orders`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
 
 #### Request Body
 

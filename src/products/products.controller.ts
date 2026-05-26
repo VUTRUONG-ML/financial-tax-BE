@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -38,9 +39,19 @@ export class ProductsController {
 
   // GET /products
   @Get()
-  async findAll(@CurrentUser('id') userId: string) {
-    const data = await this.productsService.findAll(userId);
-    return { message: 'Products retrieved successfully.', data };
+  async findAll(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.productsService.findAll(
+      userId,
+      pageNumber,
+      limitNumber,
+    );
+    return { message: 'Products retrieved successfully.', ...result };
   }
 
   // GET /products/:publicId
