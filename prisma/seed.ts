@@ -134,15 +134,43 @@ async function main() {
     });
   }
 
+  // Clear all transactions/documents first to avoid foreign key issues
+  await prisma.productionDetail.deleteMany({});
+  await prisma.internalProductionOrder.deleteMany({});
+  await prisma.voucher.deleteMany({});
+  await prisma.inboundInvoiceDetail.deleteMany({});
+  await prisma.inboundInvoice.deleteMany({});
+  await prisma.invoiceDetail.deleteMany({});
+  await prisma.invoice.deleteMany({});
+
   // 4. Seed cho VoucherCategory (Hạng mục mặc định hệ thống - userId: null)
   await prisma.voucherCategory.deleteMany({ where: { userId: null } });
   const voucherCategories = [
-    { type: VoucherType.PAYMENT, categoryName: 'Tiền điện' },
-    { type: VoucherType.PAYMENT, categoryName: 'Tiền nước' },
-    { type: VoucherType.PAYMENT, categoryName: 'Trả lương' },
-    { type: VoucherType.PAYMENT, categoryName: 'Nhập hàng' },
-    { type: VoucherType.PAYMENT, categoryName: 'Chi phí Marketing' },
-    { type: VoucherType.PAYMENT, categoryName: 'Chi khác' },
+    {
+      type: VoucherType.PAYMENT,
+      categoryName:
+        'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.',
+    },
+    {
+      type: VoucherType.PAYMENT,
+      categoryName:
+        'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
+    },
+    {
+      type: VoucherType.PAYMENT,
+      categoryName:
+        'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.',
+    },
+    {
+      type: VoucherType.PAYMENT,
+      categoryName:
+        'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
+    },
+    {
+      type: VoucherType.PAYMENT,
+      categoryName:
+        'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...',
+    },
     { type: VoucherType.RECEIPT, categoryName: 'Thu tiền bán hàng' },
     { type: VoucherType.RECEIPT, categoryName: 'Thu tiền thu nợ' },
     { type: VoucherType.RECEIPT, categoryName: 'Thu khác' },
@@ -322,12 +350,30 @@ async function main() {
       },
     });
 
-    // Create Voucher category
+    // Find voucher categories
     const catReceipt = await prisma.voucherCategory.findFirst({
       where: { type: 'RECEIPT' },
     });
-    const catPayment = await prisma.voucherCategory.findFirst({
-      where: { type: 'PAYMENT' },
+    const catNhanCong = await prisma.voucherCategory.findFirst({
+      where: {
+        type: 'PAYMENT',
+        categoryName:
+          'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
+      },
+    });
+    const catDichVuMuaNgoai = await prisma.voucherCategory.findFirst({
+      where: {
+        type: 'PAYMENT',
+        categoryName:
+          'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
+      },
+    });
+    const catKhac = await prisma.voucherCategory.findFirst({
+      where: {
+        type: 'PAYMENT',
+        categoryName:
+          'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...',
+      },
     });
 
     // Create Receipt Voucher (Phiếu thu)
@@ -346,17 +392,67 @@ async function main() {
       },
     });
 
-    // Create Payment Voucher (Phiếu chi)
+    // Create Inbound Invoice (Hóa đơn đầu vào)
+    const inboundInvoice = await prisma.inboundInvoice.create({
+      data: {
+        userId,
+        sellerName: 'Công ty TNHH Cung cấp Thiết bị Điện',
+        sellerTaxCode: '0100200300',
+        invoiceNo: 'ELEC-9988',
+        issueDate: new Date(),
+        totalAmount: 150000,
+        status: 'ACTIVE',
+        isSyncedToInventory: false,
+        isPaid: true,
+        paidAmount: 150000,
+      },
+    });
+
+    // Create Payment Voucher (Phiếu chi 1: Chi phí dịch vụ mua ngoài, deductible, linked to InboundInvoice)
     await prisma.voucher.create({
       data: {
         userId,
         voucherCode: 'PC001',
         voucherType: 'PAYMENT',
-        categoryId: catPayment!.id,
-        amount: 50000,
+        categoryId: catDichVuMuaNgoai!.id,
+        amount: 150000,
         paymentMethod: 'CASH',
         transactionAt: new Date(Date.now() + 1000), // Slightly after
-        content: 'Chi tiền điện',
+        content: 'Chi trả tiền điện văn phòng',
+        isDeductibleExpense: true,
+        inboundInvoiceId: inboundInvoice.id,
+        status: 'ACTIVE',
+      },
+    });
+
+    // Create Payment Voucher (Phiếu chi 2: Chi phí lương, deductible, no invoice)
+    await prisma.voucher.create({
+      data: {
+        userId,
+        voucherCode: 'PC002',
+        voucherType: 'PAYMENT',
+        categoryId: catNhanCong!.id,
+        amount: 2500000,
+        paymentMethod: 'BANK',
+        transactionAt: new Date(Date.now() + 2000),
+        content: 'Chi trả lương nhân viên tháng 5',
+        isDeductibleExpense: true,
+        status: 'ACTIVE',
+      },
+    });
+
+    // Create Payment Voucher (Phiếu chi 3: Non-deductible expense)
+    await prisma.voucher.create({
+      data: {
+        userId,
+        voucherCode: 'PC003',
+        voucherType: 'PAYMENT',
+        categoryId: catKhac!.id,
+        amount: 100000,
+        paymentMethod: 'CASH',
+        transactionAt: new Date(Date.now() + 3000),
+        content: 'Chi mua trà nước tiếp khách',
+        isDeductibleExpense: false,
         status: 'ACTIVE',
       },
     });

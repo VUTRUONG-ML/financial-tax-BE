@@ -129,7 +129,13 @@ describe('AccountingBooksService', () => {
             },
             voucher: {
               aggregate: jest.fn(),
+              findMany: jest.fn(),
+              count: jest.fn(),
             },
+            voucherCategory: {
+              findMany: jest.fn(),
+            },
+            $queryRaw: jest.fn(),
           },
         },
         {
@@ -266,6 +272,128 @@ describe('AccountingBooksService', () => {
       await expect(
         service.getRevenueBookSummary('user-001', 'thang_nay'),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getExpenseBookSummary and Records', () => {
+    const mockUser = {
+      id: 'user-001',
+      businessName: 'Business Test',
+      taxCode: '1234567890',
+      ownerName: 'John Doe',
+    };
+
+    const mockVouchers = [
+      {
+        id: 1,
+        voucherCode: 'PC001',
+        voucherType: 'PAYMENT',
+        amount: new Decimal(1000000),
+        transactionAt: new Date('2026-05-10T10:00:00Z'),
+        content: 'Chi tiền lương nhân viên',
+        isDeductibleExpense: true,
+        category: {
+          categoryName: 'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
+        },
+        inboundInvoice: {
+          invoiceNo: 'HD001',
+        },
+      },
+      {
+        id: 2,
+        voucherCode: 'PC002',
+        voucherType: 'PAYMENT',
+        amount: new Decimal(500000),
+        transactionAt: new Date('2026-05-12T15:00:00Z'),
+        content: 'Chi tiền điện tháng 5',
+        isDeductibleExpense: true,
+        category: {
+          categoryName: 'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
+        },
+        inboundInvoice: null,
+      },
+      {
+        id: 3,
+        voucherCode: 'PC003',
+        voucherType: 'PAYMENT',
+        amount: new Decimal(200000),
+        transactionAt: new Date('2026-05-15T09:00:00Z'),
+        content: 'Mua văn phòng phẩm ngoài danh mục',
+        isDeductibleExpense: true,
+        category: {
+          categoryName: 'Hạng mục tự định nghĩa',
+        },
+        inboundInvoice: null,
+      },
+    ];
+
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue(mockUser as any);
+      prisma.taxConfiguration.findFirst.mockResolvedValue({
+        taxGroupId: 3,
+        vatRateSnapShot: 0.01,
+        pitRateSnapShot: 0.005,
+        industry: { categoryName: 'Ngành nghề kiểm thử' },
+      } as any);
+
+      const mockCategories = [
+        { id: 1, categoryName: 'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.' },
+        { id: 2, categoryName: 'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...' },
+        { id: 3, categoryName: 'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.' },
+        { id: 4, categoryName: 'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...' },
+        { id: 5, categoryName: 'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...' },
+      ];
+      (prisma.voucherCategory.findMany as jest.Mock).mockResolvedValue(mockCategories);
+
+      prisma.voucher.findMany.mockResolvedValue(mockVouchers as any);
+      prisma.voucher.count.mockResolvedValue(3);
+      prisma.voucher.aggregate.mockResolvedValue({
+        _count: { id: 3 },
+        _max: { updatedAt: new Date() },
+      } as any);
+      (prisma as any).$queryRaw.mockResolvedValue([
+        {
+          chi_phi_nguyen_vat_lieu: 0,
+          chi_phi_nhan_cong: 1000000,
+          chi_phi_thue_mat_bang: 0,
+          chi_phi_dich_vu_mua_ngoai: 500000,
+          chi_phi_khac: 200000,
+        },
+      ]);
+    });
+
+    it('should generate summary for S2c-HKD grouped correctly', async () => {
+      const result = await service.getExpenseBookSummary('user-001', 'thang_nay');
+
+      expect(result.activeBookKey).toBe('S2c-HKD');
+      expect(result.books['S2c-HKD']).toBeDefined();
+
+      const s2c = result.books['S2c-HKD'];
+      expect(s2c.bookKey).toBe('S2C');
+      expect(s2c.summary.chi_phi_nguyen_vat_lieu).toBe(0);
+      expect(s2c.summary.chi_phi_nhan_cong).toBe(1000000);
+      expect(s2c.summary.chi_phi_thue_mat_bang).toBe(0);
+      expect(s2c.summary.chi_phi_dich_vu_mua_ngoai).toBe(500000);
+      expect(s2c.summary.chi_phi_khac).toBe(200000);
+      expect(s2c.summary.tong_chi_phi_hop_le).toBe(1700000);
+    });
+
+    it('should retrieve records mapped to ExpenseBookRowDto', async () => {
+      const result = await service.getExpenseBookRecords('user-001', 'thang_nay');
+
+      expect(result.activeBookKey).toBe('S2c-HKD');
+      expect(result.rows).toHaveLength(3);
+
+      const firstRow = result.rows[0];
+      expect(firstRow.Ngay_Chi).toEqual(mockVouchers[0].transactionAt);
+      expect(firstRow.So_Phieu_Chi).toBe('PC001');
+      expect(firstRow.Hang_Muc).toBe(mockVouchers[0].category.categoryName);
+      expect(firstRow.Dien_Giai).toBe('Chi tiền lương nhân viên');
+      expect(firstRow.So_Tien).toBe(1000000);
+      expect(firstRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('HD001');
+
+      const secondRow = result.rows[1];
+      expect(secondRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('');
     });
   });
 });

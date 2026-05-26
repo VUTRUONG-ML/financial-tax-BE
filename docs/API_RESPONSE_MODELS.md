@@ -77,6 +77,8 @@ This document describes the request and response data structures of the core API
   - [13.2. Get Revenue Book Records](#132-get-revenue-book-records)
   - [13.3. Get Cash Flow Book Summary](#133-get-cash-flow-book-summary)
   - [13.4. Get Cash Flow Book Records](#134-get-cash-flow-book-records)
+  - [13.5. Get Expense Book Summary](#135-get-expense-book-summary)
+  - [13.6. Get Expense Book Records](#136-get-expense-book-records)
 
 ---
 
@@ -2783,6 +2785,113 @@ None
       "lastPage": "number"
     },
     "activeBookKey": "string",
+    "syncCode": "string",
+    "isSummaryOutdated": "boolean"
+  },
+  "meta": null
+}
+```
+
+### 13.5. Get Expense Book Summary
+
+- **Route:** `/accounting-books/expense/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve expense book summary successfully",
+  "data": {
+    "activeBookKey": "S2c-HKD",
+    "books": {
+      "S2c-HKD": {
+        "bookMetadata": {
+          "businessName": "string",
+          "taxCode": "string",
+          "bookTitle": "string",
+          "ownerName": "string",
+          "templateStyle": "string"
+        },
+        "bookKey": "S2C",
+        "timeFrame": {
+          "startDate": "Date string",
+          "endDate": "Date string"
+        },
+        "summary": {
+          "chi_phi_nguyen_vat_lieu": "number",
+          "chi_phi_nhan_cong": "number",
+          "chi_phi_thue_mat_bang": "number",
+          "chi_phi_dich_vu_mua_ngoai": "number",
+          "chi_phi_khac": "number",
+          "tong_chi_phi_hop_le": "number"
+        }
+      }
+    },
+    "syncCode": "string"
+  },
+  "meta": null
+}
+```
+
+### 13.6. Get Expense Book Records
+
+- **Route:** `/accounting-books/expense/records`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `syncCode`: `string (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve expense book successfully",
+  "data": {
+    "rows": [
+      {
+        "Ngay_Chi": "Date string",
+        "So_Phieu_Chi": "string",
+        "Hang_Muc": "string",
+        "Dien_Giai": "string",
+        "So_Tien": "number",
+        "Hoa_Don_Chung_Tu_Kem_Theo": "string"
+      }
+    ],
+    "meta": {
+      "total": "number",
+      "page": "number",
+      "lastPage": "number"
+    },
+    "activeBookKey": "S2c-HKD",
     "syncCode": "string",
     "isSummaryOutdated": "boolean"
   },

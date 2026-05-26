@@ -15,7 +15,25 @@ import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from 'src/common/utils/time.util';
 import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
+import { ExpenseBookRowDto } from './dto/expense-book-row.dto';
 import { plainToInstance } from 'class-transformer';
+
+const CAT_NGUYEN_VAT_LIEU =
+  'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.';
+const CAT_NHAN_CONG =
+  'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...';
+const CAT_THUE_MAT_BANG =
+  'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.';
+const CAT_DICH_VU_MUA_NGOAI =
+  'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...';
+
+export interface ExpenseSummaryRow {
+  chi_phi_nguyen_vat_lieu: string | number;
+  chi_phi_nhan_cong: string | number;
+  chi_phi_thue_mat_bang: string | number;
+  chi_phi_dich_vu_mua_ngoai: string | number;
+  chi_phi_khac: string | number;
+}
 
 @Injectable()
 export class AccountingBooksService {
@@ -441,10 +459,11 @@ export class AccountingBooksService {
 
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
-    const [taxConfig, syncCode] = await Promise.all([
-      this.getValidTaxConfig(userId, startDate, endDate),
-      this.generateCashFlowSyncCode(userId, startDate, endDate),
-    ]);
+    const syncCode = await this.generateCashFlowSyncCode(
+      userId,
+      startDate,
+      endDate,
+    );
 
     // Lấy thông tin thống kê Thu Chi (Voucher) cho S03 (CASH) và S04 (BANK)
     // 1. Tổng thu/chi trong kỳ
@@ -636,6 +655,177 @@ export class AccountingBooksService {
       activeBookKey: `${bookKey}-HKD`,
       syncCode: currentSyncCode,
       isSummaryOutdated,
+    };
+  }
+
+  async generateExpenseSyncCode(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<string> {
+    const voucherAgg = await this.prisma.voucher.aggregate({
+      _count: { id: true },
+      _max: { updatedAt: true },
+      where: {
+        userId,
+        transactionAt: { gte: startDate, lte: endDate },
+        voucherType: 'PAYMENT',
+        isDeductibleExpense: true,
+        status: 'ACTIVE',
+      },
+    });
+    const vchCount = voucherAgg._count.id;
+    const vchMaxTime = voucherAgg._max.updatedAt?.getTime() || 0;
+
+    return `${vchCount}-${vchMaxTime}`;
+  }
+
+  async getExpenseBookSummary(
+    userId: string,
+    timeFrame: string,
+    customRange?: { startDate: Date; endDate: Date },
+  ) {
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const defaultCategories = await this.prisma.voucherCategory.findMany({
+      where: {
+        userId: null,
+        type: 'PAYMENT',
+      },
+    });
+
+    const idNguyenVatLieu =
+      defaultCategories.find((c) => c.categoryName === CAT_NGUYEN_VAT_LIEU)
+        ?.id ?? -1;
+    const idNhanCong =
+      defaultCategories.find((c) => c.categoryName === CAT_NHAN_CONG)?.id ?? -1;
+    const idThueMatBang =
+      defaultCategories.find((c) => c.categoryName === CAT_THUE_MAT_BANG)?.id ??
+      -1;
+    const idDichVuMuaNgoai =
+      defaultCategories.find((c) => c.categoryName === CAT_DICH_VU_MUA_NGOAI)
+        ?.id ?? -1;
+
+    const [dbResult, bookMetadata, syncCode] = await Promise.all([
+      this.prisma.$queryRaw<ExpenseSummaryRow[]>`
+        SELECT 
+          COALESCE(SUM(CASE WHEN v.category_id = ${idNguyenVatLieu} THEN v.amount ELSE 0 END), 0) as chi_phi_nguyen_vat_lieu,
+          COALESCE(SUM(CASE WHEN v.category_id = ${idNhanCong} THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
+          COALESCE(SUM(CASE WHEN v.category_id = ${idThueMatBang} THEN v.amount ELSE 0 END), 0) as chi_phi_thue_mat_bang,
+          COALESCE(SUM(CASE WHEN v.category_id = ${idDichVuMuaNgoai} THEN v.amount ELSE 0 END), 0) as chi_phi_dich_vu_mua_ngoai,
+          COALESCE(SUM(CASE WHEN v.category_id NOT IN (${idNguyenVatLieu}, ${idNhanCong}, ${idThueMatBang}, ${idDichVuMuaNgoai}) THEN v.amount ELSE 0 END), 0) as chi_phi_khac
+        FROM vouchers v
+        WHERE v.user_id = ${userId}
+          AND v.transaction_at BETWEEN ${startDate} AND ${endDate}
+          AND v.voucher_type = 'PAYMENT'
+          AND v.is_deductible_expense = TRUE
+          AND v.status = 'ACTIVE'
+      `,
+      this.generateBookMetadata('S2C', userId, startDate, endDate),
+      this.generateExpenseSyncCode(userId, startDate, endDate),
+    ]);
+
+    const summaryRow: ExpenseSummaryRow = dbResult[0] || {
+      chi_phi_nguyen_vat_lieu: 0,
+      chi_phi_nhan_cong: 0,
+      chi_phi_thue_mat_bang: 0,
+      chi_phi_dich_vu_mua_ngoai: 0,
+      chi_phi_khac: 0,
+    };
+
+    const chi_phi_nguyen_vat_lieu = Number(
+      summaryRow.chi_phi_nguyen_vat_lieu || 0,
+    );
+    const chi_phi_nhan_cong = Number(summaryRow.chi_phi_nhan_cong || 0);
+    const chi_phi_thue_mat_bang = Number(summaryRow.chi_phi_thue_mat_bang || 0);
+    const chi_phi_dich_vu_mua_ngoai = Number(
+      summaryRow.chi_phi_dich_vu_mua_ngoai || 0,
+    );
+    const chi_phi_khac = Number(summaryRow.chi_phi_khac || 0);
+
+    const tong_chi_phi_hop_le =
+      chi_phi_nguyen_vat_lieu +
+      chi_phi_nhan_cong +
+      chi_phi_thue_mat_bang +
+      chi_phi_dich_vu_mua_ngoai +
+      chi_phi_khac;
+
+    return {
+      activeBookKey: 'S2c-HKD',
+      books: {
+        'S2c-HKD': {
+          bookMetadata,
+          bookKey: 'S2C',
+          timeFrame: { startDate, endDate },
+          summary: {
+            chi_phi_nguyen_vat_lieu,
+            chi_phi_nhan_cong,
+            chi_phi_thue_mat_bang,
+            chi_phi_dich_vu_mua_ngoai,
+            chi_phi_khac,
+            tong_chi_phi_hop_le,
+          },
+        },
+      },
+      syncCode,
+    };
+  }
+
+  async getExpenseBookRecords(
+    userId: string,
+    timeFrame: string,
+    customRange?: { startDate: Date; endDate: Date },
+    page: number = 1,
+    limit: number = 20,
+    currentSyncCode?: string,
+  ) {
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const skip = (page - 1) * limit;
+
+    const [vouchers, totalVouchers, syncCode] = await Promise.all([
+      this.prisma.voucher.findMany({
+        where: {
+          userId,
+          transactionAt: { gte: startDate, lte: endDate },
+          voucherType: 'PAYMENT',
+          isDeductibleExpense: true,
+          status: 'ACTIVE',
+        },
+        include: {
+          category: true,
+          inboundInvoice: true,
+        },
+        orderBy: { transactionAt: 'asc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.voucher.count({
+        where: {
+          userId,
+          transactionAt: { gte: startDate, lte: endDate },
+          voucherType: 'PAYMENT',
+          isDeductibleExpense: true,
+          status: 'ACTIVE',
+        },
+      }),
+      this.generateExpenseSyncCode(userId, startDate, endDate),
+    ]);
+
+    const rows = plainToInstance(ExpenseBookRowDto, vouchers, {
+      excludeExtraneousValues: true,
+    });
+
+    return {
+      rows,
+      meta: {
+        total: totalVouchers,
+        page,
+        lastPage: Math.ceil(totalVouchers / limit) || 1,
+      },
+      activeBookKey: 'S2c-HKD',
+      syncCode,
+      isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
     };
   }
 }

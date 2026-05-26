@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/interface/request-user.interface';
 import { GetRevenueBookDto } from './dto/get-revenue-book.dto';
 import { GetCashFlowBookDto } from './dto/get-cash-flow-book.dto';
+import { GetExpenseBookDto } from './dto/get-expense-book.dto';
 
 @Controller('accounting-books')
 @UseGuards(JwtAuthGuard)
@@ -109,4 +110,60 @@ export class AccountingBooksController {
       data,
     };
   }
+
+  @Get('expense/summary')
+  async getExpenseBookSummary(
+    @CurrentUser() user: RequestUser,
+    @Query() query: GetExpenseBookDto,
+  ) {
+    const customRange =
+      query.startDate && query.endDate
+        ? {
+            startDate: new Date(query.startDate),
+            endDate: new Date(query.endDate),
+          }
+        : undefined;
+
+    const data = await this.accountingBooksService.getExpenseBookSummary(
+      user.id,
+      query.timeFrame,
+      customRange,
+    );
+
+    return {
+      success: true,
+      message: 'Retrieve expense book summary successfully',
+      data,
+    };
+  }
+
+  @Get('expense/records')
+  async getExpenseBookRecords(
+    @CurrentUser() user: RequestUser,
+    @Query() query: GetExpenseBookDto,
+  ) {
+    const customRange =
+      query.startDate && query.endDate
+        ? {
+            startDate: new Date(query.startDate),
+            endDate: new Date(query.endDate),
+          }
+        : undefined;
+
+    const data = await this.accountingBooksService.getExpenseBookRecords(
+      user.id,
+      query.timeFrame,
+      customRange,
+      query.page,
+      query.limit,
+      query.syncCode,
+    );
+
+    return {
+      success: true,
+      message: 'Retrieve expense book successfully',
+      data,
+    };
+  }
 }
+
