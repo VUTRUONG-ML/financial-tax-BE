@@ -1393,17 +1393,18 @@ None
   "timestamp": "Date string",
   "message": "Register success",
   "data": {
-    "phoneNumber": "string",
+    "id": "string",
+    "phone": "string",
     "role": "\"ADMIN\" | \"STAFF\"",
-    "taxCode": "string",
-    "businessName": "string",
-    "ownerName": "string",
-    "cccdNumber": "string",
-    "provinceCity": "string",
-    "isActive": "boolean",
+    "tax_code": "string",
+    "cccd_number": "string",
+    "business_name": "string",
+    "representative": "string",
+    "industry": "string",
+    "industry_label": "string",
+    "tax_group": "number",
     "setUpCompletedAt": "Date string | null",
-    "createdAt": "Date string",
-    "updatedAt": "Date string"
+    "created_at": "Date string"
   },
   "meta": null
 }
@@ -1434,17 +1435,18 @@ None
   "message": "Login success.",
   "data": {
     "user": {
-      "phoneNumber": "string",
+      "id": "string",
+      "phone": "string",
       "role": "\"ADMIN\" | \"STAFF\"",
-      "taxCode": "string",
-      "businessName": "string",
-      "ownerName": "string",
-      "cccdNumber": "string",
-      "provinceCity": "string",
-      "isActive": "boolean",
+      "tax_code": "string",
+      "cccd_number": "string",
+      "business_name": "string",
+      "representative": "string",
+      "industry": "string",
+      "industry_label": "string",
+      "tax_group": "number",
       "setUpCompletedAt": "Date string | null",
-      "createdAt": "Date string",
-      "updatedAt": "Date string"
+      "created_at": "Date string"
     },
     "accessToken": "string"
   },
@@ -1473,17 +1475,18 @@ None
   "timestamp": "Date string",
   "message": "string",
   "data": {
-    "phoneNumber": "string",
+    "id": "string",
+    "phone": "string",
     "role": "\"ADMIN\" | \"STAFF\"",
-    "taxCode": "string",
-    "businessName": "string",
-    "ownerName": "string",
-    "cccdNumber": "string",
-    "provinceCity": "string",
-    "isActive": "boolean",
+    "tax_code": "string",
+    "cccd_number": "string",
+    "business_name": "string",
+    "representative": "string",
+    "industry": "string",
+    "industry_label": "string",
+    "tax_group": "number",
     "setUpCompletedAt": "Date string | null",
-    "createdAt": "Date string",
-    "updatedAt": "Date string"
+    "created_at": "Date string"
   },
   "meta": null
 }

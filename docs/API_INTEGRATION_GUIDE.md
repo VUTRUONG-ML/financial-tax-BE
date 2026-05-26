@@ -478,12 +478,18 @@ const user = await login('0912345678', 'SecurePass123!');
   "message": "Login success.",
   "data": {
     "user": {
-      "phoneNumber": "0912345678",
-      "taxCode": "0123456789",
-      "businessName": "Cửa hàng A Bây giờ",
-      "ownerName": "Nguyễn Văn A",
-      "isActive": true,
-      "setUpCompletedAt": "2025-01-15T10:00:00Z"
+      "id": "cuid-string-here",
+      "phone": "0912345678",
+      "role": "ADMIN",
+      "tax_code": "0123456789",
+      "cccd_number": "0123456789012",
+      "business_name": "Cửa hàng A Bây giờ",
+      "representative": "Nguyễn Văn A",
+      "industry": "TRADE",
+      "industry_label": "Phân phối, cung cấp hàng hóa",
+      "tax_group": 2,
+      "setUpCompletedAt": "2025-01-15T10:00:00Z",
+      "created_at": "2025-01-15T10:00:00Z"
     },
     "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   }

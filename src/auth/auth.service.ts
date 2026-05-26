@@ -16,6 +16,9 @@ import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
+import { mapToDto } from '../common/utils/mapper.util';
+import { UserResponseDto } from './dto/user-response.dto';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new AppLogger(AuthService.name);
@@ -45,11 +48,7 @@ export class AuthService {
 
     const newUser = await this.usersService.create(userPayload);
 
-    // 5. Bảo mật dữ liệu đầu ra (Sanitize Output)
-    const { id, passwordHash, ...userWithoutPassword } = newUser;
-
-    // 6. Trả về kết quả (Tuỳ chọn: Trả thêm token nếu muốn user đăng nhập luôn)
-    return userWithoutPassword;
+    return await this.mapUserProfile(newUser);
   }
 
   async login(
@@ -108,8 +107,8 @@ export class AuthService {
       phone: dto.phoneNumber,
     });
     // 6. Trả về token cho Client
-    const { id, passwordHash, ...userWithoutPassword } = user;
-    return { user: userWithoutPassword, accessToken, refreshToken };
+    const mappedUser = await this.mapUserProfile(user);
+    return { user: mappedUser, accessToken, refreshToken };
   }
   async getProfile(phone: string) {
     const user = await this.usersService.findByPhone(phone);
@@ -120,9 +119,9 @@ export class AuthService {
       });
       throw new NotFoundException('User not found.');
     }
-    const { id, passwordHash, ...userWithoutPass } = user;
+    const mappedUser = await this.mapUserProfile(user);
     this.logger.log('GET_PROFILE_SUCCESS', { phone });
-    return userWithoutPass;
+    return mappedUser;
   }
 
   async logout(userId: string, rt: string) {
@@ -144,5 +143,23 @@ export class AuthService {
       // ignore
       console.log('>>> The login session has expired or been disabled.', error);
     }
+  }
+
+  private async mapUserProfile(user: any) {
+    const taxConfig = await this.prismaService.taxConfiguration.findFirst({
+      where: { userId: user.id },
+      include: {
+        industry: true,
+        taxGroup: true,
+      },
+      orderBy: {
+        applyFromDate: 'desc',
+      },
+    });
+
+    return mapToDto(UserResponseDto, {
+      ...user,
+      taxConfig,
+    });
   }
 }
