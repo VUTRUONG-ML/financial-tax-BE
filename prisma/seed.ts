@@ -205,23 +205,27 @@ async function main() {
       where: {
         OR: [
           { taxCode: u.taxCode, NOT: { phoneNumber: u.phoneNumber } },
-          { cccdNumber: u.cccdNumber, NOT: { phoneNumber: u.phoneNumber } }
-        ]
-      }
+          { cccdNumber: u.cccdNumber, NOT: { phoneNumber: u.phoneNumber } },
+        ],
+      },
     });
 
     const existing = await prisma.user.findUnique({
       where: { phoneNumber: u.phoneNumber },
-      select: { id: true }
+      select: { id: true },
     });
 
     if (existing) {
       const userId = existing.id;
       // Xóa tất cả dữ liệu liên quan để reset hoàn toàn trạng thái về chưa Onboarding
-      await prisma.productionDetail.deleteMany({ where: { order: { userId } } });
+      await prisma.productionDetail.deleteMany({
+        where: { order: { userId } },
+      });
       await prisma.internalProductionOrder.deleteMany({ where: { userId } });
       await prisma.voucher.deleteMany({ where: { userId } });
-      await prisma.inboundInvoiceDetail.deleteMany({ where: { invoice: { userId } } });
+      await prisma.inboundInvoiceDetail.deleteMany({
+        where: { invoice: { userId } },
+      });
       await prisma.inboundInvoice.deleteMany({ where: { userId } });
       await prisma.invoiceDetail.deleteMany({ where: { invoice: { userId } } });
       await prisma.invoice.deleteMany({ where: { userId } });
@@ -248,6 +252,116 @@ async function main() {
       },
       create: u,
     });
+  }
+
+  // 6. Seed mock data for S2e-HKD cash flow testing (for the first user)
+  console.log('--- Đang khởi tạo dữ liệu mẫu cho kiểm thử S2e-HKD ---');
+  const testUser = await prisma.user.findUnique({
+    where: { phoneNumber: '0900000001' },
+  });
+
+  if (testUser) {
+    const userId = testUser.id;
+    // Set up completed at to pass guards if necessary
+    await prisma.user.update({
+      where: { id: userId },
+      data: { setUpCompletedAt: new Date() },
+    });
+
+    // Create a Tax Config
+    await prisma.taxConfiguration.create({
+      data: {
+        userId,
+        taxGroupId: 1,
+        industryId: 2,
+        vatRateSnapShot: 0.01,
+        pitRateSnapShot: 0.005,
+        applyFromDate: new Date('2023-01-01'),
+        applyToDate: new Date('2026-12-31'),
+        chosenPitMethod: PitMethod.EXEMPT,
+      },
+    });
+
+    // Create a product
+    const product = await prisma.product.create({
+      data: {
+        userId,
+        productName: 'Sản phẩm test S2e',
+        productType: 'FINISHED_GOOD',
+        sellingPrice: 100000,
+        currentStock: 10,
+        unit: 'cái',
+      },
+    });
+
+    // Create an Invoice
+    const invoice = await prisma.invoice.create({
+      data: {
+        userId,
+        invoiceSymbol: 'K1/24T',
+        isB2C: true,
+        issueDate: new Date(),
+        totalPayment: 200000,
+        taxRate: 0.01,
+        taxPayable: 2000,
+        status: 'ISSUED',
+        paymentMethod: 'CASH',
+      },
+    });
+
+    await prisma.invoiceDetail.create({
+      data: {
+        invoiceId: invoice.id,
+        productId: product.id,
+        productNameSnapshot: product.productName,
+        productType: product.productType,
+        quantity: 2,
+        unitPrice: 100000,
+        totalAmount: 200000,
+        unit: 'cái',
+      },
+    });
+
+    // Create Voucher category
+    const catReceipt = await prisma.voucherCategory.findFirst({
+      where: { type: 'RECEIPT' },
+    });
+    const catPayment = await prisma.voucherCategory.findFirst({
+      where: { type: 'PAYMENT' },
+    });
+
+    // Create Receipt Voucher (Phiếu thu)
+    await prisma.voucher.create({
+      data: {
+        userId,
+        voucherCode: 'PT001',
+        voucherType: 'RECEIPT',
+        categoryId: catReceipt!.id,
+        amount: 200000,
+        paymentMethod: 'CASH',
+        transactionAt: new Date(),
+        content: 'Thu tiền bán hàng hóa đơn K1/24T',
+        outboundInvoiceId: invoice.id,
+        status: 'ACTIVE',
+      },
+    });
+
+    // Create Payment Voucher (Phiếu chi)
+    await prisma.voucher.create({
+      data: {
+        userId,
+        voucherCode: 'PC001',
+        voucherType: 'PAYMENT',
+        categoryId: catPayment!.id,
+        amount: 50000,
+        paymentMethod: 'CASH',
+        transactionAt: new Date(Date.now() + 1000), // Slightly after
+        content: 'Chi tiền điện',
+        status: 'ACTIVE',
+      },
+    });
+
+    console.log('✅ Seed dữ liệu mẫu cho Cash Flow thành công!');
   }
 
   console.log('✅ Seed Master Data thành công!');

@@ -418,7 +418,7 @@ model Voucher {
   @@index([userId, transactionAt])
   @@index([inboundInvoiceId])
   @@index([outboundInvoiceId])
-  @@index([userId, voucherType])
+  @@index([userId, paymentMethod, status, transactionAt, id])
   @@map("vouchers")
 }
 

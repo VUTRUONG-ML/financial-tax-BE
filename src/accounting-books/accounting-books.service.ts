@@ -50,6 +50,30 @@ export class AccountingBooksService {
     };
   }
 
+  async getValidTaxConfig(userId: string, startDate: Date, endDate: Date) {
+    const taxConfig =
+      (await this.prisma.taxConfiguration.findFirst({
+        where: {
+          userId,
+          applyFromDate: { lte: endDate },
+          applyToDate: { gte: startDate },
+        },
+        include: { taxGroup: true, industry: true },
+        orderBy: { applyFromDate: 'desc' },
+      })) ||
+      (await this.prisma.taxConfiguration.findFirst({
+        where: { userId },
+        include: { taxGroup: true, industry: true },
+        orderBy: { applyFromDate: 'desc' },
+      }));
+
+    if (!taxConfig) {
+      throw new NotFoundException('Tax configuration not found for this user.');
+    }
+
+    return taxConfig;
+  }
+
   private async generateSyncCode(
     userId: string,
     startDate: Date,
@@ -90,35 +114,7 @@ export class AccountingBooksService {
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
     // 2. Lấy cấu hình thuế hợp lệ của người dùng
-    const taxConfig =
-      (await this.prisma.taxConfiguration.findFirst({
-        where: {
-          userId,
-          applyFromDate: { lte: endDate },
-          applyToDate: { gte: startDate },
-        },
-        include: {
-          taxGroup: true,
-          industry: true,
-        },
-        orderBy: {
-          applyFromDate: 'desc',
-        },
-      })) ||
-      (await this.prisma.taxConfiguration.findFirst({
-        where: { userId },
-        include: {
-          taxGroup: true,
-          industry: true,
-        },
-        orderBy: {
-          applyFromDate: 'desc',
-        },
-      }));
-
-    if (!taxConfig) {
-      throw new NotFoundException('Tax configuration not found for this user.');
-    }
+    const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
     const aggregateInvoices = await this.prisma.invoice.aggregate({
       _sum: { totalPayment: true },
@@ -200,25 +196,7 @@ export class AccountingBooksService {
   ) {
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
-    const taxConfig =
-      (await this.prisma.taxConfiguration.findFirst({
-        where: {
-          userId,
-          applyFromDate: { lte: endDate },
-          applyToDate: { gte: startDate },
-        },
-        include: { taxGroup: true, industry: true },
-        orderBy: { applyFromDate: 'desc' },
-      })) ||
-      (await this.prisma.taxConfiguration.findFirst({
-        where: { userId },
-        include: { taxGroup: true, industry: true },
-        orderBy: { applyFromDate: 'desc' },
-      }));
-
-    if (!taxConfig) {
-      throw new NotFoundException('Tax configuration not found for this user.');
-    }
+    const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
     const skip = (page - 1) * limit;
 
@@ -424,6 +402,240 @@ export class AccountingBooksService {
         so_luong_don_hang,
         Tong_So_Thue_GTGT_Phai_Nop: tongThueGTGT,
       },
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // SỔ CHI TIẾT TIỀN (S2e-HKD: S03 Tiền Mặt & S04 Tiền Gửi)
+  // --------------------------------------------------------------------------
+
+  async generateCashFlowSyncCode(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<string> {
+    const voucherStats = await this.prisma.voucher.aggregate({
+      where: {
+        userId,
+        transactionAt: { gte: startDate, lte: endDate },
+      },
+      _count: { id: true },
+      _max: { updatedAt: true },
+    });
+    const vCount = voucherStats._count.id || 0;
+    const vMaxTime = voucherStats._max.updatedAt?.getTime() || 0;
+
+    return `${vCount}-${vMaxTime}`;
+  }
+
+  async getCashFlowBookSummary(
+    userId: string,
+    timeFrame: string,
+    startDateRaw?: Date,
+    endDateRaw?: Date,
+  ) {
+    const customRange =
+      startDateRaw && endDateRaw
+        ? { startDate: startDateRaw, endDate: endDateRaw }
+        : undefined;
+
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const [taxConfig, syncCode] = await Promise.all([
+      this.getValidTaxConfig(userId, startDate, endDate),
+      this.generateCashFlowSyncCode(userId, startDate, endDate),
+    ]);
+
+    // Lấy thông tin thống kê Thu Chi (Voucher) cho S03 (CASH) và S04 (BANK)
+    // 1. Tổng thu/chi trong kỳ
+    const periodStats = await this.prisma.voucher.groupBy({
+      by: ['paymentMethod', 'voucherType'],
+      where: {
+        userId,
+        transactionAt: { gte: startDate, lte: endDate },
+        status: 'ACTIVE',
+      },
+      _sum: { amount: true },
+    });
+
+    // 2. Lấy số dư đầu kỳ (Trước startDate)
+    const openingStats = await this.prisma.voucher.groupBy({
+      by: ['paymentMethod', 'voucherType'],
+      where: {
+        userId,
+        transactionAt: { lt: startDate },
+        status: 'ACTIVE',
+      },
+      _sum: { amount: true },
+    });
+
+    // Helper tính toán cho một phương thức thanh toán
+    const calculateBookStats = async (
+      bookKey: AccountingBookKey,
+      paymentMethod: 'CASH' | 'BANK',
+    ) => {
+      // Số dư đầu kỳ = Tổng thu - Tổng chi (trước startDate)
+      let openingBalance = 0;
+      openingStats.forEach((stat) => {
+        if (stat.paymentMethod === paymentMethod) {
+          const amt = Number(stat._sum.amount || 0);
+          if (stat.voucherType === 'RECEIPT') openingBalance += amt;
+          if (stat.voucherType === 'PAYMENT') openingBalance -= amt;
+        }
+      });
+
+      // Số liệu trong kỳ
+      let periodReceipt = 0;
+      let periodPayment = 0;
+      periodStats.forEach((stat) => {
+        if (stat.paymentMethod === paymentMethod) {
+          const amt = Number(stat._sum.amount || 0);
+          if (stat.voucherType === 'RECEIPT') periodReceipt += amt;
+          if (stat.voucherType === 'PAYMENT') periodPayment += amt;
+        }
+      });
+
+      const closingBalance = openingBalance + periodReceipt - periodPayment;
+
+      const bookMetadata = await this.generateBookMetadata(
+        bookKey,
+        userId,
+        startDate,
+        endDate,
+      );
+
+      return {
+        bookMetadata,
+        bookKey,
+        timeFrame: { startDate, endDate },
+        summary: {
+          So_Du_Dau_Ky: openingBalance,
+          Tong_Thu_Trong_Ky: periodReceipt,
+          Tong_Chi_Trong_Ky: periodPayment,
+          So_Du_Cuoi_Ky: closingBalance,
+        },
+      };
+    };
+
+    const s03 = await calculateBookStats('S2E', 'CASH');
+    const s04 = await calculateBookStats('S2E', 'BANK');
+
+    return {
+      activeBookKey: 'S2e-HKD', // Main tab UI
+      books: {
+        'S03-HKD': s03,
+        'S04-HKD': s04,
+      },
+      syncCode,
+    };
+  }
+
+  async getCashFlowBookRecords(
+    userId: string,
+    timeFrame: string,
+    startDateRaw?: Date,
+    endDateRaw?: Date,
+    bookKey: string = 'S03',
+    page: number = 1,
+    limit: number = 20,
+    clientSyncCode?: string,
+  ) {
+    const customRange =
+      startDateRaw && endDateRaw
+        ? { startDate: startDateRaw, endDate: endDateRaw }
+        : undefined;
+
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const currentSyncCode = await this.generateCashFlowSyncCode(
+      userId,
+      startDate,
+      endDate,
+    );
+    const isSummaryOutdated =
+      !!clientSyncCode && currentSyncCode !== clientSyncCode;
+
+    const paymentMethod = bookKey === 'S03' ? 'CASH' : 'BANK';
+
+    // 1. Tính toán số dư đầu kỳ (Opening Balance) bằng Prisma native
+    const openingStats = await this.prisma.voucher.groupBy({
+      by: ['voucherType'],
+      where: {
+        userId,
+        paymentMethod: paymentMethod,
+        transactionAt: { lt: startDate },
+        status: 'ACTIVE',
+      },
+      _sum: { amount: true },
+    });
+
+    let openingBalance = 0;
+    openingStats.forEach((stat) => {
+      const amt = Number(stat._sum.amount || 0);
+      if (stat.voucherType === 'RECEIPT') openingBalance += amt;
+      if (stat.voucherType === 'PAYMENT') openingBalance -= amt;
+    });
+
+    // 2. Đếm tổng số bản ghi trong kỳ để phân trang bằng Prisma native
+    const total = await this.prisma.voucher.count({
+      where: {
+        userId,
+        paymentMethod: paymentMethod,
+        transactionAt: { gte: startDate, lte: endDate },
+        status: 'ACTIVE',
+      },
+    });
+
+    // 3. Truy vấn chi tiết với Window Function để tính running balance
+    const limitVal = BigInt(limit);
+    const offsetVal = BigInt((page - 1) * limit);
+
+    const records = await this.prisma.$queryRaw<any[]>`
+      WITH CTE AS (
+        SELECT 
+          id,
+          transaction_at as "Ngay_Giao_Dich",
+          CASE WHEN voucher_type = 'RECEIPT' THEN voucher_code ELSE NULL END as "So_Phieu_Thu",
+          CASE WHEN voucher_type = 'PAYMENT' THEN voucher_code ELSE NULL END as "So_Phieu_Chi",
+          content as "Dien_Giai",
+          CASE WHEN voucher_type = 'RECEIPT' THEN amount ELSE 0 END as "Tien_Thu",
+          CASE WHEN voucher_type = 'PAYMENT' THEN amount ELSE 0 END as "Tien_Chi",
+          SUM(CASE WHEN voucher_type = 'RECEIPT' THEN amount ELSE -amount END) 
+            OVER (ORDER BY transaction_at ASC, id ASC) as running_balance_in_period
+        FROM vouchers
+        WHERE user_id = ${userId} 
+          AND payment_method = ${paymentMethod}::"PaymentMethod" 
+          AND transaction_at BETWEEN ${startDate} AND ${endDate}
+          AND status = 'ACTIVE'
+      )
+      SELECT 
+        "Ngay_Giao_Dich",
+        "So_Phieu_Thu",
+        "So_Phieu_Chi",
+        "Dien_Giai",
+        "Tien_Thu",
+        "Tien_Chi",
+        (${openingBalance}::numeric + running_balance_in_period) as "So_Du_Ton"
+      FROM CTE
+      ORDER BY "Ngay_Giao_Dich" ASC, id ASC
+      LIMIT ${limitVal} OFFSET ${offsetVal}
+    `;
+
+    return {
+      rows: records.map((r) => ({
+        ...r,
+        Tien_Thu: Number(r.Tien_Thu),
+        Tien_Chi: Number(r.Tien_Chi),
+        So_Du_Ton: Number(r.So_Du_Ton),
+      })),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit) || 1,
+      },
+      activeBookKey: `${bookKey}-HKD`,
+      syncCode: currentSyncCode,
+      isSummaryOutdated,
     };
   }
 }

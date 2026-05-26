@@ -75,6 +75,8 @@ This document describes the request and response data structures of the core API
 - [13. Accounting Books](#13-accounting-books)
   - [13.1. Get Revenue Book Summary](#131-get-revenue-book-summary)
   - [13.2. Get Revenue Book Records](#132-get-revenue-book-records)
+  - [13.3. Get Cash Flow Book Summary](#133-get-cash-flow-book-summary)
+  - [13.4. Get Cash Flow Book Records](#134-get-cash-flow-book-records)
 
 ---
 
@@ -2677,3 +2679,113 @@ None
 ```
 
 _(Note: `rows` objects format will adapt to the active book schema `S1ARowDto`, `S2ARowDto` or `S2BRowDto`. Provided above is `S1ARowDto` format)_
+
+### 13.3. Get Cash Flow Book Summary
+
+- **Route:** `/accounting-books/cash-flow/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve cash flow book summary successfully",
+  "data": {
+    "activeBookKey": "string",
+    "books": {
+      "S03-HKD": {
+        "bookMetadata": {
+          "businessName": "string",
+          "taxCode": "string",
+          "bookTitle": "string",
+          "ownerName": "string",
+          "templateStyle": "string"
+        },
+        "bookKey": "string",
+        "timeFrame": {
+          "startDate": "Date string",
+          "endDate": "Date string"
+        },
+        "summary": {
+          "So_Du_Dau_Ky": "number",
+          "Tong_Thu_Trong_Ky": "number",
+          "Tong_Chi_Trong_Ky": "number",
+          "So_Du_Cuoi_Ky": "number"
+        }
+      },
+      "S04-HKD": {
+        // Same structure as S03-HKD
+      }
+    },
+    "syncCode": "string"
+  },
+  "meta": null
+}
+```
+
+### 13.4. Get Cash Flow Book Records
+
+- **Route:** `/accounting-books/cash-flow/records`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+- `bookKey`: `string (Optional - Enum: "S03", "S04")`
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `syncCode`: `string (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve cash flow book successfully",
+  "data": {
+    "rows": [
+      {
+        "Ngay_Giao_Dich": "Date string",
+        "So_Phieu_Thu": "string | null",
+        "So_Phieu_Chi": "string | null",
+        "Dien_Giai": "string",
+        "Tien_Thu": "number",
+        "Tien_Chi": "number",
+        "So_Du_Ton": "number"
+      }
+    ],
+    "meta": {
+      "total": "number",
+      "page": "number",
+      "lastPage": "number"
+    },
+    "activeBookKey": "string",
+    "syncCode": "string",
+    "isSummaryOutdated": "boolean"
+  },
+  "meta": null
+}
+```
