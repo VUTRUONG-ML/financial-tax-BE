@@ -8,19 +8,25 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { InternalProductionOrdersService } from './internal-production-orders.service';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
+import { PeriodLockGuard } from '../common/guards/period-lock.guard';
+import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('internal-production-orders')
+@UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class InternalProductionOrdersController {
   constructor(
     private readonly internalProductionOrdersService: InternalProductionOrdersService,
   ) {}
 
   @Post()
+  @CheckPeriod()
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -38,6 +44,7 @@ export class InternalProductionOrdersController {
   }
 
   @Patch(':orderCode/cancel')
+  @CheckPeriod()
   @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async cancel(

@@ -29,9 +29,9 @@ export class PeriodLockGuard implements CanActivate {
 
     if (!user || !user.id) return false;
 
-    const issueDate = request.body?.issueDate;
-    const checkDate = issueDate
-      ? moment(issueDate).toDate()
+    const checkDateRaw = (request.body?.issueDate || request.body?.transactionAt) as string | undefined;
+    const checkDate = checkDateRaw
+      ? moment(checkDateRaw).toDate()
       : moment().toDate();
 
     // 3. Gọi Service check

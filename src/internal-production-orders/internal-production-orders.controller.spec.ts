@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { InternalProductionOrdersController } from './internal-production-orders.controller';
+import { InternalProductionOrdersService } from './internal-production-orders.service';
+import { PeriodLockGuard } from '../common/guards/period-lock.guard';
 
 describe('InternalProductionOrdersController', () => {
   let controller: InternalProductionOrdersController;
@@ -7,7 +9,16 @@ describe('InternalProductionOrdersController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [InternalProductionOrdersController],
-    }).compile();
+      providers: [
+        {
+          provide: InternalProductionOrdersService,
+          useValue: {},
+        },
+      ],
+    })
+      .overrideGuard(PeriodLockGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<InternalProductionOrdersController>(InternalProductionOrdersController);
   });

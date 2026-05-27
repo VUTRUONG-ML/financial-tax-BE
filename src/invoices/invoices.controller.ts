@@ -23,7 +23,7 @@ import { CheckPeriod } from '../common/decorators/check-period.decorator';
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 @Controller('invoices')
 export class InvoicesController {
-  constructor(private readonly invoicesService: InvoicesService) {}
+  constructor(private readonly invoicesService: InvoicesService) { }
 
   // POST /invoices — Tạo hóa đơn mới (status: DRAFT)
   @Post()

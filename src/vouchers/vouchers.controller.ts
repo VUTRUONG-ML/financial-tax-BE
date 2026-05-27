@@ -9,17 +9,23 @@ import {
   HttpStatus,
   ParseIntPipe,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { VouchersService } from './vouchers.service';
 import { CreateVoucherDto } from './dto/create-voucher.dto';
 import { UpdateVoucherDto } from './dto/update-voucher.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PeriodLockGuard } from '../common/guards/period-lock.guard';
+import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('vouchers')
+@UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class VouchersController {
   constructor(private readonly vouchersService: VouchersService) {}
 
   @Post()
+  @CheckPeriod()
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentUser('id') userId: string,
@@ -55,6 +61,7 @@ export class VouchersController {
   }
 
   @Patch(':voucherCode')
+  @CheckPeriod()
   @HttpCode(HttpStatus.OK)
   async update(
     @CurrentUser('id') userId: string,
@@ -70,6 +77,7 @@ export class VouchersController {
   }
 
   @Patch(':voucherCode/cancel')
+  @CheckPeriod()
   @HttpCode(HttpStatus.OK)
   async cancel(
     @CurrentUser('id') userId: string,
