@@ -6,6 +6,7 @@ import type { RequestUser } from '../common/interface/request-user.interface';
 import { GetRevenueBookDto } from './dto/get-revenue-book.dto';
 import { GetCashFlowBookDto } from './dto/get-cash-flow-book.dto';
 import { GetExpenseBookDto } from './dto/get-expense-book.dto';
+import { GetInventoryBookDto } from './dto/get-inventory-book.dto';
 
 @Controller('accounting-books')
 @UseGuards(JwtAuthGuard)
@@ -162,6 +163,63 @@ export class AccountingBooksController {
     return {
       success: true,
       message: 'Retrieve expense book successfully',
+      data,
+    };
+  }
+
+  @Get('inventory/summary')
+  async getInventoryBookSummary(
+    @CurrentUser() user: RequestUser,
+    @Query() query: GetInventoryBookDto,
+  ) {
+    const customRange =
+      query.startDate && query.endDate
+        ? {
+            startDate: new Date(query.startDate),
+            endDate: new Date(query.endDate),
+          }
+        : undefined;
+
+    const data = await this.accountingBooksService.getInventoryBookSummary(
+      user.id,
+      query.timeFrame,
+      query.productPublicIds,
+      customRange,
+    );
+
+    return {
+      success: true,
+      message: 'Retrieve inventory book summary successfully',
+      data,
+    };
+  }
+
+  @Get('inventory/records')
+  async getInventoryBookRecords(
+    @CurrentUser() user: RequestUser,
+    @Query() query: GetInventoryBookDto,
+  ) {
+    const customRange =
+      query.startDate && query.endDate
+        ? {
+            startDate: new Date(query.startDate),
+            endDate: new Date(query.endDate),
+          }
+        : undefined;
+
+    const data = await this.accountingBooksService.getInventoryBookRecords(
+      user.id,
+      query.timeFrame,
+      query.productPublicIds,
+      customRange,
+      query.page,
+      query.limit,
+      query.syncCode,
+    );
+
+    return {
+      success: true,
+      message: 'Retrieve inventory book successfully',
       data,
     };
   }

@@ -10,12 +10,13 @@ import {
   AccountingBookKey,
 } from './constant/accounting-books.constant';
 import { parseDateRange } from 'src/common/utils/date-range-parser.util';
-import { Invoice, TaxConfiguration } from '@prisma/client';
+import { Invoice, TaxConfiguration, Prisma } from '@prisma/client';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from 'src/common/utils/time.util';
 import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
 import { ExpenseBookRowDto } from './dto/expense-book-row.dto';
+import { InventoryBookRowDto } from './dto/inventory-book-row.dto';
 import { plainToInstance } from 'class-transformer';
 
 const CAT_NGUYEN_VAT_LIEU =
@@ -827,5 +828,703 @@ export class AccountingBooksService {
       syncCode,
       isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
     };
+  }
+
+  // --------------------------------------------------------------------------
+  // SỔ CHI TIẾT VẬT TƯ, HÀNG HÓA, SẢN PHẨM (S2d-HKD: Nhập - Xuất - Tồn)
+  // --------------------------------------------------------------------------
+
+  async generateInventorySyncCode(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<string> {
+    const [inboundAgg, outboundAgg, prodAgg] = await Promise.all([
+      this.prisma.inboundInvoice.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          status: 'ACTIVE',
+          isSyncedToInventory: true,
+          issueDate: { gte: startDate, lte: endDate },
+        },
+      }),
+      this.prisma.invoice.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          status: 'ISSUED',
+          issueDate: { gte: startDate, lte: endDate },
+        },
+      }),
+      this.prisma.internalProductionOrder.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          status: 'ACTIVE',
+          transactionAt: { gte: startDate, lte: endDate },
+        },
+      }),
+    ]);
+
+    const inCount = inboundAgg._count.id || 0;
+    const inMaxTime = inboundAgg._max.updatedAt?.getTime() || 0;
+    const outCount = outboundAgg._count.id || 0;
+    const outMaxTime = outboundAgg._max.updatedAt?.getTime() || 0;
+    const prodCount = prodAgg._count.id || 0;
+    const prodMaxTime = prodAgg._max.updatedAt?.getTime() || 0;
+
+    return `${inCount}-${inMaxTime}-${outCount}-${outMaxTime}-${prodCount}-${prodMaxTime}`;
+  }
+
+  async getInventoryBookSummary(
+    userId: string,
+    timeFrame: string,
+    productPublicIds?: string[],
+    customRange?: { startDate: Date; endDate: Date },
+  ) {
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        userId,
+        productType: { not: 'SERVICE' },
+        ...(productPublicIds && productPublicIds.length > 0
+          ? { publicId: { in: productPublicIds } }
+          : {}),
+      },
+      select: { id: true },
+    });
+
+    const productIds = products.map((p) => p.id);
+
+    if (productIds.length === 0) {
+      const [bookMetadata, syncCode] = await Promise.all([
+        this.generateBookMetadata('S2D', userId, startDate, endDate),
+        this.generateInventorySyncCode(userId, startDate, endDate),
+      ]);
+      return {
+        activeBookKey: 'S2d-HKD',
+        books: {
+          'S2d-HKD': {
+            bookMetadata,
+            bookKey: 'S2D',
+            timeFrame: { startDate, endDate },
+            summary: {
+              Tong_So_Luong_Ton_Dau_Ky: 0,
+              Tong_So_Luong_Nhap: 0,
+              Tong_Thanh_Tien_Nhap: 0,
+              Tong_So_Luong_Xuat: 0,
+              Tong_Thanh_Tien_Xuat: 0,
+              Tong_So_Luong_Ton_Cuoi_Ky: 0,
+            },
+          },
+        },
+        syncCode,
+      };
+    }
+
+    const [openingBalances, totalsResult, bookMetadata, syncCode] =
+      await Promise.all([
+        this.prisma.$queryRaw<any[]>`
+          WITH historical_inbound AS (
+            SELECT item.product_id, SUM(item.quantity) AS total_qty
+            FROM inbound_invoice_details item
+            JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
+            WHERE inv.user_id = ${userId}
+              AND inv.issue_date < ${startDate}
+              AND inv.status = 'ACTIVE'
+              AND inv.is_synced_to_inventory = true
+              AND item.product_id IN (${Prisma.join(productIds)})
+            GROUP BY item.product_id
+          ),
+          historical_outbound AS (
+            SELECT item.product_id, SUM(item.quantity) AS total_qty
+            FROM invoice_details item
+            JOIN invoices inv ON item.invoice_id = inv.id
+            WHERE inv.user_id = ${userId}
+              AND inv.issue_date < ${startDate}
+              AND inv.status = 'ISSUED'
+              AND item.product_id IN (${Prisma.join(productIds)})
+            GROUP BY item.product_id
+          ),
+          historical_issue_material AS (
+            SELECT pd.product_id, SUM(pd.quantity) AS total_qty
+            FROM production_details pd
+            JOIN internal_production_orders po ON pd.order_id = po.id
+            WHERE po.user_id = ${userId}
+              AND po.transaction_at < ${startDate}
+              AND po.status = 'ACTIVE'
+              AND pd.transaction_type = 'ISSUE_MATERIAL'
+              AND pd.product_id IN (${Prisma.join(productIds)})
+            GROUP BY pd.product_id
+          ),
+          historical_receive_product AS (
+            SELECT pd.product_id, SUM(pd.quantity) AS total_qty
+            FROM production_details pd
+            JOIN internal_production_orders po ON pd.order_id = po.id
+            WHERE po.user_id = ${userId}
+              AND po.transaction_at < ${startDate}
+              AND po.status = 'ACTIVE'
+              AND pd.transaction_type = 'RECEIVE_PRODUCT'
+              AND pd.product_id IN (${Prisma.join(productIds)})
+            GROUP BY pd.product_id
+          ),
+          opening_balances AS (
+            SELECT 
+              p.id AS product_id,
+              (
+                p.opening_stock_quantity 
+                + COALESCE(hi.total_qty, 0)
+                - COALESCE(ho.total_qty, 0)
+                - COALESCE(hm.total_qty, 0)
+                + COALESCE(hr.total_qty, 0)
+              ) AS opening_balance
+            FROM products p
+            LEFT JOIN historical_inbound hi ON p.id = hi.product_id
+            LEFT JOIN historical_outbound ho ON p.id = ho.product_id
+            LEFT JOIN historical_issue_material hm ON p.id = hm.product_id
+            LEFT JOIN historical_receive_product hr ON p.id = hr.product_id
+            WHERE p.id IN (${Prisma.join(productIds)})
+          )
+          SELECT product_id, opening_balance FROM opening_balances;
+        `,
+        this.prisma.$queryRaw<any[]>`
+          WITH period_inbound AS (
+            SELECT 
+              COALESCE(SUM(item.quantity), 0) AS qty,
+              COALESCE(SUM(item.quantity * item.unit_cost), 0) AS val
+            FROM inbound_invoice_details item
+            JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
+            WHERE inv.user_id = ${userId}
+              AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
+              AND inv.status = 'ACTIVE'
+              AND inv.is_synced_to_inventory = true
+              AND item.product_id IN (${Prisma.join(productIds)})
+          ),
+          period_outbound AS (
+            SELECT 
+              COALESCE(SUM(item.quantity), 0) AS qty,
+              COALESCE(SUM(item.total_amount), 0) AS val
+            FROM invoice_details item
+            JOIN invoices inv ON item.invoice_id = inv.id
+            WHERE inv.user_id = ${userId}
+              AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
+              AND inv.status = 'ISSUED'
+              AND item.product_id IN (${Prisma.join(productIds)})
+          ),
+          period_issue_material AS (
+            SELECT COALESCE(SUM(pd.quantity), 0) AS qty
+            FROM production_details pd
+            JOIN internal_production_orders po ON pd.order_id = po.id
+            WHERE po.user_id = ${userId}
+              AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
+              AND po.status = 'ACTIVE'
+              AND pd.transaction_type = 'ISSUE_MATERIAL'
+              AND pd.product_id IN (${Prisma.join(productIds)})
+          ),
+          period_receive_product AS (
+            SELECT COALESCE(SUM(pd.quantity), 0) AS qty
+            FROM production_details pd
+            JOIN internal_production_orders po ON pd.order_id = po.id
+            WHERE po.user_id = ${userId}
+              AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
+              AND po.status = 'ACTIVE'
+              AND pd.transaction_type = 'RECEIVE_PRODUCT'
+              AND pd.product_id IN (${Prisma.join(productIds)})
+          )
+          SELECT 
+            pi.qty AS total_qty_nhap_mua,
+            pi.val AS total_val_nhap_mua,
+            po.qty AS total_qty_xuat_ban,
+            po.val AS total_val_xuat_ban,
+            pm.qty AS total_qty_xuat_sx,
+            pr.qty AS total_qty_nhap_sx
+          FROM period_inbound pi
+          CROSS JOIN period_outbound po
+          CROSS JOIN period_issue_material pm
+          CROSS JOIN period_receive_product pr;
+        `,
+        this.generateBookMetadata('S2D', userId, startDate, endDate),
+        this.generateInventorySyncCode(userId, startDate, endDate),
+      ]);
+
+    const tong_so_luong_ton_dau_ky = openingBalances.reduce(
+      (sum, item) => sum + Number(item.opening_balance),
+      0,
+    );
+
+    const totals = totalsResult[0] || {
+      total_qty_nhap_mua: 0,
+      total_val_nhap_mua: 0,
+      total_qty_xuat_ban: 0,
+      total_val_xuat_ban: 0,
+      total_qty_xuat_sx: 0,
+      total_qty_nhap_sx: 0,
+    };
+
+    const tong_so_luong_nhap =
+      Number(totals.total_qty_nhap_mua) + Number(totals.total_qty_nhap_sx);
+    const tong_thanh_tien_nhap = Number(totals.total_val_nhap_mua);
+    const tong_so_luong_xuat =
+      Number(totals.total_qty_xuat_ban) + Number(totals.total_qty_xuat_sx);
+    const tong_thanh_tien_xuat = Number(totals.total_val_xuat_ban);
+    const tong_so_luong_ton_cuoi_ky =
+      tong_so_luong_ton_dau_ky + tong_so_luong_nhap - tong_so_luong_xuat;
+
+    return {
+      activeBookKey: 'S2d-HKD',
+      books: {
+        'S2d-HKD': {
+          bookMetadata,
+          bookKey: 'S2D',
+          timeFrame: { startDate, endDate },
+          summary: {
+            Tong_So_Luong_Ton_Dau_Ky: tong_so_luong_ton_dau_ky,
+            Tong_So_Luong_Nhap: tong_so_luong_nhap,
+            Tong_Thanh_Tien_Nhap: tong_thanh_tien_nhap,
+            Tong_So_Luong_Xuat: tong_so_luong_xuat,
+            Tong_Thanh_Tien_Xuat: tong_thanh_tien_xuat,
+            Tong_So_Luong_Ton_Cuoi_Ky: tong_so_luong_ton_cuoi_ky,
+          },
+        },
+      },
+      syncCode,
+    };
+  }
+
+  async getInventoryBookRecords(
+    userId: string,
+    timeFrame: string,
+    productPublicIds?: string[],
+    customRange?: { startDate: Date; endDate: Date },
+    page: number = 1,
+    limit: number = 20,
+    currentSyncCode?: string,
+  ) {
+    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        userId,
+        productType: { not: 'SERVICE' },
+        ...(productPublicIds && productPublicIds.length > 0
+          ? { publicId: { in: productPublicIds } }
+          : {}),
+      },
+      select: { id: true },
+    });
+
+    const productIds = products.map((p) => p.id);
+
+    const syncCode = await this.generateInventorySyncCode(
+      userId,
+      startDate,
+      endDate,
+    );
+
+    if (productIds.length === 0) {
+      return {
+        rows: [],
+        meta: {
+          total: 0,
+          page,
+          lastPage: 1,
+        },
+        activeBookKey: 'S2d-HKD',
+        syncCode,
+        isSummaryOutdated: currentSyncCode
+          ? currentSyncCode !== syncCode
+          : true,
+      };
+    }
+
+    const limitVal = BigInt(limit);
+    const offsetVal = BigInt((page - 1) * limit);
+
+    const records = await this.prisma.$queryRaw<any[]>`
+      WITH historical_inbound AS (
+        SELECT item.product_id, SUM(item.quantity) AS total_qty
+        FROM inbound_invoice_details item
+        JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.status = 'ACTIVE'
+          AND inv.is_synced_to_inventory = true
+          AND inv.issue_date < ${startDate}
+          AND item.product_id IN (${Prisma.join(productIds)})
+        GROUP BY item.product_id
+      ),
+      historical_outbound AS (
+        SELECT item.product_id, SUM(item.quantity) AS total_qty
+        FROM invoice_details item
+        JOIN invoices inv ON item.invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.status = 'ISSUED'
+          AND inv.issue_date < ${startDate}
+          AND item.product_id IN (${Prisma.join(productIds)})
+        GROUP BY item.product_id
+      ),
+      historical_issue_material AS (
+        SELECT pd.product_id, SUM(pd.quantity) AS total_qty
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.status = 'ACTIVE'
+          AND pd.transaction_type = 'ISSUE_MATERIAL'
+          AND po.transaction_at < ${startDate}
+          AND pd.product_id IN (${Prisma.join(productIds)})
+        GROUP BY pd.product_id
+      ),
+      historical_receive_product AS (
+        SELECT pd.product_id, SUM(pd.quantity) AS total_qty
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.status = 'ACTIVE'
+          AND pd.transaction_type = 'RECEIVE_PRODUCT'
+          AND po.transaction_at < ${startDate}
+          AND pd.product_id IN (${Prisma.join(productIds)})
+        GROUP BY pd.product_id
+      ),
+      opening_balances AS (
+        SELECT 
+          p.id AS product_id,
+          (
+            p.opening_stock_quantity 
+            + COALESCE(hi.total_qty, 0)
+            - COALESCE(ho.total_qty, 0)
+            - COALESCE(hm.total_qty, 0)
+            + COALESCE(hr.total_qty, 0)
+          ) AS opening_balance
+        FROM products p
+        LEFT JOIN historical_inbound hi ON p.id = hi.product_id
+        LEFT JOIN historical_outbound ho ON p.id = ho.product_id
+        LEFT JOIN historical_issue_material hm ON p.id = hm.product_id
+        LEFT JOIN historical_receive_product hr ON p.id = hr.product_id
+        WHERE p.id IN (${Prisma.join(productIds)})
+      ),
+      transactions AS (
+        -- Inbound Invoices
+        SELECT
+          item.id AS detail_id,
+          'TX_INBOUND' AS flow_type,
+          inv.issue_date AS "Ngay_Chung_Tu",
+          inv.invoice_no AS "So_Chung_Tu",
+          item.product_id AS "Product_Id",
+          item.quantity AS "So_Luong_Nhap",
+          item.unit_cost AS "Don_Gia_Nhap",
+          (item.quantity * item.unit_cost) AS "Thanh_Tien_Nhap",
+          0 AS "So_Luong_Xuat",
+          0 AS "Don_Gia_Xuat",
+          0 AS "Thanh_Tien_Xuat"
+        FROM inbound_invoice_details item
+        JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
+          AND inv.status = 'ACTIVE'
+          AND inv.is_synced_to_inventory = true
+          AND item.product_id IN (${Prisma.join(productIds)})
+
+        UNION ALL
+
+        -- Outbound Invoices
+        SELECT
+          item.id AS detail_id,
+          'TX_OUTBOUND' AS flow_type,
+          inv.issue_date AS "Ngay_Chung_Tu",
+          inv.invoice_symbol AS "So_Chung_Tu",
+          item.product_id AS "Product_Id",
+          0 AS "So_Luong_Nhap",
+          0 AS "Don_Gia_Nhap",
+          0 AS "Thanh_Tien_Nhap",
+          item.quantity AS "So_Luong_Xuat",
+          item.unit_price AS "Don_Gia_Xuat",
+          item.total_amount AS "Thanh_Tien_Xuat"
+        FROM invoice_details item
+        JOIN invoices inv ON item.invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
+          AND inv.status = 'ISSUED'
+          AND item.product_id IN (${Prisma.join(productIds)})
+
+        UNION ALL
+
+        -- Production Orders
+        SELECT
+          pd.id AS detail_id,
+          CASE WHEN pd.transaction_type = 'ISSUE_MATERIAL' THEN 'TX_PROD_ISSUE' ELSE 'TX_PROD_RECEIVE' END AS flow_type,
+          po.transaction_at AS "Ngay_Chung_Tu",
+          po.order_code AS "So_Chung_Tu",
+          pd.product_id AS "Product_Id",
+          CASE WHEN pd.transaction_type = 'RECEIVE_PRODUCT' THEN pd.quantity ELSE 0 END AS "So_Luong_Nhap",
+          0 AS "Don_Gia_Nhap",
+          0 AS "Thanh_Tien_Nhap",
+          CASE WHEN pd.transaction_type = 'ISSUE_MATERIAL' THEN pd.quantity ELSE 0 END AS "So_Luong_Xuat",
+          0 AS "Don_Gia_Xuat",
+          0 AS "Thanh_Tien_Xuat"
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
+          AND po.status = 'ACTIVE'
+          AND pd.product_id IN (${Prisma.join(productIds)})
+      ),
+      running_balances AS (
+        SELECT
+          t.*,
+          p.product_name AS "Product_Name",
+          p.sku_code AS "Sku_Code",
+          p.unit AS "Unit",
+          SUM(t."So_Luong_Nhap" - t."So_Luong_Xuat") OVER (
+            PARTITION BY t."Product_Id" 
+            ORDER BY t."Ngay_Chung_Tu" ASC, t.detail_id ASC
+          ) AS running_balance_in_period,
+          COUNT(*) OVER () AS total_count
+        FROM transactions t
+        JOIN products p ON t."Product_Id" = p.id
+      )
+      SELECT 
+        rb."Ngay_Chung_Tu",
+        rb."So_Chung_Tu",
+        rb.flow_type,
+        rb."Product_Id",
+        rb."Product_Name",
+        rb."Sku_Code",
+        rb."Unit",
+        rb."So_Luong_Nhap",
+        rb."Don_Gia_Nhap",
+        rb."Thanh_Tien_Nhap",
+        rb."So_Luong_Xuat",
+        rb."Don_Gia_Xuat",
+        rb."Thanh_Tien_Xuat",
+        (COALESCE(ob.opening_balance, 0) + rb.running_balance_in_period) AS "So_Luong_Ton",
+        rb.total_count
+      FROM running_balances rb
+      LEFT JOIN opening_balances ob ON rb."Product_Id" = ob.product_id
+      ORDER BY rb."Product_Id" ASC, rb."Ngay_Chung_Tu" ASC, rb.detail_id ASC
+      LIMIT ${limitVal} OFFSET ${offsetVal}
+    `;
+
+    const TRANSLATION_MAP = {
+      TX_INBOUND: 'Mua hàng',
+      TX_OUTBOUND: 'Bán hàng',
+      TX_PROD_ISSUE: 'Xuất nguyên liệu',
+      TX_PROD_RECEIVE: 'Nhập thành phẩm',
+    };
+
+    const totalTransactions =
+      records.length > 0 ? Number(records[0].total_count) : 0;
+
+    let rawRows = records.map((r) => ({
+      ...r,
+      Dien_Giai: TRANSLATION_MAP[r.flow_type] || r.flow_type,
+    }));
+
+    // TỐI ƯU CƠ CHẾ INJECT VIRTUAL ROW
+    if (productIds.length === 1) {
+      const previousBalance = await this.getVirtualRowBalance(
+        userId,
+        productIds[0],
+        startDate,
+        endDate,
+        page,
+        rawRows[0],
+      );
+
+      let productName = '';
+      let skuCode = '';
+      let unit = '';
+
+      if (rawRows.length > 0) {
+        productName = rawRows[0].Product_Name;
+        skuCode = rawRows[0].Sku_Code;
+        unit = rawRows[0].Unit;
+      } else {
+        const prod = await this.prisma.product.findUnique({
+          where: { id: productIds[0] },
+          select: { productName: true, skuCode: true, unit: true },
+        });
+        if (prod) {
+          productName = prod.productName;
+          skuCode = prod.skuCode || '';
+          unit = prod.unit;
+        }
+      }
+
+      if (page === 1 || rawRows.length > 0 || totalTransactions > 0) {
+        const virtualRow = {
+          Ngay_Chung_Tu:
+            page === 1
+              ? startDate.toISOString()
+              : rawRows.length > 0 && rawRows[0].Ngay_Chung_Tu instanceof Date
+                ? rawRows[0].Ngay_Chung_Tu.toISOString()
+                : rawRows.length > 0
+                  ? new Date(rawRows[0].Ngay_Chung_Tu).toISOString()
+                  : startDate.toISOString(),
+          So_Chung_Tu: '',
+          Dien_Giai:
+            page === 1 ? 'Số dư đầu kỳ' : 'Số dư mang sang từ trang trước',
+          flow_type: 'VIRTUAL',
+          Product_Id: Number(productIds[0]),
+          Product_Name: productName,
+          Sku_Code: skuCode,
+          Unit: unit,
+          So_Luong_Nhap: 0,
+          Don_Gia_Nhap: 0,
+          Thanh_Tien_Nhap: 0,
+          So_Luong_Xuat: 0,
+          Don_Gia_Xuat: 0,
+          Thanh_Tien_Xuat: 0,
+          So_Luong_Ton: previousBalance,
+        };
+
+        rawRows = [virtualRow, ...rawRows];
+      }
+    }
+
+    const rows = plainToInstance(InventoryBookRowDto, rawRows, {
+      excludeExtraneousValues: true,
+    });
+
+    return {
+      rows,
+      meta: {
+        total: totalTransactions,
+        page,
+        lastPage: Math.ceil(totalTransactions / limit) || 1,
+      },
+      activeBookKey: 'S2d-HKD',
+      syncCode,
+      isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
+    };
+  }
+
+  private async getVirtualRowBalance(
+    userId: string,
+    productId: number,
+    startDate: Date,
+    endDate: Date,
+    page: number,
+    firstRecordOnPage?: any,
+  ): Promise<number> {
+    if (firstRecordOnPage) {
+      return (
+        Number(firstRecordOnPage.So_Luong_Ton || 0) -
+        Number(firstRecordOnPage.So_Luong_Nhap || 0) +
+        Number(firstRecordOnPage.So_Luong_Xuat || 0)
+      );
+    }
+
+    // Only execute DB queries when page is empty (firstRecordOnPage is undefined)
+    const openingBalResult = await this.prisma.$queryRaw<any[]>`
+      WITH historical_inbound AS (
+        SELECT SUM(item.quantity) AS total_qty
+        FROM inbound_invoice_details item
+        JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.issue_date < ${startDate}
+          AND inv.status = 'ACTIVE'
+          AND inv.is_synced_to_inventory = true
+          AND item.product_id = ${productId}
+      ),
+      historical_outbound AS (
+        SELECT SUM(item.quantity) AS total_qty
+        FROM invoice_details item
+        JOIN invoices inv ON item.invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.issue_date < ${startDate}
+          AND inv.status = 'ISSUED'
+          AND item.product_id = ${productId}
+      ),
+      historical_issue_material AS (
+        SELECT SUM(pd.quantity) AS total_qty
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.transaction_at < ${startDate}
+          AND po.status = 'ACTIVE'
+          AND pd.transaction_type = 'ISSUE_MATERIAL'
+          AND pd.product_id = ${productId}
+      ),
+      historical_receive_product AS (
+        SELECT SUM(pd.quantity) AS total_qty
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.transaction_at < ${startDate}
+          AND po.status = 'ACTIVE'
+          AND pd.transaction_type = 'RECEIVE_PRODUCT'
+          AND pd.product_id = ${productId}
+      )
+      SELECT 
+        (
+          p.opening_stock_quantity 
+          + COALESCE((SELECT total_qty FROM historical_inbound), 0)
+          - COALESCE((SELECT total_qty FROM historical_outbound), 0)
+          - COALESCE((SELECT total_qty FROM historical_issue_material), 0)
+          + COALESCE((SELECT total_qty FROM historical_receive_product), 0)
+        ) AS opening_balance
+      FROM products p
+      WHERE p.id = ${productId};
+    `;
+    const openingBalance = Number(openingBalResult[0]?.opening_balance || 0);
+
+    if (page === 1) {
+      return openingBalance;
+    }
+
+    const periodChangeResult = await this.prisma.$queryRaw<any[]>`
+      WITH period_inbound AS (
+        SELECT SUM(item.quantity) AS total_qty
+        FROM inbound_invoice_details item
+        JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
+          AND inv.status = 'ACTIVE'
+          AND inv.is_synced_to_inventory = true
+          AND item.product_id = ${productId}
+      ),
+      period_outbound AS (
+        SELECT SUM(item.quantity) AS total_qty
+        FROM invoice_details item
+        JOIN invoices inv ON item.invoice_id = inv.id
+        WHERE inv.user_id = ${userId}
+          AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
+          AND inv.status = 'ISSUED'
+          AND item.product_id = ${productId}
+      ),
+      period_issue AS (
+        SELECT SUM(pd.quantity) AS total_qty
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
+          AND po.status = 'ACTIVE'
+          AND pd.transaction_type = 'ISSUE_MATERIAL'
+          AND pd.product_id = ${productId}
+      ),
+      period_receive AS (
+        SELECT SUM(pd.quantity) AS total_qty
+        FROM production_details pd
+        JOIN internal_production_orders po ON pd.order_id = po.id
+        WHERE po.user_id = ${userId}
+          AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
+          AND po.status = 'ACTIVE'
+          AND pd.transaction_type = 'RECEIVE_PRODUCT'
+          AND pd.product_id = ${productId}
+      )
+      SELECT 
+        (
+          COALESCE((SELECT total_qty FROM period_inbound), 0)
+          - COALESCE((SELECT total_qty FROM period_outbound), 0)
+          - COALESCE((SELECT total_qty FROM period_issue), 0)
+          + COALESCE((SELECT total_qty FROM period_receive), 0)
+        ) AS net_change;
+    `;
+    const netChange = Number(periodChangeResult[0]?.net_change || 0);
+    return openingBalance + netChange;
   }
 }

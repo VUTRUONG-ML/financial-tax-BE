@@ -19,6 +19,7 @@
   - [4.5 Vouchers Module](#45-vouchers-module)
   - [4.6 Tax Declaration Module](#46-tax-declaration-module)
   - [4.7 Financial Periods Module](#47-financial-periods-module)
+  - [4.8 Onboarding Module (Cấu Hình Thuế Ban Đầu)](#48-onboarding-module-cấu-hình-thuế-ban-đầu)
 - [5. Error Handling & Status Codes](#5-error-handling--status-codes)
 - [6. Best Practices & Gotchas](#6-best-practices--gotchas)
 
@@ -1209,6 +1210,120 @@ const confirmTaxPayment = async (
     return result.data;
   } catch (error) {
     console.error('Confirm tax payment error:', error.message);
+    throw error;
+  }
+};
+```
+
+---
+
+### 4.8 Onboarding Module (Cấu Hình Thuế Ban Đầu)
+
+**Mục đích**: Thiết lập và cập nhật cấu hình thuế (ngành nghề kinh doanh, nhóm doanh thu, phương pháp tính thuế TNCN) cho Hộ kinh doanh. Đây là nguồn dữ liệu gốc (Single Source of Truth) để hệ thống tự động tính thuế cho toàn bộ các hóa đơn và chứng từ phát sinh.
+
+**Endpoints Summary**:
+
+| Method | Path                       | Mô tả                                                    |
+| ------ | -------------------------- | -------------------------------------------------------- |
+| `GET`  | `/metadata/onboarding-init` | Lấy danh sách ngành nghề gợi ý (Tags) và các nhóm thuế   |
+| `POST` | `/onboarding/tax-config`   | Thiết lập cấu hình thuế ban đầu (Chỉ được làm 1 lần)      |
+| `PUT`  | `/onboarding/tax-config`   | Cập nhật cấu hình thuế (Giới hạn 90 ngày/lần)            |
+
+#### 4.8.1 Get Onboarding Metadata
+
+Trước khi hiển thị màn hình Onboarding thiết lập tài khoản, Frontend cần tải danh sách các ngành nghề gợi ý (tags) và nhóm thuế (thu nhập/doanh thu) để hiển thị cho người dùng lựa chọn.
+
+**Endpoint**: `GET /v1/metadata/onboarding-init`
+
+```typescript
+import { apiCall } from './api/http-client';
+
+const getOnboardingInitData = async () => {
+  try {
+    const result = await apiCall('/v1/metadata/onboarding-init');
+    return result.data; // { industries: [...], taxGroups: [...] }
+  } catch (error) {
+    console.error('Failed to fetch onboarding metadata:', error.message);
+    throw error;
+  }
+};
+```
+
+#### 4.8.2 Setup Tax Configuration (Initial Onboarding)
+
+API này dùng để thiết lập cấu hình thuế lần đầu tiên ngay sau khi người dùng đăng ký tài khoản.
+
+⚠️ **Business Rules**:
+- **Một lần duy nhất (One-time Setup)**: Mỗi tài khoản chỉ được thực hiện cấu hình lần đầu 1 lần. Nếu gọi lại lần thứ 2, hệ thống sẽ trả về lỗi `409 Conflict`.
+- **Hỗ trợ Ngành nghề khác**: 
+  - Nếu người dùng chọn từ danh sách Tags gợi ý: Gửi `industryId` tương ứng với ID của tag gợi ý và truyền `isOtherIndustry: false`.
+  - Nếu người dùng chọn từ danh mục tìm kiếm chi tiết: Gửi `industryId` tương ứng với ID của `TaxCategory` và truyền `isOtherIndustry: true`.
+- **Tự động áp dụng mức thuế & phương pháp**: Hệ thống sẽ tự động kế thừa mức thuế từ ngành cha (nếu ngành con chưa định nghĩa) và áp dụng phương pháp tính thuế mặc định của nhóm thuế tương ứng.
+
+**Endpoint**: `POST /v1/onboarding/tax-config`
+
+```typescript
+import { apiCall } from './api/http-client';
+
+const setupTaxConfig = async (onboardingData: {
+  industryId: number;
+  taxGroupId: number;
+  isOtherIndustry?: boolean;
+  isVatReducible?: boolean;
+}) => {
+  try {
+    const result = await apiCall('/v1/onboarding/tax-config', {
+      method: 'POST',
+      body: JSON.stringify({
+        industryId: onboardingData.industryId,
+        taxGroupId: onboardingData.taxGroupId,
+        isOtherIndustry: onboardingData.isOtherIndustry ?? false,
+        isVatReducible: onboardingData.isVatReducible ?? false,
+      }),
+    });
+
+    return result.data; // Trả về thông tin TaxConfiguration được tạo
+  } catch (error) {
+    console.error('Setup tax configuration failed:', error.message);
+    throw error;
+  }
+};
+```
+
+#### 4.8.3 Update Tax Configuration
+
+Sử dụng khi hộ kinh doanh thay đổi ngành nghề kinh doanh chính hoặc khi doanh thu của họ thay đổi vượt ngưỡng của nhóm thuế hiện tại.
+
+⚠️ **Business Rules**:
+- **Chu kỳ 90 ngày (Quarter Cooldown)**: Người dùng thông thường chỉ được phép cập nhật cấu hình thuế 90 ngày một lần (đầu mỗi quý thuế). Nếu cập nhật trước thời hạn, API sẽ ném lỗi `400 Bad Request`.
+- **Bỏ qua cooldown bằng hệ thống**: Khi phát hiện doanh thu vượt ngưỡng, hệ thống tự động của Backend (`SYSTEM_AUTO`) có quyền bỏ qua quy tắc 90 ngày để bắt buộc nâng cấp cấu hình tài khoản.
+- **Phòng ngừa Race Condition**: Hệ thống áp dụng khóa lạc quan (Optimistic Locking) để tránh lỗi trùng lặp khi bấm nút liên tiếp.
+
+**Endpoint**: `PUT /v1/onboarding/tax-config`
+
+```typescript
+import { apiCall } from './api/http-client';
+
+const updateTaxConfig = async (onboardingData: {
+  industryId: number;
+  taxGroupId: number;
+  isOtherIndustry?: boolean;
+  isVatReducible?: boolean;
+}) => {
+  try {
+    const result = await apiCall('/v1/onboarding/tax-config', {
+      method: 'PUT',
+      body: JSON.stringify({
+        industryId: onboardingData.industryId,
+        taxGroupId: onboardingData.taxGroupId,
+        isOtherIndustry: onboardingData.isOtherIndustry ?? false,
+        isVatReducible: onboardingData.isVatReducible ?? false,
+      }),
+    });
+
+    return result.data; // Trả về cấu hình TaxConfiguration mới
+  } catch (error) {
+    console.error('Update tax configuration failed:', error.message);
     throw error;
   }
 };

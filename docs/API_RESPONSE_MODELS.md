@@ -79,6 +79,8 @@ This document describes the request and response data structures of the core API
   - [13.4. Get Cash Flow Book Records](#134-get-cash-flow-book-records)
   - [13.5. Get Expense Book Summary](#135-get-expense-book-summary)
   - [13.6. Get Expense Book Records](#136-get-expense-book-records)
+  - [13.7. Get Inventory Book Summary](#137-get-inventory-book-summary)
+  - [13.8. Get Inventory Book Records](#138-get-inventory-book-records)
 
 ---
 
@@ -2895,6 +2897,123 @@ None
       "lastPage": "number"
     },
     "activeBookKey": "S2c-HKD",
+    "syncCode": "string",
+    "isSummaryOutdated": "boolean"
+  },
+  "meta": null
+}
+```
+
+### 13.7. Get Inventory Book Summary
+
+- **Route:** `/accounting-books/inventory/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+- `productPublicIds`: `string (Optional - comma-separated list of product public IDs, e.g. prod-1,prod-2)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve inventory book summary successfully",
+  "data": {
+    "activeBookKey": "S2d-HKD",
+    "books": {
+      "S2d-HKD": {
+        "bookMetadata": {
+          "businessName": "string",
+          "taxCode": "string",
+          "bookTitle": "Sổ chi tiết vật tư, hàng hóa, sản phẩm",
+          "ownerName": "string",
+          "templateStyle": "S2D_TEMPLATE"
+        },
+        "bookKey": "S2D",
+        "timeFrame": {
+          "startDate": "Date string",
+          "endDate": "Date string"
+        },
+        "summary": {
+          "Tong_So_Luong_Ton_Dau_Ky": "number",
+          "Tong_So_Luong_Nhap": "number",
+          "Tong_Thanh_Tien_Nhap": "number",
+          "Tong_So_Luong_Xuat": "number",
+          "Tong_Thanh_Tien_Xuat": "number",
+          "Tong_So_Luong_Ton_Cuoi_Ky": "number"
+        }
+      }
+    },
+    "syncCode": "string"
+  },
+  "meta": null
+}
+```
+
+### 13.8. Get Inventory Book Records
+
+- **Route:** `/accounting-books/inventory/records`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
+- `startDate`: `string (Optional - ISO Date)`
+- `endDate`: `string (Optional - ISO Date)`
+- `productPublicIds`: `string (Optional - comma-separated list of product public IDs, e.g. prod-1,prod-2)`
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `syncCode`: `string (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve inventory book successfully",
+  "data": {
+    "rows": [
+      {
+        "Ngay_Chung_Tu": "Date string",
+        "So_Chung_Tu": "string",
+        "Dien_Giai": "string",
+        "Product_Id": "number",
+        "Product_Name": "string",
+        "Sku_Code": "string",
+        "Unit": "string",
+        "So_Luong_Nhap": "number",
+        "Don_Gia_Nhap": "number",
+        "Thanh_Tien_Nhap": "number",
+        "So_Luong_Xuat": "number",
+        "Don_Gia_Xuat": "number",
+        "Thanh_Tien_Xuat": "number",
+        "So_Luong_Ton": "number"
+      }
+    ],
+    "meta": {
+      "total": "number",
+      "page": "number",
+      "lastPage": "number"
+    },
+    "activeBookKey": "S2d-HKD",
     "syncCode": "string",
     "isSummaryOutdated": "boolean"
   },

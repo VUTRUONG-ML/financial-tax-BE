@@ -20,6 +20,8 @@ describe('AccountingBooksController', () => {
             getCashFlowBookRecords: jest.fn(),
             getExpenseBookSummary: jest.fn(),
             getExpenseBookRecords: jest.fn(),
+            getInventoryBookSummary: jest.fn(),
+            getInventoryBookRecords: jest.fn(),
           },
         },
       ],
@@ -104,6 +106,86 @@ describe('AccountingBooksController', () => {
       expect(response).toEqual({
         success: true,
         message: 'Retrieve expense book successfully',
+        data: mockResult,
+      });
+    });
+  });
+
+  describe('GET inventory/summary', () => {
+    it('should call service.getInventoryBookSummary and return standard response', async () => {
+      const mockResult = {
+        activeBookKey: 'S2d-HKD',
+        books: {},
+        syncCode: 'mock-sync-code',
+      };
+      service.getInventoryBookSummary.mockResolvedValue(mockResult as any);
+
+      const user = { id: 'user-123' } as any;
+      const query = {
+        timeFrame: TimeFrame.THANG_NAY,
+        startDate: '2026-05-01',
+        endDate: '2026-05-31',
+        productPublicIds: ['prod-1', 'prod-2'],
+      };
+
+      const response = await controller.getInventoryBookSummary(user, query);
+
+      expect(service.getInventoryBookSummary).toHaveBeenCalledWith(
+        'user-123',
+        TimeFrame.THANG_NAY,
+        ['prod-1', 'prod-2'],
+        {
+          startDate: new Date('2026-05-01'),
+          endDate: new Date('2026-05-31'),
+        },
+      );
+      expect(response).toEqual({
+        success: true,
+        message: 'Retrieve inventory book summary successfully',
+        data: mockResult,
+      });
+    });
+  });
+
+  describe('GET inventory/records', () => {
+    it('should call service.getInventoryBookRecords and return standard response', async () => {
+      const mockResult = {
+        rows: [],
+        meta: { total: 0, page: 1, lastPage: 1 },
+        activeBookKey: 'S2d-HKD',
+        syncCode: 'mock-sync-code',
+        isSummaryOutdated: false,
+      };
+      service.getInventoryBookRecords.mockResolvedValue(mockResult as any);
+
+      const user = { id: 'user-123' } as any;
+      const query = {
+        timeFrame: TimeFrame.THANG_NAY,
+        startDate: '2026-05-01',
+        endDate: '2026-05-31',
+        productPublicIds: ['prod-1'],
+        page: 1,
+        limit: 20,
+        syncCode: 'old-sync-code',
+      };
+
+      const response = await controller.getInventoryBookRecords(user, query);
+
+      expect(service.getInventoryBookRecords).toHaveBeenCalledWith(
+        'user-123',
+        TimeFrame.THANG_NAY,
+        ['prod-1'],
+        {
+          startDate: new Date('2026-05-01'),
+          endDate: new Date('2026-05-31'),
+        },
+        1,
+        20,
+        'old-sync-code',
+      );
+      expect(response).toEqual({
+        success: true,
+        message: 'Retrieve inventory book successfully',
         data: mockResult,
       });
     });

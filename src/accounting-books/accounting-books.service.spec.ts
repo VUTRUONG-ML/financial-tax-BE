@@ -135,6 +135,24 @@ describe('AccountingBooksService', () => {
             voucherCategory: {
               findMany: jest.fn(),
             },
+            product: {
+              findMany: jest.fn(),
+            },
+            inboundInvoice: {
+              aggregate: jest.fn(),
+            },
+            internalProductionOrder: {
+              aggregate: jest.fn(),
+            },
+            inboundInvoiceDetail: {
+              count: jest.fn(),
+            },
+            invoiceDetail: {
+              count: jest.fn(),
+            },
+            productionDetail: {
+              count: jest.fn(),
+            },
             $queryRaw: jest.fn(),
           },
         },
@@ -394,6 +412,116 @@ describe('AccountingBooksService', () => {
 
       const secondRow = result.rows[1];
       expect(secondRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('');
+    });
+  });
+
+  describe('getInventoryBookSummary and Records', () => {
+    const mockUser = {
+      id: 'user-001',
+      businessName: 'Business Test',
+      taxCode: '1234567890',
+      ownerName: 'John Doe',
+    };
+
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue(mockUser as any);
+      (prisma.product.findMany as jest.Mock).mockResolvedValue([
+        { id: 101, openingStockQuantity: 10, openingStockValue: 100000 },
+        { id: 102, openingStockQuantity: 5, openingStockValue: 50000 },
+      ]);
+      prisma.inboundInvoice.aggregate.mockResolvedValue({
+        _count: { id: 1 },
+        _max: { updatedAt: new Date() },
+      } as any);
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: { id: 1 },
+        _max: { updatedAt: new Date() },
+      } as any);
+      prisma.internalProductionOrder.aggregate.mockResolvedValue({
+        _count: { id: 1 },
+        _max: { updatedAt: new Date() },
+      } as any);
+    });
+
+    it('should generate inventory summary correctly', async () => {
+      (prisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { product_id: 101, opening_balance: 10 },
+          { product_id: 102, opening_balance: 5 },
+        ]) // Mock opening balance query
+        .mockResolvedValueOnce([
+          {
+            total_qty_nhap_mua: 20,
+            total_val_nhap_mua: 200000,
+            total_qty_xuat_ban: 15,
+            total_val_xuat_ban: 150000,
+            total_qty_xuat_sx: 2,
+            total_qty_nhap_sx: 5,
+          },
+        ]); // Mock period totals query
+
+      const result = await service.getInventoryBookSummary('user-001', 'thang_nay', ['prod-1', 'prod-2']);
+
+      expect(result.activeBookKey).toBe('S2d-HKD');
+      expect(result.books['S2d-HKD']).toBeDefined();
+      const s2d = result.books['S2d-HKD'];
+      expect(s2d.summary.Tong_So_Luong_Ton_Dau_Ky).toBe(15);
+      expect(s2d.summary.Tong_So_Luong_Nhap).toBe(25); // 20 (mua) + 5 (sản xuất)
+      expect(s2d.summary.Tong_Thanh_Tien_Nhap).toBe(200000);
+      expect(s2d.summary.Tong_So_Luong_Xuat).toBe(17); // 15 (bán) + 2 (sản xuất)
+      expect(s2d.summary.Tong_Thanh_Tien_Xuat).toBe(150000);
+      expect(s2d.summary.Tong_So_Luong_Ton_Cuoi_Ky).toBe(23); // 15 + 25 - 17
+    });
+
+    it('should retrieve records mapped to InventoryBookRowDto', async () => {
+      (prisma.product.findMany as jest.Mock).mockResolvedValue([
+        { id: 101, openingStockQuantity: 10, openingStockValue: 100000 },
+      ]);
+
+      const mockRecords = [
+        {
+          Ngay_Chung_Tu: '2026-05-10T10:00:00.000Z',
+          So_Chung_Tu: 'HD001',
+          flow_type: 'TX_INBOUND',
+          Product_Id: 101,
+          Product_Name: 'Thịt heo',
+          Sku_Code: 'HEO-01',
+          Unit: 'Kg',
+          So_Luong_Nhap: 10,
+          Don_Gia_Nhap: 50000,
+          Thanh_Tien_Nhap: 500000,
+          So_Luong_Xuat: 0,
+          Don_Gia_Xuat: 0,
+          Thanh_Tien_Xuat: 0,
+          running_balance_in_period: 10,
+          opening_balance: 5,
+          So_Luong_Ton: 15,
+          total_count: 1,
+        },
+      ];
+
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue(mockRecords);
+
+      const result = await service.getInventoryBookRecords('user-001', 'thang_nay', ['prod-1']);
+
+      expect(result.activeBookKey).toBe('S2d-HKD');
+      expect(result.rows).toHaveLength(2);
+
+      // Virtual opening balance row
+      const virtualRow = result.rows[0];
+      expect(virtualRow.So_Chung_Tu).toBe('');
+      expect(virtualRow.Dien_Giai).toBe('Số dư đầu kỳ');
+      expect(virtualRow.Product_Name).toBe('Thịt heo');
+      expect(virtualRow.So_Luong_Nhap).toBe(0);
+      expect(virtualRow.So_Luong_Ton).toBe(5);
+
+      // Transaction row
+      const row = result.rows[1];
+      expect(row.So_Chung_Tu).toBe('HD001');
+      expect(row.Dien_Giai).toBe('Mua hàng');
+      expect(row.Product_Name).toBe('Thịt heo');
+      expect(row.So_Luong_Nhap).toBe(10);
+      expect(row.So_Luong_Ton).toBe(15);
     });
   });
 });
