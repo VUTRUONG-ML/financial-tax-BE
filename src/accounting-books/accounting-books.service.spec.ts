@@ -39,50 +39,22 @@ describe('DateRangeParser', () => {
     expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
   });
 
-  it('should parse nam_nay correctly', () => {
-    const { startDate, endDate } = parseDateRange('nam_nay');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-01-01 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
-  });
+  it('should parse custom with year and quarter correctly', () => {
+    const { startDate: s1, endDate: e1 } = parseDateRange('custom', { year: 2026, quarter: 1 });
+    expect(moment(s1).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-01-01 00:00:00');
+    expect(moment(e1).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-03-31 23:59:59');
 
-  it('should parse nam_truoc correctly', () => {
-    const { startDate, endDate } = parseDateRange('nam_truoc');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2025-01-01 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2025-12-31 23:59:59');
-  });
+    const { startDate: s2, endDate: e2 } = parseDateRange('custom', { year: 2026, quarter: 2 });
+    expect(moment(s2).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-04-01 00:00:00');
+    expect(moment(e2).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-06-30 23:59:59');
 
-  it('should parse 7_ngay_qua correctly', () => {
-    const { startDate, endDate } = parseDateRange('7_ngay_qua');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-15 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
-  });
+    const { startDate: s3, endDate: e3 } = parseDateRange('custom', { year: 2026, quarter: 3 });
+    expect(moment(s3).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-07-01 00:00:00');
+    expect(moment(e3).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-09-30 23:59:59');
 
-  it('should parse 30_ngay_qua correctly', () => {
-    const { startDate, endDate } = parseDateRange('30_ngay_qua');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-04-22 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
-  });
-
-  it('should parse tuan_nay correctly', () => {
-    const { startDate, endDate } = parseDateRange('tuan_nay');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-18 00:00:00'); // May 18th is Monday of that week
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
-  });
-
-  it('should parse tuan_truoc correctly', () => {
-    const { startDate, endDate } = parseDateRange('tuan_truoc');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-11 00:00:00'); // Monday of previous week
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-17 23:59:59'); // Sunday of previous week
-  });
-
-  it('should parse custom correctly', () => {
-    const customRange = {
-      startDate: new Date('2026-02-10T12:00:00+07:00'),
-      endDate: new Date('2026-02-20T12:00:00+07:00'),
-    };
-    const { startDate, endDate } = parseDateRange('custom', customRange);
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-02-10 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-02-20 23:59:59');
+    const { startDate: s4, endDate: e4 } = parseDateRange('custom', { year: 2026, quarter: 4 });
+    expect(moment(s4).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-10-01 00:00:00');
+    expect(moment(e4).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-12-31 23:59:59');
   });
 
   it('should throw BadRequestException for missing customRange', () => {

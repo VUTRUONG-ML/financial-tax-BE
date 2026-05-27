@@ -1604,7 +1604,6 @@ None
 {
   "industryId": "number",
   "taxGroupId": "number",
-  "pitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
   "isOtherIndustry": "boolean (Optional)",
   "isVatReducible": "boolean (Optional)"
 }
@@ -2591,9 +2590,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 
 #### Request Body
 
@@ -2645,9 +2644,9 @@ _(Note: `books` structure varies depending on `activeBookKey` being `S1a-HKD`, `
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
 - `syncCode`: `string (Optional)`
@@ -2695,9 +2694,9 @@ _(Note: `rows` objects format will adapt to the active book schema `S1ARowDto`, 
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 
 #### Request Body
 
@@ -2752,9 +2751,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 - `bookKey`: `string (Optional - Enum: "S03", "S04")`
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
@@ -2805,9 +2804,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 
 #### Request Body
 
@@ -2861,9 +2860,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
 - `syncCode`: `string (Optional)`
@@ -2912,9 +2911,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 - `productPublicIds`: `string (Optional - comma-separated list of product public IDs, e.g. prod-1,prod-2)`
 
 #### Request Body
@@ -2969,9 +2968,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "nam_nay" | "nam_truoc" | "7_ngay_qua" | "30_ngay_qua" | "tuan_nay" | "tuan_truoc" | "custom"`
-- `startDate`: `string (Optional - ISO Date)`
-- `endDate`: `string (Optional - ISO Date)`
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
 - `productPublicIds`: `string (Optional - comma-separated list of product public IDs, e.g. prod-1,prod-2)`
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`

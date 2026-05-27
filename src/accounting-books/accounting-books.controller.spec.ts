@@ -47,8 +47,6 @@ describe('AccountingBooksController', () => {
       const user = { id: 'user-123' } as any;
       const query = {
         timeFrame: TimeFrame.THANG_NAY,
-        startDate: '2026-05-01',
-        endDate: '2026-05-31',
       };
 
       const response = await controller.getExpenseBookSummary(user, query);
@@ -56,10 +54,7 @@ describe('AccountingBooksController', () => {
       expect(service.getExpenseBookSummary).toHaveBeenCalledWith(
         'user-123',
         TimeFrame.THANG_NAY,
-        {
-          startDate: new Date('2026-05-01'),
-          endDate: new Date('2026-05-31'),
-        },
+        undefined,
       );
       expect(response).toEqual({
         success: true,
@@ -83,8 +78,6 @@ describe('AccountingBooksController', () => {
       const user = { id: 'user-123' } as any;
       const query = {
         timeFrame: TimeFrame.THANG_NAY,
-        startDate: '2026-05-01',
-        endDate: '2026-05-31',
         page: 1,
         limit: 20,
         syncCode: 'old-sync-code',
@@ -95,10 +88,7 @@ describe('AccountingBooksController', () => {
       expect(service.getExpenseBookRecords).toHaveBeenCalledWith(
         'user-123',
         TimeFrame.THANG_NAY,
-        {
-          startDate: new Date('2026-05-01'),
-          endDate: new Date('2026-05-31'),
-        },
+        undefined,
         1,
         20,
         'old-sync-code',
@@ -123,8 +113,6 @@ describe('AccountingBooksController', () => {
       const user = { id: 'user-123' } as any;
       const query = {
         timeFrame: TimeFrame.THANG_NAY,
-        startDate: '2026-05-01',
-        endDate: '2026-05-31',
         productPublicIds: ['prod-1', 'prod-2'],
       };
 
@@ -134,10 +122,7 @@ describe('AccountingBooksController', () => {
         'user-123',
         TimeFrame.THANG_NAY,
         ['prod-1', 'prod-2'],
-        {
-          startDate: new Date('2026-05-01'),
-          endDate: new Date('2026-05-31'),
-        },
+        undefined,
       );
       expect(response).toEqual({
         success: true,
@@ -161,8 +146,6 @@ describe('AccountingBooksController', () => {
       const user = { id: 'user-123' } as any;
       const query = {
         timeFrame: TimeFrame.THANG_NAY,
-        startDate: '2026-05-01',
-        endDate: '2026-05-31',
         productPublicIds: ['prod-1'],
         page: 1,
         limit: 20,
@@ -175,10 +158,7 @@ describe('AccountingBooksController', () => {
         'user-123',
         TimeFrame.THANG_NAY,
         ['prod-1'],
-        {
-          startDate: new Date('2026-05-01'),
-          endDate: new Date('2026-05-31'),
-        },
+        undefined,
         1,
         20,
         'old-sync-code',

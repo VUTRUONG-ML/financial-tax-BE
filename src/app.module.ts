@@ -39,7 +39,7 @@ import { AccountingBooksModule } from './accounting-books/accounting-books.modul
       {
         name: 'medium', // Quy tắc trung bình: bảo vệ tài nguyên
         ttl: 60000, // 1 phút
-        limit: 20, // Chỉ 20 lần/phút cho các tác vụ nặng như Hủy/Tạo
+        limit: 50, // Chỉ 20 lần/phút cho các tác vụ nặng như Hủy/Tạo
       },
     ]),
     PrismaModule,

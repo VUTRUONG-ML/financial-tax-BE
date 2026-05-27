@@ -41,7 +41,7 @@ export class AccountingBooksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
-  ) {}
+  ) { }
 
   async generateBookMetadata(
     bookKey: AccountingBookKey,
@@ -127,7 +127,10 @@ export class AccountingBooksService {
   async getRevenueBookSummary(
     userId: string,
     timeFrame: string,
-    customRange?: { startDate: Date; endDate: Date },
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
   ) {
     // 1. Phân tích mốc thời gian
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
@@ -208,7 +211,10 @@ export class AccountingBooksService {
   async getRevenueBookRecords(
     userId: string,
     timeFrame: string,
-    customRange?: { startDate: Date; endDate: Date },
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
     page: number = 1,
     limit: number = 20,
     currentSyncCode?: string,
@@ -450,14 +456,11 @@ export class AccountingBooksService {
   async getCashFlowBookSummary(
     userId: string,
     timeFrame: string,
-    startDateRaw?: Date,
-    endDateRaw?: Date,
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
   ) {
-    const customRange =
-      startDateRaw && endDateRaw
-        ? { startDate: startDateRaw, endDate: endDateRaw }
-        : undefined;
-
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
     const syncCode = await this.generateCashFlowSyncCode(
@@ -553,18 +556,15 @@ export class AccountingBooksService {
   async getCashFlowBookRecords(
     userId: string,
     timeFrame: string,
-    startDateRaw?: Date,
-    endDateRaw?: Date,
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
     bookKey: string = 'S03',
     page: number = 1,
     limit: number = 20,
     clientSyncCode?: string,
   ) {
-    const customRange =
-      startDateRaw && endDateRaw
-        ? { startDate: startDateRaw, endDate: endDateRaw }
-        : undefined;
-
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
     const currentSyncCode = await this.generateCashFlowSyncCode(
@@ -684,7 +684,10 @@ export class AccountingBooksService {
   async getExpenseBookSummary(
     userId: string,
     timeFrame: string,
-    customRange?: { startDate: Date; endDate: Date },
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
   ) {
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
@@ -775,7 +778,10 @@ export class AccountingBooksService {
   async getExpenseBookRecords(
     userId: string,
     timeFrame: string,
-    customRange?: { startDate: Date; endDate: Date },
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
     page: number = 1,
     limit: number = 20,
     currentSyncCode?: string,
@@ -884,7 +890,10 @@ export class AccountingBooksService {
     userId: string,
     timeFrame: string,
     productPublicIds?: string[],
-    customRange?: { startDate: Date; endDate: Date },
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
   ) {
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
@@ -1100,7 +1109,10 @@ export class AccountingBooksService {
     userId: string,
     timeFrame: string,
     productPublicIds?: string[],
-    customRange?: { startDate: Date; endDate: Date },
+    customRange?: {
+      year?: number;
+      quarter?: number;
+    },
     page: number = 1,
     limit: number = 20,
     currentSyncCode?: string,
@@ -1151,9 +1163,9 @@ export class AccountingBooksService {
         FROM inbound_invoice_details item
         JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
         WHERE inv.user_id = ${userId}
+          AND inv.issue_date < ${startDate}
           AND inv.status = 'ACTIVE'
           AND inv.is_synced_to_inventory = true
-          AND inv.issue_date < ${startDate}
           AND item.product_id IN (${Prisma.join(productIds)})
         GROUP BY item.product_id
       ),
@@ -1162,8 +1174,8 @@ export class AccountingBooksService {
         FROM invoice_details item
         JOIN invoices inv ON item.invoice_id = inv.id
         WHERE inv.user_id = ${userId}
-          AND inv.status = 'ISSUED'
           AND inv.issue_date < ${startDate}
+          AND inv.status = 'ISSUED'
           AND item.product_id IN (${Prisma.join(productIds)})
         GROUP BY item.product_id
       ),
@@ -1172,9 +1184,9 @@ export class AccountingBooksService {
         FROM production_details pd
         JOIN internal_production_orders po ON pd.order_id = po.id
         WHERE po.user_id = ${userId}
+          AND po.transaction_at < ${startDate}
           AND po.status = 'ACTIVE'
           AND pd.transaction_type = 'ISSUE_MATERIAL'
-          AND po.transaction_at < ${startDate}
           AND pd.product_id IN (${Prisma.join(productIds)})
         GROUP BY pd.product_id
       ),
@@ -1183,9 +1195,9 @@ export class AccountingBooksService {
         FROM production_details pd
         JOIN internal_production_orders po ON pd.order_id = po.id
         WHERE po.user_id = ${userId}
+          AND po.transaction_at < ${startDate}
           AND po.status = 'ACTIVE'
           AND pd.transaction_type = 'RECEIVE_PRODUCT'
-          AND po.transaction_at < ${startDate}
           AND pd.product_id IN (${Prisma.join(productIds)})
         GROUP BY pd.product_id
       ),
@@ -1280,7 +1292,7 @@ export class AccountingBooksService {
           p.unit AS "Unit",
           SUM(t."So_Luong_Nhap" - t."So_Luong_Xuat") OVER (
             PARTITION BY t."Product_Id" 
-            ORDER BY t."Ngay_Chung_Tu" ASC, t.detail_id ASC
+            ORDER BY t."Ngay_Chung_Tu" ASC, t.flow_type ASC, t.detail_id ASC
           ) AS running_balance_in_period,
           COUNT(*) OVER () AS total_count
         FROM transactions t
@@ -1304,7 +1316,7 @@ export class AccountingBooksService {
         rb.total_count
       FROM running_balances rb
       LEFT JOIN opening_balances ob ON rb."Product_Id" = ob.product_id
-      ORDER BY rb."Product_Id" ASC, rb."Ngay_Chung_Tu" ASC, rb.detail_id ASC
+      ORDER BY rb."Product_Id" ASC, rb."Ngay_Chung_Tu" ASC, rb.flow_type ASC, rb.detail_id ASC
       LIMIT ${limitVal} OFFSET ${offsetVal}
     `;
 

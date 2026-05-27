@@ -13,7 +13,7 @@ import { GetInventoryBookDto } from './dto/get-inventory-book.dto';
 export class AccountingBooksController {
   constructor(
     private readonly accountingBooksService: AccountingBooksService,
-  ) {}
+  ) { }
 
   @Get('revenue/summary')
   async getRevenueBookSummary(
@@ -21,10 +21,10 @@ export class AccountingBooksController {
     @Query() query: GetRevenueBookDto,
   ) {
     const customRange =
-      query.startDate && query.endDate
+      query.year || query.quarter
         ? {
-            startDate: new Date(query.startDate),
-            endDate: new Date(query.endDate),
+            year: query.year,
+            quarter: query.quarter,
           }
         : undefined;
 
@@ -47,10 +47,10 @@ export class AccountingBooksController {
     @Query() query: GetRevenueBookDto,
   ) {
     const customRange =
-      query.startDate && query.endDate
+      query.year || query.quarter
         ? {
-            startDate: new Date(query.startDate),
-            endDate: new Date(query.endDate),
+            year: query.year,
+            quarter: query.quarter,
           }
         : undefined;
 
@@ -75,11 +75,18 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetCashFlowBookDto,
   ) {
+    const customRange =
+      query.year || query.quarter
+        ? {
+            year: query.year,
+            quarter: query.quarter,
+          }
+        : undefined;
+
     const data = await this.accountingBooksService.getCashFlowBookSummary(
       user.id,
       query.timeFrame,
-      query.startDate ? new Date(query.startDate) : undefined,
-      query.endDate ? new Date(query.endDate) : undefined,
+      customRange,
     );
 
     return {
@@ -94,11 +101,18 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetCashFlowBookDto,
   ) {
+    const customRange =
+      query.year || query.quarter
+        ? {
+            year: query.year,
+            quarter: query.quarter,
+          }
+        : undefined;
+
     const data = await this.accountingBooksService.getCashFlowBookRecords(
       user.id,
       query.timeFrame,
-      query.startDate ? new Date(query.startDate) : undefined,
-      query.endDate ? new Date(query.endDate) : undefined,
+      customRange,
       query.bookKey,
       query.page,
       query.limit,
@@ -118,10 +132,10 @@ export class AccountingBooksController {
     @Query() query: GetExpenseBookDto,
   ) {
     const customRange =
-      query.startDate && query.endDate
+      query.year || query.quarter
         ? {
-            startDate: new Date(query.startDate),
-            endDate: new Date(query.endDate),
+            year: query.year,
+            quarter: query.quarter,
           }
         : undefined;
 
@@ -144,10 +158,10 @@ export class AccountingBooksController {
     @Query() query: GetExpenseBookDto,
   ) {
     const customRange =
-      query.startDate && query.endDate
+      query.year || query.quarter
         ? {
-            startDate: new Date(query.startDate),
-            endDate: new Date(query.endDate),
+            year: query.year,
+            quarter: query.quarter,
           }
         : undefined;
 
@@ -173,10 +187,10 @@ export class AccountingBooksController {
     @Query() query: GetInventoryBookDto,
   ) {
     const customRange =
-      query.startDate && query.endDate
+      query.year || query.quarter
         ? {
-            startDate: new Date(query.startDate),
-            endDate: new Date(query.endDate),
+            year: query.year,
+            quarter: query.quarter,
           }
         : undefined;
 
@@ -200,10 +214,10 @@ export class AccountingBooksController {
     @Query() query: GetInventoryBookDto,
   ) {
     const customRange =
-      query.startDate && query.endDate
+      query.year || query.quarter
         ? {
-            startDate: new Date(query.startDate),
-            endDate: new Date(query.endDate),
+            year: query.year,
+            quarter: query.quarter,
           }
         : undefined;
 
@@ -224,4 +238,3 @@ export class AccountingBooksController {
     };
   }
 }
-

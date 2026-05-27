@@ -25,7 +25,6 @@ async function bootstrap() {
     testUser.id,
     'nam_nay',
     undefined,
-    undefined,
     'S03',
   );
   console.dir(records, { depth: null });
