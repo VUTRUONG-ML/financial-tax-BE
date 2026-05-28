@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  IsDateString,
 } from 'class-validator';
 import { PaymentMethod, VoucherType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
@@ -32,6 +33,10 @@ export class CreateVoucherDto {
   @IsEnum(PaymentMethod)
   @IsNotEmpty()
   paymentMethod!: PaymentMethod;
+
+  @IsNotEmpty()
+  @IsDateString()
+  transactionAt!: string;
 
   @IsBoolean()
   @IsOptional()

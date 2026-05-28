@@ -1202,6 +1202,7 @@ None
   "content": "string",
   "amount": "number",
   "paymentMethod": "\"CASH\" | \"BANK\"",
+  "transactionAt": "string (Date string)",
   "isDeductibleExpense": "boolean (Optional)",
   "inboundInvoicePublicId": "string (Optional)",
   "outboundInvoicePublicId": "string (Optional)"

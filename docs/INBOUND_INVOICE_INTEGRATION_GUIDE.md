@@ -82,6 +82,10 @@ $$\text{Đơn giá bình quân mới} = \frac{(\text{Số lượng tồn cũ} \t
 ### 3.2. Ràng buộc Kỳ kế toán (Period Lock)
 Tất cả các API thay đổi dữ liệu (`POST`, `PATCH`, `DELETE` trên Inbound Invoices) đều được kiểm tra thông qua `PeriodLockGuard`. Nếu ngày phát hành hóa đơn (`issueDate`) nằm trong một Kỳ kế toán đã đóng (`CLOSED`), API sẽ chặn và trả về lỗi `400 Bad Request`. Người dùng buộc phải mở lại kỳ kế toán trước nếu muốn thao tác.
 
+### 3.3. Lập Phiếu Chi liên kết Hóa đơn và Ngày giao dịch (`transactionAt`)
+Khi lập Phiếu Chi liên kết với Hóa đơn mua vào để ghi nhận thanh toán (gửi kèm `inboundInvoicePublicId`), Frontend **bắt buộc phải truyền trường `transactionAt`** (định dạng Date ISO string) trong body của API tạo phiếu chi (`POST /vouchers`).
+* Backend sẽ sử dụng ngày giao dịch này để tự động tính toán mã phiếu `PC-MMYY-XXXX` và ghi nhận ngày chi tiền chính xác thay vì dùng thời gian hiện tại (`new Date()`) trên server.
+
 ---
 
 ## 4. 📢 Cập Nhật Tích Hợp Endpoint Thống Kê Hóa Đơn Bán Ra (`GET /v1/invoices/summary`)

@@ -344,7 +344,7 @@ export class VouchersService {
         );
 
         // Generate Voucher Code: PT/PC-MMYY-0001
-        const transactionDate = new Date();
+        const transactionDate = new Date(createVoucherDto.transactionAt);
         const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
         const yy = transactionDate.getFullYear().toString().slice(-2);
         const mmyy = `${mm}${yy}`;
