@@ -60,6 +60,7 @@ export class InvoicesController {
     @CurrentUser('id') userId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('status') status?: string,
   ) {
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 20;
@@ -67,10 +68,20 @@ export class InvoicesController {
       userId,
       pageNumber,
       limitNumber,
+      status,
     );
     return {
       message: 'Get all invoice own success',
       ...result,
+    };
+  }
+
+  @Get('summary')
+  async getSummary(@CurrentUser('id') userId: string) {
+    const data = await this.invoicesService.getSummary(userId);
+    return {
+      message: 'Invoice summary retrieved successfully.',
+      data,
     };
   }
 

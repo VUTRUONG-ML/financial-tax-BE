@@ -519,13 +519,49 @@ export class InvoicesService {
     }
   }
 
-  async findAll(userId: string, page: number = 1, limit: number = 20) {
+  async findAll(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    status?: string,
+  ) {
     const skip = (page - 1) * limit;
 
+    const where: Prisma.InvoiceWhereInput = { userId };
+
+    if (status) {
+      const upperStatus = status.trim().toUpperCase();
+      if (
+        upperStatus === 'DRAFT' ||
+        upperStatus === 'BAN_NHAP' ||
+        upperStatus === 'BẢN NHÁP'
+      ) {
+        where.status = 'DRAFT';
+      } else if (
+        upperStatus === 'ISSUED' ||
+        upperStatus === 'DA_PHAT_HANH' ||
+        upperStatus === 'ĐÃ PHÁT HÀNH'
+      ) {
+        where.status = 'ISSUED';
+      } else if (
+        upperStatus === 'SYNC_FAILED' ||
+        upperStatus === 'LOI_DONG_BO' ||
+        upperStatus === 'LỖI ĐỒNG BỘ'
+      ) {
+        where.status = 'SYNC_FAILED';
+      } else if (
+        upperStatus === 'CANCELED' ||
+        upperStatus === 'DA_HUY' ||
+        upperStatus === 'ĐÃ HỦY'
+      ) {
+        where.status = 'CANCELED';
+      }
+    }
+
     const [total, data] = await Promise.all([
-      this.prisma.invoice.count({ where: { userId } }),
+      this.prisma.invoice.count({ where }),
       this.prisma.invoice.findMany({
-        where: { userId },
+        where,
         take: limit, // LIMIT
         skip: skip, // OFFSET
         orderBy: { createdAt: 'desc' },
@@ -819,5 +855,33 @@ export class InvoicesService {
         invoiceId: invoice.id,
       });
     });
+  }
+
+  async getSummary(userId: string) {
+    const [tong_hoa_don, aggregateResult] = await Promise.all([
+      this.prisma.invoice.count({
+        where: { userId },
+      }),
+      this.prisma.invoice.aggregate({
+        where: { userId, status: 'ISSUED' },
+        _sum: {
+          totalPayment: true,
+          taxPayable: true,
+        },
+      }),
+    ]);
+
+    const tong_doanh_thu = aggregateResult._sum.totalPayment
+      ? Number(aggregateResult._sum.totalPayment)
+      : 0;
+    const tong_thue = aggregateResult._sum.taxPayable
+      ? Number(aggregateResult._sum.taxPayable)
+      : 0;
+
+    return {
+      tong_hoa_don,
+      tong_doanh_thu,
+      tong_thue,
+    };
   }
 }

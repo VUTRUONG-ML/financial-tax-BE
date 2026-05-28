@@ -19,12 +19,15 @@ This document describes the request and response data structures of the core API
   - [2.5. Cancel Invoice](#25-cancel-invoice)
   - [2.6. Update Invoice](#26-update-invoice)
   - [2.7. Delete Invoice](#27-delete-invoice)
+  - [2.8. Get Outbound Invoice Summary](#28-get-outbound-invoice-summary)
 - [3. Inbound Invoices](#3-inbound-invoices)
   - [3.1. Create Inbound Invoice](#31-create-inbound-invoice)
   - [3.2. Get All Inbound Invoices](#32-get-all-inbound-invoices)
   - [3.3. Get Inbound Invoice Details](#33-get-inbound-invoice-details)
   - [3.4. Cancel Inbound Invoice](#34-cancel-inbound-invoice)
   - [3.5. Sync Inbound Invoice to Inventory](#35-sync-inbound-invoice-to-inventory)
+  - [3.6. Update Inbound Invoice](#36-update-inbound-invoice)
+  - [3.7. Delete Inbound Invoice](#37-delete-inbound-invoice)
 - [4. Vouchers (Receipts/Payments)](#4-vouchers-receiptspayments)
   - [4.1. Create Voucher](#41-create-voucher)
   - [4.2. Get All Vouchers](#42-get-all-vouchers)
@@ -468,6 +471,7 @@ None
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
+- `status`: `string (Optional) - Options: "DRAFT" / "BAN_NHAP" / "BẢN NHÁP", "ISSUED" / "DA_PHAT_HANH" / "ĐÃ PHÁT HÀNH", "SYNC_FAILED" / "LOI_DONG_BO" / "LỖI ĐỒNG BỘ", "CANCELED" / "DA_HUY" / "ĐÃ HỦY" (case-insensitive)`
 
 #### Request Body
 
@@ -761,6 +765,37 @@ None
 }
 ```
 
+### 2.8. Get Outbound Invoice Summary
+
+- **Route:** `/invoices/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+None
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Invoice summary retrieved successfully.",
+  "data": {
+    "tong_hoa_don": "number",
+    "tong_doanh_thu": "number",
+    "tong_thue": "number"
+  },
+  "meta": null
+}
+```
+
 ---
 
 ## 3. Inbound Invoices
@@ -838,6 +873,7 @@ None
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
+- `type`: `"CHUA_DONG_BO" | "DA_NHAP_KHO" | "CHUA_THANH_TOAN" (Optional)`
 
 #### Request Body
 
@@ -1023,6 +1059,92 @@ None
       }
     ]
   },
+  "meta": null
+}
+```
+
+### 3.6. Update Inbound Invoice
+
+- **Route:** `/inbound-invoices/:publicId`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "sellerName": "string (Optional)",
+  "sellerTaxCode": "string (Optional)",
+  "invoiceNo": "string (Optional)",
+  "issueDate": "Date string (Optional)",
+  "attachmentUrl": "string (Optional)",
+  "isSyncedToInventory": "boolean (Optional)",
+  "items": [
+    {
+      "productPublicId": "string",
+      "quantity": "number",
+      "unitCost": "number"
+    }
+  ] (Optional)
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Update success.",
+  "data": {
+    "publicId": "string",
+    "sellerName": "string",
+    "sellerTaxCode": "string",
+    "invoiceNo": "string",
+    "issueDate": "Date string",
+    "attachmentUrl": "string",
+    "status": "\"ACTIVE\" | \"CANCELED\"",
+    "isSyncedToInventory": "boolean",
+    "isPaid": "boolean",
+    "totalAmount": "number",
+    "paidAmount": "number",
+    "remainingAmount": "number",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "quantity": "number",
+        "unitCost": "number",
+        "lineTotal": "number",
+        "productPublicId": "string",
+        "productName": "string"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 3.7. Delete Inbound Invoice
+
+- **Route:** `/inbound-invoices/:publicId`
+- **Method:** `DELETE`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Inbound invoice deleted successfully.",
+  "data": null,
   "meta": null
 }
 ```

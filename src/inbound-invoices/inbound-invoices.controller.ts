@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -15,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
 import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UpdateInboundInvoiceDto } from './dto/update-inbound-invoice.dto';
 
 @Controller('inbound-invoices')
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
@@ -28,6 +30,7 @@ export class InboundInvoicesController {
     @CurrentUser('id') userId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('type') type?: string,
   ) {
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 20;
@@ -35,6 +38,7 @@ export class InboundInvoicesController {
       userId,
       pageNumber,
       limitNumber,
+      type,
     );
     return {
       message: 'Get all inbound invoice success.',
@@ -100,5 +104,31 @@ export class InboundInvoicesController {
       message: 'Sync to inventory success.',
       data: result,
     };
+  }
+
+  @Patch('/:publicId')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
+  async update(
+    @CurrentUser('id') userId: string,
+    @Param('publicId') publicId: string,
+    @Body() dto: UpdateInboundInvoiceDto,
+  ) {
+    const data = await this.inboundInvoicesService.update(userId, publicId, dto);
+    return {
+      message: 'Update success.',
+      data,
+    };
+  }
+
+  @Delete('/:publicId')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
+  async remove(
+    @CurrentUser('id') userId: string,
+    @Param('publicId') publicId: string,
+  ) {
+    const result = await this.inboundInvoicesService.remove(userId, publicId);
+    return result;
   }
 }
