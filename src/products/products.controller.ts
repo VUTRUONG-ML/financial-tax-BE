@@ -49,6 +49,7 @@ export class ProductsController {
     @CurrentUser('id') userId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('productType') productType?: string,
   ) {
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 20;
@@ -56,8 +57,16 @@ export class ProductsController {
       userId,
       pageNumber,
       limitNumber,
+      productType,
     );
     return { message: 'Products retrieved successfully.', ...result };
+  }
+
+  // GET /products/summary
+  @Get('summary')
+  async getSummary(@CurrentUser('id') userId: string) {
+    const data = await this.productsService.getSummary(userId);
+    return { message: 'Product summary retrieved successfully.', data };
   }
 
   // GET /products/:publicId

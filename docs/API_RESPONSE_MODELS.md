@@ -10,6 +10,7 @@ This document describes the request and response data structures of the core API
   - [1.3. Get Product Details](#13-get-product-details)
   - [1.4. Update Product](#14-update-product)
   - [1.5. Delete Product](#15-delete-product)
+  - [1.6. Get Product Summary](#16-get-product-summary)
 - [2. Invoices (Outbound)](#2-invoices-outbound)
   - [2.1. Create Invoice](#21-create-invoice)
   - [2.2. Publish Invoice (Request Tax Code)](#22-publish-invoice-request-tax-code)
@@ -144,6 +145,7 @@ This document describes the request and response data structures of the core API
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
+- `productType`: `"FINISHED_GOOD" | "RAW_MATERIAL" | "SERVICE" (Optional) (Backend also tolerates common spelling variations like "FINISH_GOOD" or "RAW_METARIAL")`
 
 #### Request Body
 
@@ -284,6 +286,42 @@ None
   "timestamp": "Date string",
   "message": "Product deleted successfully.",
   "data": null,
+  "meta": null
+}
+```
+
+### 1.6. Get Product Summary
+
+- **Route:** `/products/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+None
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Product summary retrieved successfully.",
+  "data": {
+    "tong_san_pham": "number",
+    "tong_san_pham_phan_loai": {
+      "FINISHED_GOOD": "number",
+      "RAW_MATERIAL": "number",
+      "SERVICE": "number"
+    },
+    "tong_gia_tri_ton_kho": "number",
+    "sap_het_hang": "number"
+  },
   "meta": null
 }
 ```

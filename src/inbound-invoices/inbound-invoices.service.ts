@@ -90,7 +90,14 @@ export class InboundInvoicesService {
       dto.items.map(async (item) => {
         const product = await this.prisma.product.findUnique({
           where: { publicId: item.productPublicId },
-          select: { id: true, userId: true, publicId: true },
+          select: {
+            id: true,
+            userId: true,
+            publicId: true,
+            productType: true,
+            currentStock: true,
+            openingStockUnitCost: true,
+          },
         });
 
         if (!product)
@@ -109,6 +116,9 @@ export class InboundInvoicesService {
           productId: product.id,
           quantity: item.quantity,
           unitCost: item.unitCost,
+          productType: product.productType,
+          currentStock: product.currentStock,
+          openingStockUnitCost: Number(product.openingStockUnitCost || 0),
         };
       }),
     );
@@ -143,12 +153,22 @@ export class InboundInvoicesService {
       // 4. Nếu Checkbox [x] Cập nhật tồn kho được tích
       if (dto.isSyncedToInventory) {
         for (const item of itemsWithInternalId) {
+          if (item.productType === 'SERVICE') continue;
+
+          const oldStock = item.currentStock;
+          const oldUnitCost = item.openingStockUnitCost;
+          const newStock = oldStock + item.quantity;
+          
+          let newUnitCost = oldUnitCost;
+          if (newStock > 0) {
+            newUnitCost = ((oldStock * oldUnitCost) + (item.quantity * item.unitCost)) / newStock;
+          }
+
           await tx.product.update({
             where: { id: item.productId },
             data: {
-              currentStock: {
-                increment: item.quantity,
-              },
+              currentStock: newStock,
+              openingStockUnitCost: newUnitCost,
             },
           });
         }
@@ -290,21 +310,38 @@ export class InboundInvoicesService {
         include: {
           details: {
             include: {
-              product: { select: { publicId: true } },
+              product: {
+                select: {
+                  publicId: true,
+                  productType: true,
+                  currentStock: true,
+                  openingStockUnitCost: true,
+                },
+              },
             },
           },
         },
       });
 
       if (!invoice) throw new NotFoundException('Inbound invoice not found.');
-      // 3. Thực hiện cộng dồn tồn kho
+      // 3. Thực hiện cộng dồn tồn kho và tính lại giá vốn bình quân gia quyền
       for (const item of invoice.details) {
+        if (item.product.productType === 'SERVICE') continue;
+
+        const oldStock = item.product.currentStock;
+        const oldUnitCost = Number(item.product.openingStockUnitCost || 0);
+        const newStock = oldStock + item.quantity;
+        
+        let newUnitCost = oldUnitCost;
+        if (newStock > 0) {
+          newUnitCost = ((oldStock * oldUnitCost) + (item.quantity * Number(item.unitCost || 0))) / newStock;
+        }
+
         await tx.product.update({
           where: { id: item.productId, userId },
           data: {
-            currentStock: {
-              increment: item.quantity,
-            },
+            currentStock: newStock,
+            openingStockUnitCost: newUnitCost,
           },
         });
       }

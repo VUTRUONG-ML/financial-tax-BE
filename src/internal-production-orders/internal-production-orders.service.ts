@@ -27,7 +27,7 @@ export class InternalProductionOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) {}
+  ) { }
 
   async create(userId: string, createDto: CreateProductionOrderDto) {
     const productPublicIds = createDto.details.map((d) => d.productPublicId);
@@ -119,23 +119,61 @@ export class InternalProductionOrdersService {
 
         const orderCode = generateMonthlySequenceCode(prefix, lastCode);
 
-        // Deduct/Increment stocks
+        // Auto-Costing: Calculate total raw material value
+        let totalRawMaterialValue = 0;
+        for (const detail of createDto.details) {
+          if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+            const product = productsMap.get(detail.productPublicId)!;
+            const unitCost = Number(product.openingStockUnitCost || 0);
+            totalRawMaterialValue += detail.quantity * unitCost;
+          }
+        }
+
+        let totalFinishedQty = 0;
+        for (const detail of createDto.details) {
+          if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+            totalFinishedQty += detail.quantity;
+          }
+        }
+
+        const unitCostOfFinishedProducts = totalFinishedQty > 0
+          ? totalRawMaterialValue / totalFinishedQty
+          : 0;
+
+        // Deduct/Increment stocks and update costing
         for (const detail of createDto.details) {
           const product = productsMap.get(detail.productPublicId)!;
 
           if (
             detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL
           ) {
-            await tx.product.updateMany({
+            const updated = await tx.product.updateMany({
               where: { id: product.id, currentStock: { gte: detail.quantity } },
               data: { currentStock: { decrement: detail.quantity } },
             });
+            if (updated.count === 0) {
+              throw new BadRequestException(
+                `Insufficient stock for product: ${product.productName}.`,
+              );
+            }
           } else if (
             detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
           ) {
+            const oldStock = product.currentStock;
+            const oldUnitCost = Number(product.openingStockUnitCost || 0);
+            const newStock = oldStock + detail.quantity;
+
+            let newUnitCost = oldUnitCost;
+            if (newStock > 0) {
+              newUnitCost = ((oldStock * oldUnitCost) + (detail.quantity * unitCostOfFinishedProducts)) / newStock;
+            }
+
             await tx.product.update({
               where: { id: product.id },
-              data: { currentStock: { increment: detail.quantity } },
+              data: {
+                currentStock: newStock,
+                openingStockUnitCost: newUnitCost,
+              },
             });
           }
         }
