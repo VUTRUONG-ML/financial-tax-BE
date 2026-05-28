@@ -46,6 +46,15 @@ export class InboundInvoicesController {
     };
   }
 
+  @Get('summary')
+  async getSummary(@CurrentUser('id') userId: string) {
+    const data = await this.inboundInvoicesService.getSummary(userId);
+    return {
+      message: 'Get inbound invoice summary success.',
+      data,
+    };
+  }
+
   @Get('/:publicId')
   async findOne(
     @Param('publicId') publicId: string,

@@ -28,6 +28,7 @@ This document describes the request and response data structures of the core API
   - [3.5. Sync Inbound Invoice to Inventory](#35-sync-inbound-invoice-to-inventory)
   - [3.6. Update Inbound Invoice](#36-update-inbound-invoice)
   - [3.7. Delete Inbound Invoice](#37-delete-inbound-invoice)
+  - [3.8. Get Inbound Invoice Summary](#38-get-inbound-invoice-summary)
 - [4. Vouchers (Receipts/Payments)](#4-vouchers-receiptspayments)
   - [4.1. Create Voucher](#41-create-voucher)
   - [4.2. Get All Vouchers](#42-get-all-vouchers)
@@ -1147,6 +1148,37 @@ None
   "timestamp": "Date string",
   "message": "Inbound invoice deleted successfully.",
   "data": null,
+  "meta": null
+}
+```
+
+### 3.8. Get Inbound Invoice Summary
+
+- **Route:** `/inbound-invoices/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+None
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Get inbound invoice summary success.",
+  "data": {
+    "tong_so_luong_hoa_don": "number",
+    "tong_doanh_thu": "number",
+    "tong_chua_thanh_toan": "number"
+  },
   "meta": null
 }
 ```

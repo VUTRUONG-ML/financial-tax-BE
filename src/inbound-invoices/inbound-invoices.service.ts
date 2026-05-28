@@ -578,4 +578,43 @@ export class InboundInvoicesService {
       return { message: 'Inbound invoice deleted successfully.' };
     });
   }
+
+  async getSummary(userId: string) {
+    const [tong_so_luong_hoa_don, aggregateActive, aggregateUnpaid] = await Promise.all([
+      this.prisma.inboundInvoice.count({
+        where: { userId },
+      }),
+      this.prisma.inboundInvoice.aggregate({
+        where: { userId, status: 'ACTIVE' },
+        _sum: {
+          totalAmount: true,
+        },
+      }),
+      this.prisma.inboundInvoice.aggregate({
+        where: { userId, status: 'ACTIVE', isPaid: false },
+        _sum: {
+          totalAmount: true,
+          paidAmount: true,
+        },
+      }),
+    ]);
+
+    const tong_doanh_thu = aggregateActive._sum.totalAmount
+      ? Number(aggregateActive._sum.totalAmount)
+      : 0;
+
+    const unpaidTotalAmount = aggregateUnpaid._sum.totalAmount
+      ? Number(aggregateUnpaid._sum.totalAmount)
+      : 0;
+    const unpaidPaidAmount = aggregateUnpaid._sum.paidAmount
+      ? Number(aggregateUnpaid._sum.paidAmount)
+      : 0;
+    const tong_chua_thanh_toan = unpaidTotalAmount - unpaidPaidAmount;
+
+    return {
+      tong_so_luong_hoa_don,
+      tong_doanh_thu,
+      tong_chua_thanh_toan,
+    };
+  }
 }

@@ -118,3 +118,39 @@ Tất cả các API thay đổi dữ liệu (`POST`, `PATCH`, `DELETE` trên Inb
 
 > [!TIP]
 > **Tối ưu hóa hiệu năng phía BE:** Endpoint này đã được Backend tái cấu trúc sử dụng truy vấn gộp ở cấp cơ sở dữ liệu (`Promise.all` kết hợp `Prisma.count` và `Prisma.aggregate`) giúp phản hồi cực kỳ nhanh (dưới 50ms) ngay cả khi tài khoản hộ kinh doanh có hàng ngàn hóa đơn, hoàn toàn không gây nghẽn bộ nhớ Node.js.
+
+---
+
+## 5. 📢 Tích Hợp Endpoint Thống Kê Hóa Đơn Mua Vào (`GET /v1/inbound-invoices/summary`)
+
+> [!IMPORTANT]
+> Backend đã phát triển xong endpoint thống kê cho hóa đơn mua vào (Inbound Invoices). Frontend cần cập nhật tích hợp để hiển thị các chỉ số tổng quan trên giao diện quản lý hóa đơn mua vào.
+
+### 5.1. Chi tiết API Thống kê Hóa đơn Mua Vào
+
+* **Method:** `GET`
+* **Route:** `/v1/inbound-invoices/summary`
+* **Authentication:** Bắt buộc (Bearer Token)
+* **Response Body (JSON):**
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "2026-05-28T20:45:00.000Z",
+  "message": "Get inbound invoice summary success.",
+  "data": {
+    "tong_so_luong_hoa_don": 25,
+    "tong_doanh_thu": 120000000.00,
+    "tong_chua_thanh_toan": 35000000.00
+  },
+  "meta": null
+}
+```
+
+### 5.2. Giải thích ý nghĩa các trường dữ liệu
+1. **`tong_so_luong_hoa_don`** (`number`): Tổng số lượng tất cả hóa đơn mua vào trong hệ thống của người dùng (không phân biệt trạng thái `ACTIVE` hay `CANCELED`).
+2. **`tong_doanh_thu`** (`number`): Tổng giá trị tiền hàng (đầu vào) được cộng dồn từ các hóa đơn mua vào **ở trạng thái hoạt động** (`status === 'ACTIVE'`).
+3. **`tong_chua_thanh_toan`** (`number`): Tổng số tiền còn nợ nhà cung cấp đối với các hóa đơn đang hoạt động (`status === 'ACTIVE'`) nhưng chưa thanh toán xong (`isPaid === false`).
+   * *Công thức tính:* Bằng tổng của $(\text{totalAmount} - \text{paidAmount})$ từ các hóa đơn thỏa mãn điều kiện trên.
+
