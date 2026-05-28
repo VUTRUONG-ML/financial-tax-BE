@@ -29,6 +29,7 @@ import {
 import { Decimal } from '@prisma/client/runtime/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { VoucherResponseDto } from './dto/response-voucher-dto';
+import { moment } from '../common/utils/time.util';
 
 @Injectable()
 export class VouchersService {
@@ -37,7 +38,7 @@ export class VouchersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) {}
+  ) { }
 
   private calculateNewPaymentState(
     currentPaid: Decimal,
@@ -426,14 +427,29 @@ export class VouchersService {
     return mapToDto(VoucherResponseDto, result);
   }
 
-  async findAll(userId: string, page: number = 1, limit: number = 20) {
+  async findAll(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    fromDate?: string,
+  ) {
     const skip = (page - 1) * limit;
+    const where: Prisma.VoucherWhereInput = { userId };
+
+    if (fromDate) {
+      const { startDate, endDate } = this.parsePeriod(fromDate);
+      where.transactionAt = {
+        gte: startDate,
+        lte: endDate,
+      };
+    }
+
     const [total, vouchers] = await Promise.all([
       this.prisma.voucher.count({
-        where: { userId },
+        where,
       }),
       this.prisma.voucher.findMany({
-        where: { userId },
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -623,6 +639,46 @@ export class VouchersService {
     });
   }
 
+  async remove(userId: string, voucherCode: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.voucher.findUnique({
+        where: { userId_voucherCode: { userId, voucherCode } },
+      });
+
+      if (!existing) {
+        throw new NotFoundException('Voucher not found');
+      }
+
+      if (existing.inboundInvoiceId !== null || existing.outboundInvoiceId !== null) {
+        throw new BadRequestException(
+          'Voucher is linked to an invoice and cannot be deleted.',
+        );
+      }
+
+      await tx.voucher.delete({
+        where: { id: existing.id },
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'DELETE',
+        tableWrite.vouchers,
+        existing.id,
+        existing,
+        null,
+      );
+
+      this.log.log(LOG_ACTIONS.DELETE_VOUCHER, {
+        status: LOG_STATUS.SUCCESS,
+        voucherCode,
+        userId,
+      });
+
+      return { message: 'Voucher deleted successfully.' };
+    });
+  }
+
   async bulkCancelByInvoice(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -659,5 +715,158 @@ export class VouchersService {
     );
 
     return result.count;
+  }
+
+  private parsePeriod(fromDate: string): { startDate: Date; endDate: Date } {
+    const normalized = fromDate.trim().toUpperCase();
+
+    // 1. Check if it's a quarter (e.g. "2026-Q2", "Q2-2026", "Q2/2026")
+    const quarterMatch = normalized.match(/(Q[1-4])/i);
+    if (quarterMatch) {
+      const quarterStr = quarterMatch[1];
+      const quarter = parseInt(quarterStr.charAt(1), 10);
+      const yearMatch = normalized.match(/\b(\d{4})\b/);
+      const year = yearMatch ? parseInt(yearMatch[1], 10) : moment().year();
+
+      const startMonth = (quarter - 1) * 3;
+      const startDate = moment().year(year).month(startMonth).date(1).startOf('day').toDate();
+      const endDate = moment(startDate).endOf('quarter').toDate();
+      return { startDate, endDate };
+    }
+
+    // 2. Check if it's a month (e.g. "2026-05", "05/2026", "05-2026")
+    const mmyyyyMatch = normalized.match(/^(\d{1,2})[-/](\d{4})$/);
+    if (mmyyyyMatch) {
+      const month = parseInt(mmyyyyMatch[1], 10) - 1;
+      const year = parseInt(mmyyyyMatch[2], 10);
+      const startDate = moment()
+        .year(year)
+        .month(month)
+        .date(1)
+        .startOf('day')
+        .toDate();
+      const endDate = moment(startDate).endOf('month').toDate();
+      return { startDate, endDate };
+    }
+
+    const yyyymmMatch = normalized.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (yyyymmMatch) {
+      const year = parseInt(yyyymmMatch[1], 10);
+      const month = parseInt(yyyymmMatch[2], 10) - 1;
+      const startDate = moment().year(year).month(month).date(1).startOf('day').toDate();
+      const endDate = moment(startDate).endOf('month').toDate();
+      return { startDate, endDate };
+    }
+
+    // 3. Try parsed date fallback
+    const parsed = moment(normalized);
+    if (parsed.isValid()) {
+      const startDate = parsed.startOf('month').toDate();
+      const endDate = parsed.endOf('month').toDate();
+      return { startDate, endDate };
+    }
+
+    throw new BadRequestException('Invalid fromDate format. Expected month (YYYY-MM, MM/YYYY) or quarter (YYYY-Q#).');
+  }
+
+  async getSummary(userId: string, fromDate: string) {
+    const { startDate, endDate } = this.parsePeriod(fromDate);
+
+    const [periodReceipts, periodPayments, cashGroup, bankGroup] = await Promise.all([
+      // 1. Tổng tiền thu trong kỳ (tháng/quý)
+      this.prisma.voucher.aggregate({
+        where: {
+          userId,
+          voucherType: 'RECEIPT',
+          status: 'ACTIVE',
+          transactionAt: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+      // 2. Tổng tiền chi trong kỳ (tháng/quý)
+      this.prisma.voucher.aggregate({
+        where: {
+          userId,
+          voucherType: 'PAYMENT',
+          status: 'ACTIVE',
+          transactionAt: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+      // 3. Phân nhóm Thu/Chi tiền mặt từ fromDate đến hiện tại
+      this.prisma.voucher.groupBy({
+        by: ['voucherType'],
+        where: {
+          userId,
+          status: 'ACTIVE',
+          paymentMethod: 'CASH',
+          transactionAt: {
+            gte: startDate,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+      // 4. Phân nhóm Thu/Chi chuyển khoản từ fromDate đến hiện tại
+      this.prisma.voucher.groupBy({
+        by: ['voucherType'],
+        where: {
+          userId,
+          status: 'ACTIVE',
+          paymentMethod: 'BANK',
+          transactionAt: {
+            gte: startDate,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+    ]);
+
+    const tong_tien_thu = Number(periodReceipts._sum.amount || 0);
+    const tong_tien_chi = Number(periodPayments._sum.amount || 0);
+
+    // Tính tiền mặt: Thu - Chi
+    let cashReceipt = 0;
+    let cashPayment = 0;
+    for (const group of cashGroup) {
+      if (group.voucherType === 'RECEIPT') {
+        cashReceipt = Number(group._sum.amount || 0);
+      } else if (group.voucherType === 'PAYMENT') {
+        cashPayment = Number(group._sum.amount || 0);
+      }
+    }
+    const tien_mat = cashReceipt - cashPayment;
+
+    // Tính tiền chuyển khoản: Thu - Chi
+    let bankReceipt = 0;
+    let bankPayment = 0;
+    for (const group of bankGroup) {
+      if (group.voucherType === 'RECEIPT') {
+        bankReceipt = Number(group._sum.amount || 0);
+      } else if (group.voucherType === 'PAYMENT') {
+        bankPayment = Number(group._sum.amount || 0);
+      }
+    }
+    const tien_chuyen_khoan = bankReceipt - bankPayment;
+
+    return {
+      tong_tien_thu,
+      tong_tien_chi,
+      tien_mat,
+      tien_chuyen_khoan,
+    };
   }
 }

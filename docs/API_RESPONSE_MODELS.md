@@ -34,6 +34,8 @@ This document describes the request and response data structures of the core API
   - [4.3. Get Voucher Details](#43-get-voucher-details)
   - [4.4. Update Voucher](#44-update-voucher)
   - [4.5. Cancel Voucher](#45-cancel-voucher)
+  - [4.6. Get Voucher Summary](#46-get-voucher-summary)
+  - [4.7. Delete Voucher](#47-delete-voucher)
 - [5. Voucher Categories](#5-voucher-categories)
   - [5.1. Create Voucher Category](#51-create-voucher-category)
   - [5.2. Get All Voucher Categories](#52-get-all-voucher-categories)
@@ -1217,6 +1219,7 @@ None
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
+- `fromDate`: `string (Optional) - Filter transaction date by month (e.g. "2026-05", "05/2026") or quarter (e.g. "2026-Q2", "Q2/2026")`
 
 #### Request Body
 
@@ -1394,6 +1397,67 @@ None
     "inboundInvoiceNo": "string",
     "outboundInvoicePublicId": "string",
     "outboundInvoiceSymbol": "string"
+  },
+  "meta": null
+}
+```
+
+### 4.6. Get Voucher Summary
+
+- **Route:** `/vouchers/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `fromDate`: `string (Required) - Calculate start date of month (e.g. "2026-05", "05/2026") or quarter (e.g. "2026-Q2", "Q2/2026")`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Voucher summary retrieved successfully",
+  "data": {
+    "tong_tien_thu": "number",
+    "tong_tien_chi": "number",
+    "tien_mat": "number",
+    "tien_chuyen_khoan": "number"
+  },
+  "meta": null
+}
+```
+
+### 4.7. Delete Voucher
+
+- **Route:** `/vouchers/:voucherCode`
+- **Method:** `DELETE`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+None
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Voucher deleted successfully",
+  "data": {
+    "message": "Voucher deleted successfully."
   },
   "meta": null
 }
