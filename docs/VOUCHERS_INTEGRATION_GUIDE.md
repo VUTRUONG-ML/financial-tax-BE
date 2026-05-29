@@ -82,3 +82,44 @@ Backend xác định mốc thời gian đầu kỳ (`startDate` - ngày 1 đầu
 
 > [!TIP]
 > **Hiệu năng cấp DB:** Toàn bộ quá trình tính toán trên đều sử dụng các truy vấn tổng hợp SQL (`Prisma.aggregate` và `Prisma.groupBy`) thực hiện trực tiếp trên cơ sở dữ liệu và trả về kết quả dạng số cuối cùng, tối ưu tối đa băng thông và bộ nhớ server.
+
+---
+
+## 4. 📢 Phản Hồi & Hướng Dẫn Tích Hợp Cho Frontend (Theo Kế Hoạch B1)
+
+Dựa trên tài liệu kế hoạch tích hợp [plan_api_voucher (1).md](file:///e:/financial-tax-system_BE/docs-coding-guidelines/plan_api_voucher%20%281%29.md) từ Frontend, Backend xác nhận các điểm thống nhất và hướng dẫn điều chỉnh các điểm mâu thuẫn như sau:
+
+### 4.1. Cập nhật bắt buộc: Ngưỡng kiểm soát chi phí được trừ
+* **Mâu thuẫn:** Trong tài liệu của FE ghi nhận ngưỡng chuyển khoản là **20 triệu VNĐ** (`amount > 20_000_000`).
+* **Quy tắc thực tế trên BE:** **FE cần sửa lại ngưỡng kiểm tra này thành từ 5 triệu VNĐ trở lên (`amount >= 5_000_000`).**
+  * Theo nghiệp vụ thuế áp dụng cho hộ kinh doanh của hệ thống, bất kỳ phiếu chi nào được đánh dấu là chi phí giảm trừ thuế (`isDeductibleExpense: true`) có số tiền từ **5.000.000 VNĐ trở lên** đều **bắt buộc** phải chọn phương thức thanh toán là `BANK` (chuyển khoản). 
+  * Nếu chọn `CASH` (tiền mặt), Backend sẽ chặn và trả về lỗi `INVALID_TAX_DEDUCTIBLE_METHOD`. Do đó, FE cần sửa lại message lỗi trên UI/Validator thành: *“Giao dịch từ 5 triệu VNĐ trở lên phải chuyển khoản để được tính chi phí hợp lý.”*
+
+### 4.2. Bổ sung trường người liên hệ (`contactName`)
+* **Thống nhất:** Backend **ĐÃ cập nhật** trường `contactName` (kiểu dữ liệu `String?`) vào model `Voucher` trong DB và các DTOs.
+  * **Khi tạo/cập nhật phiếu:** FE gửi trường `contactName` trong body request (ví dụ: `"contactName": "Nguyễn Văn A"`). Trường này là tùy chọn (Optional).
+  * **Khi lấy thông tin (GET):** Tất cả các API trả về của Voucher đều trả về trường `contactName` trong object dữ liệu (nếu không có sẽ là `null`). FE có thể map trực tiếp sang trường `"Thu từ/Chi cho"` trên UI.
+
+### 4.3. Phân loại chi phí S2c (`s2cExpenseMapping` / `s2c_expense_mapping`)
+* **Thống nhất:** Backend **ĐÃ chuyển đổi** toàn bộ logic tính toán Sổ chi phí S2c-HKD sang sử dụng trường phân loại `s2cExpenseMapping` trong bảng `VoucherCategory` thay vì lọc theo tên cứng như trước.
+* **Cấu trúc Enum `s2cExpenseMapping`:**
+  * `ITEM_A`: Nguyên vật liệu (Mục a)
+  * `ITEM_B`: Lương, bảo hiểm (Mục b)
+  * `ITEM_C`: Khấu hao (Mục c)
+  * `ITEM_D`: Dịch vụ mua ngoài (Mục d)
+  * `ITEM_E`: Lãi vay (Mục đ)
+  * `ITEM_F`: Chi khác (Mục e)
+  * `NONE`: Phiếu thu hoặc chi tiêu cá nhân không được tính vào chi phí hợp lý.
+* **Giao diện & DTO:**
+  * Trình phản hồi DTO của danh mục (`VoucherCategoryResponseDto`) sẽ trả về trường `s2cExpenseMapping` để FE sử dụng cho việc gom nhóm hoặc hiển thị.
+  * Khi người dùng tạo một danh mục chi tiêu mới (`type === 'PAYMENT'`), nếu FE không truyền `s2cExpenseMapping`, Backend sẽ tự động gán giá trị mặc định là `ITEM_F` (Chi khác). Nếu là hạng mục thu (`type === 'RECEIPT'`), mặc định là `NONE`.
+
+### 4.4. Thời gian giao dịch (`transactionAt`)
+* **Thống nhất:** FE sẽ tổng hợp ngày (`transaction_date`) và giờ (`transaction_time`) được chọn trên UI thành một chuỗi Date ISO 8601 và gửi lên trường `transactionAt` của API tạo/sửa phiếu.
+* Backend sẽ lấy trực tiếp mốc thời gian này làm ngày ghi nhận giao dịch của phiếu, đồng thời dùng nó để trích xuất tháng/năm tự động đánh số mã phiếu (ví dụ: `PC-0526-XXXX` cho ngày giao dịch trong tháng 05/2026), hỗ trợ hoàn toàn việc ghi nhận lùi ngày/khác ngày hiện tại.
+
+### 4.5. Ánh xạ trạng thái và khóa các trường khi sửa phiếu (Update Voucher)
+* **Status Mapping:** Hoàn toàn nhất trí với giải pháp Frontend mapper:
+  * Trạng thái `ACTIVE` ở BE sẽ được FE map thành `COMPLETED` để hiển thị trên UI.
+  * Trạng thái `CANCELED` giữ nguyên là `CANCELED`.
+* **Khóa trường khi chỉnh sửa:** FE cần khóa (disable) các trường `voucherType` (Loại phiếu), `amount` (Số tiền), và các liên kết hóa đơn (`inboundInvoicePublicId` / `outboundInvoicePublicId`) trên Form chỉnh sửa phiếu để tránh sai lệch kế toán.

@@ -1203,6 +1203,7 @@ None
   "amount": "number",
   "paymentMethod": "\"CASH\" | \"BANK\"",
   "transactionAt": "string (Date string)",
+  "contactName": "string (Optional)",
   "isDeductibleExpense": "boolean (Optional)",
   "inboundInvoicePublicId": "string (Optional)",
   "outboundInvoicePublicId": "string (Optional)"
@@ -1223,6 +1224,7 @@ None
     "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
+    "contactName": "string | null",
     "isDeductibleExpense": "boolean",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "amount": "number",
@@ -1273,6 +1275,7 @@ None
       "transactionAt": "Date string",
       "content": "string",
       "paymentMethod": "\"CASH\" | \"BANK\"",
+      "contactName": "string | null",
       "isDeductibleExpense": "boolean",
       "status": "\"ACTIVE\" | \"CANCELED\"",
       "amount": "number",
@@ -1321,6 +1324,7 @@ None
     "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
+    "contactName": "string | null",
     "isDeductibleExpense": "boolean",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "amount": "number",
@@ -1353,6 +1357,7 @@ None
   "categoryId": "number (Optional)",
   "content": "string (Optional)",
   "paymentMethod": "\"CASH\" | \"BANK\" (Optional)",
+  "contactName": "string (Optional)",
   "isDeductibleExpense": "boolean (Optional)"
 }
 ```
@@ -1373,6 +1378,7 @@ _(Note: Fields like `voucherType`, `amount`, and `invoicePublicId` cannot be upd
     "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
+    "contactName": "string | null",
     "isDeductibleExpense": "boolean",
     "status": "\"ACTIVE\" | \"CANCELED\"",
     "amount": "number",
@@ -1416,6 +1422,7 @@ None
     "transactionAt": "Date string",
     "content": "string",
     "paymentMethod": "\"CASH\" | \"BANK\"",
+    "contactName": "string | null",
     "isDeductibleExpense": "boolean",
     "status": "\"CANCELED\"",
     "amount": "number",
@@ -3096,8 +3103,9 @@ None
         "summary": {
           "chi_phi_nguyen_vat_lieu": "number",
           "chi_phi_nhan_cong": "number",
-          "chi_phi_thue_mat_bang": "number",
+          "chi_phi_khau_hao": "number",
           "chi_phi_dich_vu_mua_ngoai": "number",
+          "chi_phi_lai_vay": "number",
           "chi_phi_khac": "number",
           "tong_chi_phi_hop_le": "number"
         }

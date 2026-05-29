@@ -380,7 +380,8 @@ model VoucherCategory {
   id           Int         @id @default(autoincrement())
   userId       String?     @map("user_id") // Null: Hạng mục default system
   type         VoucherType
-  categoryName String      @map("category_name")
+  categoryName      String            @map("category_name")
+  s2cExpenseMapping S2cExpenseMapping @default(NONE) @map("s2c_expense_mapping")
 
   vouchers Voucher[]
 
@@ -400,6 +401,7 @@ model Voucher {
   content             String        @db.Text
   amount              Decimal       @map("amount") @db.Decimal(18, 4)
   paymentMethod       PaymentMethod @map("payment_method")
+  contactName         String?       @map("contact_name")
   isDeductibleExpense Boolean       @default(false) @map("is_deductible_expense")
   inboundInvoiceId    Int?          @map("inbound_invoice_id")
   outboundInvoiceId   Int?          @map("outbound_invoice_id")
@@ -576,4 +578,14 @@ model RevenueTracker {
 
   @@unique([userId, year])
   @@map("revenue_trackers")
+}
+
+enum S2cExpenseMapping {
+  ITEM_A
+  ITEM_B
+  ITEM_C
+  ITEM_D
+  ITEM_E
+  ITEM_F
+  NONE
 }

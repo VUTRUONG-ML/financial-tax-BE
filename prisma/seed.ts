@@ -150,30 +150,41 @@ async function main() {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.',
+      s2cExpenseMapping: 'ITEM_A',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
+      s2cExpenseMapping: 'ITEM_B',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
-        'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.',
+        'Chi phí khấu hao tài sản cố định sử dụng vào sản xuất, kinh doanh.',
+      s2cExpenseMapping: 'ITEM_C',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
+      s2cExpenseMapping: 'ITEM_D',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
-        'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...',
+        'Chi phí trả lãi tiền vay phục vụ sản xuất kinh doanh.',
+      s2cExpenseMapping: 'ITEM_E',
     },
-    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền bán hàng' },
-    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền thu nợ' },
-    { type: VoucherType.RECEIPT, categoryName: 'Thu khác' },
+    {
+      type: VoucherType.PAYMENT,
+      categoryName:
+        'Chi phí thuê kho bãi, mặt bằng phục vụ sản xuất kinh doanh và các khoản chi khác...',
+      s2cExpenseMapping: 'ITEM_F',
+    },
+    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền bán hàng', s2cExpenseMapping: 'NONE' },
+    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền thu nợ', s2cExpenseMapping: 'NONE' },
+    { type: VoucherType.RECEIPT, categoryName: 'Thu khác', s2cExpenseMapping: 'NONE' },
   ];
 
   for (const vc of voucherCategories) {
@@ -181,6 +192,7 @@ async function main() {
       data: {
         type: vc.type,
         categoryName: vc.categoryName,
+        s2cExpenseMapping: vc.s2cExpenseMapping as any,
         userId: null,
       },
     });
@@ -372,7 +384,7 @@ async function main() {
       where: {
         type: 'PAYMENT',
         categoryName:
-          'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...',
+          'Chi phí thuê kho bãi, mặt bằng phục vụ sản xuất kinh doanh và các khoản chi khác...',
       },
     });
 

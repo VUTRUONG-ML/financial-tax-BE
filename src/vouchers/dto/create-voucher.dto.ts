@@ -38,6 +38,10 @@ export class CreateVoucherDto {
   @IsDateString()
   transactionAt!: string;
 
+  @IsString()
+  @IsOptional()
+  contactName?: string;
+
   @IsBoolean()
   @IsOptional()
   isDeductibleExpense?: boolean;

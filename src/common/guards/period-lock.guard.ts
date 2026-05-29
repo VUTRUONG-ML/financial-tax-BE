@@ -4,13 +4,15 @@ import { FinancialPeriodValidationService } from '../../financial-periods/financ
 import { CHECK_PERIOD_KEY } from '../decorators/check-period.decorator';
 import { RequestWithUser } from '../interface/request-with-user.interface';
 import { moment } from '../utils/time.util';
+import { AppLogger } from '../logger/app-logger.service';
 
 @Injectable()
 export class PeriodLockGuard implements CanActivate {
+  private log = new AppLogger(PeriodLockGuard.name);
   constructor(
     private reflector: Reflector,
     private validationService: FinancialPeriodValidationService,
-  ) {}
+  ) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // 1. Kiểm tra xem method có gắn decorator @CheckPeriod không
@@ -33,7 +35,7 @@ export class PeriodLockGuard implements CanActivate {
     const checkDate = checkDateRaw
       ? moment(checkDateRaw).toDate()
       : moment().toDate();
-
+    this.log.debug('CHECK_PERIOD', { checkDate });
     // 3. Gọi Service check
     const period = await this.validationService.getOrCreateAndValidatePeriod(
       user.id,

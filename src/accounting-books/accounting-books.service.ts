@@ -19,20 +19,12 @@ import { ExpenseBookRowDto } from './dto/expense-book-row.dto';
 import { InventoryBookRowDto } from './dto/inventory-book-row.dto';
 import { plainToInstance } from 'class-transformer';
 
-const CAT_NGUYEN_VAT_LIEU =
-  'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.';
-const CAT_NHAN_CONG =
-  'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...';
-const CAT_THUE_MAT_BANG =
-  'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.';
-const CAT_DICH_VU_MUA_NGOAI =
-  'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...';
-
 export interface ExpenseSummaryRow {
   chi_phi_nguyen_vat_lieu: string | number;
   chi_phi_nhan_cong: string | number;
-  chi_phi_thue_mat_bang: string | number;
+  chi_phi_khau_hao: string | number;
   chi_phi_dich_vu_mua_ngoai: string | number;
+  chi_phi_lai_vay: string | number;
   chi_phi_khac: string | number;
 }
 
@@ -691,39 +683,22 @@ export class AccountingBooksService {
   ) {
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
-    const defaultCategories = await this.prisma.voucherCategory.findMany({
-      where: {
-        userId: null,
-        type: 'PAYMENT',
-      },
-    });
-
-    const idNguyenVatLieu =
-      defaultCategories.find((c) => c.categoryName === CAT_NGUYEN_VAT_LIEU)
-        ?.id ?? -1;
-    const idNhanCong =
-      defaultCategories.find((c) => c.categoryName === CAT_NHAN_CONG)?.id ?? -1;
-    const idThueMatBang =
-      defaultCategories.find((c) => c.categoryName === CAT_THUE_MAT_BANG)?.id ??
-      -1;
-    const idDichVuMuaNgoai =
-      defaultCategories.find((c) => c.categoryName === CAT_DICH_VU_MUA_NGOAI)
-        ?.id ?? -1;
-
     const [dbResult, bookMetadata, syncCode] = await Promise.all([
       this.prisma.$queryRaw<ExpenseSummaryRow[]>`
         SELECT 
-          COALESCE(SUM(CASE WHEN v.category_id = ${idNguyenVatLieu} THEN v.amount ELSE 0 END), 0) as chi_phi_nguyen_vat_lieu,
-          COALESCE(SUM(CASE WHEN v.category_id = ${idNhanCong} THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
-          COALESCE(SUM(CASE WHEN v.category_id = ${idThueMatBang} THEN v.amount ELSE 0 END), 0) as chi_phi_thue_mat_bang,
-          COALESCE(SUM(CASE WHEN v.category_id = ${idDichVuMuaNgoai} THEN v.amount ELSE 0 END), 0) as chi_phi_dich_vu_mua_ngoai,
-          COALESCE(SUM(CASE WHEN v.category_id NOT IN (${idNguyenVatLieu}, ${idNhanCong}, ${idThueMatBang}, ${idDichVuMuaNgoai}) THEN v.amount ELSE 0 END), 0) as chi_phi_khac
+          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_A' THEN v.amount ELSE 0 END), 0) as chi_phi_nguyen_vat_lieu,
+          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_B' THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
+          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_C' THEN v.amount ELSE 0 END), 0) as chi_phi_khau_hao,
+          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_D' THEN v.amount ELSE 0 END), 0) as chi_phi_dich_vu_mua_ngoai,
+          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_E' THEN v.amount ELSE 0 END), 0) as chi_phi_lai_vay,
+          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_F' THEN v.amount ELSE 0 END), 0) as chi_phi_khac
         FROM vouchers v
+        JOIN voucher_categories vc ON v.category_id = vc.id
         WHERE v.user_id = ${userId}
           AND v.transaction_at BETWEEN ${startDate} AND ${endDate}
           AND v.voucher_type = 'PAYMENT'
           AND v.is_deductible_expense = TRUE
-          AND v.status = 'ACTIVE'
+          AND v.status = 'ACTIVE';
       `,
       this.generateBookMetadata('S2C', userId, startDate, endDate),
       this.generateExpenseSyncCode(userId, startDate, endDate),
@@ -732,26 +707,25 @@ export class AccountingBooksService {
     const summaryRow: ExpenseSummaryRow = dbResult[0] || {
       chi_phi_nguyen_vat_lieu: 0,
       chi_phi_nhan_cong: 0,
-      chi_phi_thue_mat_bang: 0,
+      chi_phi_khau_hao: 0,
       chi_phi_dich_vu_mua_ngoai: 0,
+      chi_phi_lai_vay: 0,
       chi_phi_khac: 0,
     };
 
-    const chi_phi_nguyen_vat_lieu = Number(
-      summaryRow.chi_phi_nguyen_vat_lieu || 0,
-    );
+    const chi_phi_nguyen_vat_lieu = Number(summaryRow.chi_phi_nguyen_vat_lieu || 0);
     const chi_phi_nhan_cong = Number(summaryRow.chi_phi_nhan_cong || 0);
-    const chi_phi_thue_mat_bang = Number(summaryRow.chi_phi_thue_mat_bang || 0);
-    const chi_phi_dich_vu_mua_ngoai = Number(
-      summaryRow.chi_phi_dich_vu_mua_ngoai || 0,
-    );
+    const chi_phi_khau_hao = Number(summaryRow.chi_phi_khau_hao || 0);
+    const chi_phi_dich_vu_mua_ngoai = Number(summaryRow.chi_phi_dich_vu_mua_ngoai || 0);
+    const chi_phi_lai_vay = Number(summaryRow.chi_phi_lai_vay || 0);
     const chi_phi_khac = Number(summaryRow.chi_phi_khac || 0);
 
     const tong_chi_phi_hop_le =
       chi_phi_nguyen_vat_lieu +
       chi_phi_nhan_cong +
-      chi_phi_thue_mat_bang +
+      chi_phi_khau_hao +
       chi_phi_dich_vu_mua_ngoai +
+      chi_phi_lai_vay +
       chi_phi_khac;
 
     return {
@@ -764,8 +738,9 @@ export class AccountingBooksService {
           summary: {
             chi_phi_nguyen_vat_lieu,
             chi_phi_nhan_cong,
-            chi_phi_thue_mat_bang,
+            chi_phi_khau_hao,
             chi_phi_dich_vu_mua_ngoai,
+            chi_phi_lai_vay,
             chi_phi_khac,
             tong_chi_phi_hop_le,
           },

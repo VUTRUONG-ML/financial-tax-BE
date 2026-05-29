@@ -41,6 +41,7 @@ describe('VouchersController', () => {
         amount: 1000000,
         paymentMethod: 'CASH',
         transactionAt: '2026-05-28T00:00:00.000Z',
+        contactName: 'Nguyen Van A',
       };
       const mockResult = { id: 1, ...mockDto, voucherCode: 'PT-0526-0001' };
 

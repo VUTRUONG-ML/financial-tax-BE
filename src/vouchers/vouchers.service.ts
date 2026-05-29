@@ -384,6 +384,7 @@ export class VouchersService {
             content: createVoucherDto.content,
             amount: createVoucherDto.amount,
             paymentMethod: createVoucherDto.paymentMethod,
+            contactName: createVoucherDto.contactName ?? null,
             isDeductibleExpense: createVoucherDto.isDeductibleExpense ?? false,
             inboundInvoiceId: invoice?.type === 'INBOUND' ? invoice.id : null,
             outboundInvoiceId: invoice?.type === 'OUTBOUND' ? invoice.id : null,

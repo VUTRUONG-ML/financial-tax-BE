@@ -345,8 +345,9 @@ describe('AccountingBooksService', () => {
         {
           chi_phi_nguyen_vat_lieu: 0,
           chi_phi_nhan_cong: 1000000,
-          chi_phi_thue_mat_bang: 0,
+          chi_phi_khau_hao: 0,
           chi_phi_dich_vu_mua_ngoai: 500000,
+          chi_phi_lai_vay: 0,
           chi_phi_khac: 200000,
         },
       ]);
@@ -362,8 +363,9 @@ describe('AccountingBooksService', () => {
       expect(s2c.bookKey).toBe('S2C');
       expect(s2c.summary.chi_phi_nguyen_vat_lieu).toBe(0);
       expect(s2c.summary.chi_phi_nhan_cong).toBe(1000000);
-      expect(s2c.summary.chi_phi_thue_mat_bang).toBe(0);
+      expect(s2c.summary.chi_phi_khau_hao).toBe(0);
       expect(s2c.summary.chi_phi_dich_vu_mua_ngoai).toBe(500000);
+      expect(s2c.summary.chi_phi_lai_vay).toBe(0);
       expect(s2c.summary.chi_phi_khac).toBe(200000);
       expect(s2c.summary.tong_chi_phi_hop_le).toBe(1700000);
     });
