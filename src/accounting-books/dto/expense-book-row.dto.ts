@@ -24,4 +24,8 @@ export class ExpenseBookRowDto {
   @Expose({ name: 'Hoa_Don_Chung_Tu_Kem_Theo' })
   @Transform(({ obj }) => obj.inboundInvoice?.invoiceNo || '')
   Hoa_Don_Chung_Tu_Kem_Theo!: string;
+
+  @Expose({ name: 's2cExpenseMapping' })
+  @Transform(({ obj }) => obj.category?.s2cExpenseMapping || 'ITEM_F')
+  s2cExpenseMapping!: string;
 }
