@@ -213,14 +213,6 @@ export class VouchersService {
 
       return { id: currentInboundInvoice.id, type: 'INBOUND' };
     }
-
-    // Nếu nó vượt qua bước trên mà xuống được đây thì có nghĩa là nó đã không truyền inboundInvoice
-    if (isDeductibleExpense === true) {
-      throw new BadRequestException({
-        message: 'The deductible expense does not apply to any invoice.',
-        errorCode: 'MISSING_INBOUND_INVOICE_DEDUCT',
-      });
-    }
   }
 
   private async revertInvoicePayment(
@@ -494,6 +486,10 @@ export class VouchersService {
     return await this.prisma.$transaction(async (tx) => {
       const existing = await tx.voucher.findUnique({
         where: { userId_voucherCode: { userId, voucherCode } },
+        include: {
+          inboundInvoice: true,
+          outBoundInvoice: true,
+        },
       });
 
       if (!existing || existing.userId !== userId) {
@@ -504,39 +500,110 @@ export class VouchersService {
         throw new BadRequestException('Cannot update a canceled voucher');
       }
 
-      // Category Validation if modifying category
-      if (
-        updateVoucherDto.categoryId &&
-        updateVoucherDto.categoryId !== existing.categoryId
-      ) {
-        const category = await tx.voucherCategory.findUnique({
-          where: { id: updateVoucherDto.categoryId },
-        });
+      const isLinked = existing.inboundInvoiceId !== null || existing.outboundInvoiceId !== null;
+
+      if (isLinked) {
+        // Locked fields check: voucherType, amount, inboundInvoicePublicId, outboundInvoicePublicId, isDeductibleExpense
+        const hasVoucherTypeChange =
+          updateVoucherDto.voucherType !== undefined &&
+          updateVoucherDto.voucherType !== existing.voucherType;
+
+        const hasAmountChange =
+          updateVoucherDto.amount !== undefined &&
+          !new Decimal(updateVoucherDto.amount).eq(existing.amount);
+
+        const hasInboundLinkChange =
+          updateVoucherDto.inboundInvoicePublicId !== undefined &&
+          updateVoucherDto.inboundInvoicePublicId !== existing.inboundInvoice?.publicId;
+
+        const hasOutboundLinkChange =
+          updateVoucherDto.outboundInvoicePublicId !== undefined &&
+          updateVoucherDto.outboundInvoicePublicId !== existing.outBoundInvoice?.publicId;
+
+        const hasIsDeductibleChange =
+          updateVoucherDto.isDeductibleExpense !== undefined &&
+          updateVoucherDto.isDeductibleExpense !== existing.isDeductibleExpense;
 
         if (
-          !category ||
-          (category.userId !== null && category.userId !== userId) ||
-          category.type !== existing.voucherType
+          hasVoucherTypeChange ||
+          hasAmountChange ||
+          hasInboundLinkChange ||
+          hasOutboundLinkChange ||
+          hasIsDeductibleChange
         ) {
-          throw new BadRequestException('Invalid voucher category');
+          throw new BadRequestException(
+            'Cannot update voucherType, amount, invoice links, or deductible status when the voucher is linked to an invoice.',
+          );
         }
       }
 
+      const newVoucherType = updateVoucherDto.voucherType ?? existing.voucherType;
+      const newAmount =
+        updateVoucherDto.amount !== undefined
+          ? new Decimal(updateVoucherDto.amount)
+          : existing.amount;
+      const newPaymentMethod = updateVoucherDto.paymentMethod ?? existing.paymentMethod;
+      const newIsDeductibleExpense =
+        updateVoucherDto.isDeductibleExpense ?? existing.isDeductibleExpense;
+
+      // Category Validation
+      const newCategoryId = updateVoucherDto.categoryId ?? existing.categoryId;
+      const category = await tx.voucherCategory.findUnique({
+        where: { id: newCategoryId },
+      });
+
       if (
-        updateVoucherDto.isDeductibleExpense === true &&
-        existing.inboundInvoiceId === null
+        !category ||
+        (category.userId !== null && category.userId !== userId) ||
+        category.type !== newVoucherType
+      ) {
+        throw new BadRequestException('Invalid voucher category');
+      }
+
+      // Check 5 million bank transfer rule
+      if (
+        newIsDeductibleExpense &&
+        newPaymentMethod === PaymentMethod.CASH &&
+        newAmount.gte(5_000_000)
       ) {
         throw new BadRequestException({
-          message: 'The deductible expense does not apply to any invoice.',
-          errorCode: 'MISSING_INBOUND_INVOICE_DEDUCT',
+          message:
+            'Transactions of 5 million VND or more must be made via bank transfer.',
+          errorCode: 'INVALID_TAX_DEDUCTIBLE_METHOD',
         });
       }
 
+      // Handle invoice link changes for unlinked voucher
+      const newInboundInvoicePublicId = updateVoucherDto.inboundInvoicePublicId;
+      const newOutboundInvoicePublicId = updateVoucherDto.outboundInvoicePublicId;
+
+      let invoice: { id: number; type: string } | undefined = undefined;
+      if (newInboundInvoicePublicId || newOutboundInvoicePublicId) {
+        invoice = await this.resolveVoucherType(
+          tx,
+          userId,
+          newVoucherType,
+          newAmount,
+          newPaymentMethod,
+          newIsDeductibleExpense,
+          newInboundInvoicePublicId || undefined,
+          newOutboundInvoicePublicId || undefined,
+        );
+      }
+
+      const updateData: any = {
+        ...updateVoucherDto,
+      };
+      if (invoice) {
+        updateData.inboundInvoiceId = invoice.type === 'INBOUND' ? invoice.id : null;
+        updateData.outboundInvoiceId = invoice.type === 'OUTBOUND' ? invoice.id : null;
+      }
+      delete updateData.inboundInvoicePublicId;
+      delete updateData.outboundInvoicePublicId;
+
       const updated = await tx.voucher.update({
         where: { userId_voucherCode: { userId, voucherCode } },
-        data: {
-          ...updateVoucherDto,
-        },
+        data: updateData,
         include: {
           inboundInvoice: {
             select: { publicId: true, invoiceNo: true },
@@ -559,11 +626,17 @@ export class VouchersService {
             categoryId: existing.categoryId,
           }),
           ...(updateVoucherDto.content && { content: existing.content }),
-          ...(updateVoucherDto.isDeductibleExpense && {
+          ...(updateVoucherDto.isDeductibleExpense !== undefined && {
             isDeductibleExpense: existing.isDeductibleExpense,
           }),
           ...(updateVoucherDto.paymentMethod && {
             paymentMethod: existing.paymentMethod,
+          }),
+          ...(updateVoucherDto.voucherType && {
+            voucherType: existing.voucherType,
+          }),
+          ...(updateVoucherDto.amount && {
+            amount: existing.amount,
           }),
         },
         {

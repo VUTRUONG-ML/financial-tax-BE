@@ -122,4 +122,9 @@ Dựa trên tài liệu kế hoạch tích hợp [plan_api_voucher (1).md](file:
 * **Status Mapping:** Hoàn toàn nhất trí với giải pháp Frontend mapper:
   * Trạng thái `ACTIVE` ở BE sẽ được FE map thành `COMPLETED` để hiển thị trên UI.
   * Trạng thái `CANCELED` giữ nguyên là `CANCELED`.
-* **Khóa trường khi chỉnh sửa:** FE cần khóa (disable) các trường `voucherType` (Loại phiếu), `amount` (Số tiền), và các liên kết hóa đơn (`inboundInvoicePublicId` / `outboundInvoicePublicId`) trên Form chỉnh sửa phiếu để tránh sai lệch kế toán.
+* **Khóa các trường khi chỉnh sửa phiếu (Update Validation):**
+  * **Trường hợp Phiếu đã liên kết hóa đơn** (khi `inboundInvoiceId !== null` hoặc `outboundInvoiceId !== null`):
+    * Bắt buộc khóa (disable) các trường tránh làm sai lệch đối chiếu thanh toán: `voucherType` (Loại phiếu), `amount` (Số tiền), `inboundInvoicePublicId` (Hóa đơn mua vào), `outboundInvoicePublicId` (Hóa đơn bán ra), và `isDeductibleExpense` (Chi phí hợp lý). Người dùng chỉ được cập nhật các trường thông tin cơ bản (Diễn giải, Danh mục chi phí cùng loại, Phương thức thanh toán, Người liên hệ, Thời gian giao dịch).
+  * **Trường hợp Phiếu chưa liên kết hóa đơn** (chưa thanh toán cho hóa đơn nào):
+    * Cho phép sửa đổi toàn bộ các trường, kể cả `voucherType`, `amount`, `isDeductibleExpense`, và các liên kết hóa đơn.
+    * Đặc biệt: Nếu phiếu chi được đánh dấu là chi phí giảm trừ thuế (`isDeductibleExpense: true`) nhưng **chưa thực hiện liên kết** với hóa đơn mua vào nào, hệ thống **vẫn cho phép lưu trữ và chỉnh sửa toàn bộ bình thường** chứ không chặn lỗi thiếu hóa đơn (`MISSING_INBOUND_INVOICE_DEDUCT` chỉ kiểm soát khi có hành vi liên kết thực tế).

@@ -249,13 +249,19 @@ export class AccountingBooksService {
     const taxGroupId = taxConfig.taxGroupId;
 
     if (taxGroupId === 1) {
-      rows = plainToInstance(S1ARowDto, mappedInvoices);
+      rows = plainToInstance(S1ARowDto, mappedInvoices, {
+        excludeExtraneousValues: true,
+      });
       activeBookKey = 'S1a-HKD';
     } else if (taxGroupId === 2) {
-      rows = plainToInstance(S2ARowDto, mappedInvoices);
+      rows = plainToInstance(S2ARowDto, mappedInvoices, {
+        excludeExtraneousValues: true,
+      });
       activeBookKey = 'S2a-HKD';
     } else {
-      rows = plainToInstance(S2BRowDto, mappedInvoices);
+      rows = plainToInstance(S2BRowDto, mappedInvoices, {
+        excludeExtraneousValues: true,
+      });
       activeBookKey = 'S2b-HKD';
     }
 
@@ -1308,6 +1314,13 @@ export class AccountingBooksService {
     let rawRows = records.map((r) => ({
       ...r,
       Dien_Giai: TRANSLATION_MAP[r.flow_type] || r.flow_type,
+      So_Luong_Nhap: Number(r.So_Luong_Nhap || 0),
+      Don_Gia_Nhap: Number(r.Don_Gia_Nhap || 0),
+      Thanh_Tien_Nhap: Number(r.Thanh_Tien_Nhap || 0),
+      So_Luong_Xuat: Number(r.So_Luong_Xuat || 0),
+      Don_Gia_Xuat: Number(r.Don_Gia_Xuat || 0),
+      Thanh_Tien_Xuat: Number(r.Thanh_Tien_Xuat || 0),
+      So_Luong_Ton: Number(r.So_Luong_Ton || 0),
     }));
 
     // TỐI ƯU CƠ CHẾ INJECT VIRTUAL ROW

@@ -67,12 +67,12 @@ export class VouchersController {
     return { message: 'Voucher summary retrieved successfully', data };
   }
 
-  @Get(':orderCode')
+  @Get(':voucherCode')
   async findOne(
     @CurrentUser('id') userId: string,
-    @Param('orderCode') orderCode: string,
+    @Param('voucherCode') voucherCode: string,
   ) {
-    const data = await this.vouchersService.findOne(userId, orderCode);
+    const data = await this.vouchersService.findOne(userId, voucherCode);
     return { message: 'Voucher details retrieved successfully', data };
   }
 

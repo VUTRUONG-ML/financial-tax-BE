@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { InternalProductionOrdersService } from './internal-production-orders.service';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
+import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
+import { GetProductionOrdersQueryDto } from './dto/get-production-orders-query.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
@@ -61,18 +63,58 @@ export class InternalProductionOrdersController {
     };
   }
 
+  @Get('summary')
+  async getSummary(@CurrentUser('id') userId: string) {
+    const result = await this.internalProductionOrdersService.getSummary(userId);
+    return {
+      message: 'Production orders summary retrieved successfully',
+      data: result,
+    };
+  }
+
+  @Get(':orderCode')
+  async findOne(
+    @CurrentUser('id') userId: string,
+    @Param('orderCode') orderCode: string,
+  ) {
+    const result = await this.internalProductionOrdersService.findOne(
+      userId,
+      orderCode,
+    );
+    return {
+      message: 'Internal production order details retrieved successfully',
+      data: result,
+    };
+  }
+
+  @Patch(':orderCode')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async update(
+    @CurrentUser('id') userId: string,
+    @Param('orderCode') orderCode: string,
+    @Body() updateDto: UpdateProductionOrderDto,
+  ) {
+    const result = await this.internalProductionOrdersService.update(
+      userId,
+      orderCode,
+      updateDto,
+    );
+    return {
+      message: 'Internal production order updated successfully',
+      data: result,
+    };
+  }
+
   @Get()
   async findAll(
     @CurrentUser('id') userId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() query: GetProductionOrdersQueryDto,
   ) {
-    const pageNumber = page ? parseInt(page, 10) : 1;
-    const limitNumber = limit ? parseInt(limit, 10) : 20;
     const result = await this.internalProductionOrdersService.findAll(
       userId,
-      pageNumber,
-      limitNumber,
+      query,
     );
     return {
       message: 'Internal production orders retrieved successfully',

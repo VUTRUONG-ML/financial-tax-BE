@@ -1302,7 +1302,7 @@ None
 
 ### 4.3. Get Voucher Details
 
-- **Route:** `/vouchers/:orderCode`
+- **Route:** `/vouchers/:voucherCode`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
@@ -1358,11 +1358,15 @@ None
   "content": "string (Optional)",
   "paymentMethod": "\"CASH\" | \"BANK\" (Optional)",
   "contactName": "string (Optional)",
-  "isDeductibleExpense": "boolean (Optional)"
+  "isDeductibleExpense": "boolean (Optional)",
+  "voucherType": "\"RECEIPT\" | \"PAYMENT\" (Optional)",
+  "amount": "number (Optional)",
+  "inboundInvoicePublicId": "string (Optional)",
+  "outboundInvoicePublicId": "string (Optional)"
 }
 ```
 
-_(Note: Fields like `voucherType`, `amount`, and `invoicePublicId` cannot be updated)._
+_(Note: If the voucher is already linked to an inbound or outbound invoice, updating 'voucherType', 'amount', 'inboundInvoicePublicId', 'outboundInvoicePublicId', or 'isDeductibleExpense' is locked. If the voucher is not linked, all fields can be updated freely)._
 
 #### Response Data (JSON)
 
@@ -2239,6 +2243,8 @@ None
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
+- `status`: `string (Optional, filter status e.g. "ACTIVE" | "CANCELED" | "COMPLETED")`
+- `type`: `string (Optional, alias for status)`
 
 #### Request Body
 
@@ -2251,12 +2257,13 @@ None
   "success": true,
   "statusCode": 200,
   "timestamp": "Date string",
-  "message": "Get all production order success.",
+  "message": "Internal production orders retrieved successfully",
   "data": [
     {
       "orderCode": "string",
       "notes": "string | null",
       "status": "\"ACTIVE\" | \"CANCELED\"",
+      "transactionAt": "Date string",
       "createdAt": "Date string",
       "details": [
         {
@@ -2274,6 +2281,120 @@ None
     "total": "number",
     "page": "number",
     "lastPage": "number"
+  }
+}
+```
+
+### 11.4. Get Production Orders Summary
+
+- **Route:** `/internal-production-orders/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Production orders summary retrieved successfully",
+  "data": {
+    "totalOrders": 10,
+    "completedOrders": 8,
+    "canceledOrders": 2
+  }
+}
+```
+
+### 11.5. Get Production Order Details
+
+- **Route:** `/internal-production-orders/:orderCode`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Internal production order details retrieved successfully",
+  "data": {
+    "orderCode": "string",
+    "notes": "string | null",
+    "status": "\"ACTIVE\" | \"CANCELED\"",
+    "transactionAt": "Date string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+        "quantity": "number",
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string"
+      }
+    ]
+  }
+}
+```
+
+### 11.6. Update Production Order
+
+- **Route:** `/internal-production-orders/:orderCode`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "notes": "string (Optional)",
+  "transactionAt": "Date string (Optional)",
+  "details": [
+    {
+      "productPublicId": "string",
+      "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+      "quantity": "number"
+    }
+  ]
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Internal production order updated successfully",
+  "data": {
+    "orderCode": "string",
+    "notes": "string | null",
+    "status": "\"ACTIVE\" | \"CANCELED\"",
+    "transactionAt": "Date string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+        "quantity": "number",
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string"
+      }
+    ]
   }
 }
 ```

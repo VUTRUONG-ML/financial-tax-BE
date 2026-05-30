@@ -11,15 +11,22 @@ import {
 } from '../core/audit-log/audit-log.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
+import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
+import { GetProductionOrdersQueryDto } from './dto/get-production-orders-query.dto';
 import { generateMonthlySequenceCode } from '../common/utils/code-generator.util';
 import {
   LOG_ACTIONS,
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
-import { ProductionStatus, ProductType } from '@prisma/client';
+import {
+  ProductionStatus,
+  ProductType,
+  ProductionTransactionType,
+  Prisma,
+} from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { ProductionOrderResponseDto } from './dto/response-production.dto';
-import { ProductionTransactionType } from '@prisma/client';
+
 @Injectable()
 export class InternalProductionOrdersService {
   private readonly log = new AppLogger(InternalProductionOrdersService.name);
@@ -244,9 +251,7 @@ export class InternalProductionOrdersService {
         include: {
           details: {
             include: {
-              product: {
-                select: { productName: true },
-              },
+              product: true,
             },
           },
         },
@@ -260,7 +265,7 @@ export class InternalProductionOrdersService {
         });
         throw new NotFoundException('Product order not found.');
       }
-      if (current.status === 'CANCELED') {
+      if (current.status === ProductionStatus.CANCELED) {
         this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
           status: LOG_STATUS.FAILED,
           reason: 'PRODUCT_ORDER_CANCELED',
@@ -270,83 +275,456 @@ export class InternalProductionOrdersService {
         throw new BadRequestException('Product order cancelled.');
       }
 
-      const result = await tx.internalProductionOrder.updateMany({
-        where: { userId, orderCode, status: 'ACTIVE' },
-        data: { status: 'CANCELED' },
-      });
-      if (result.count === 0) {
-        // race condition
-        this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
-          status: LOG_STATUS.FAILED,
-          reason: 'RACE_CONDITION',
-          userId,
-          orderCode,
-        });
-        throw new BadRequestException('Product order not found or canceled.');
-      }
-      const details = current.details;
-      const groupQuantity = details.reduce(
-        (acc, item) => {
-          if (!acc[item.productId]) {
-            acc[item.productId] = {
-              quantity: 0,
-              transactionType: item.transactionType,
-            };
-          }
-          acc[item.productId].quantity =
-            (acc[item.productId].quantity || 0) + item.quantity;
-          return acc;
-        },
-        {} as Record<
-          number,
-          { quantity: number; transactionType: ProductionTransactionType }
-        >,
-      );
-      // refund raw_material and deduct good_finished
-      for (const [productId, item] of Object.entries(groupQuantity)) {
-        if (item.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
-          await tx.product.updateMany({
-            where: { id: Number(productId) },
-            data: { currentStock: { increment: item.quantity } },
-          });
+      // Compute raw material value and finished product quantity from current details
+      let oldRawMaterialValue = 0;
+      let oldFinishedQty = 0;
+
+      for (const d of current.details) {
+        if (d.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+          const unitCost = Number(d.product.openingStockUnitCost || 0);
+          oldRawMaterialValue += d.quantity * unitCost;
+        } else if (d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+          oldFinishedQty += d.quantity;
         }
-        if (item.transactionType === 'RECEIVE_PRODUCT') {
-          const updatedReceive = await tx.product.updateMany({
-            where: {
-              id: Number(productId),
-              currentStock: { gte: item.quantity },
-            },
-            data: { currentStock: { decrement: item.quantity } },
+      }
+
+      const oldFinishedUnitCost = oldFinishedQty > 0
+        ? oldRawMaterialValue / oldFinishedQty
+        : 0;
+
+      // 1. Revert finished goods (deduct stock and revert average cost)
+      for (const d of current.details) {
+        if (d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+          const product = await tx.product.findUnique({
+            where: { id: d.productId },
           });
-          if (updatedReceive.count === 0) {
+          if (!product) throw new NotFoundException(`Product ${d.productId} not found.`);
+
+          // Check if sufficient stock to deduct
+          if (product.currentStock < d.quantity) {
             this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
               status: LOG_STATUS.FAILED,
               reason: 'PRODUCT_OUT_OF_STOCK',
               userId,
-              productId: productId,
+              productId: d.productId,
             });
             throw new BadRequestException(
-              `Some of product is not sufficient for deduction. `,
+              `Cannot cancel order because product ${product.productName} has insufficient stock to revert the finished goods. Current stock is ${product.currentStock}.`,
             );
           }
+
+          const revertedStock = product.currentStock - d.quantity;
+          let revertedCost = Number(product.openingStockUnitCost || 0);
+
+          if (revertedStock > 0) {
+            revertedCost = ((product.currentStock * Number(product.openingStockUnitCost || 0)) - (d.quantity * oldFinishedUnitCost)) / revertedStock;
+          }
+
+          await tx.product.update({
+            where: { id: product.id },
+            data: {
+              currentStock: revertedStock,
+              openingStockUnitCost: revertedCost,
+            },
+          });
         }
       }
 
-      return mapToDto(ProductionOrderResponseDto, {
-        ...current,
-        status: ProductionStatus.CANCELED,
+      // 2. Revert raw materials (refund stock)
+      for (const d of current.details) {
+        if (d.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+          const product = await tx.product.findUnique({
+            where: { id: d.productId },
+          });
+          if (!product) throw new NotFoundException(`Product ${d.productId} not found.`);
+
+          await tx.product.update({
+            where: { id: product.id },
+            data: {
+              currentStock: product.currentStock + d.quantity,
+            },
+          });
+        }
+      }
+
+      // 3. Mark the production order as canceled
+      const updatedOrder = await tx.internalProductionOrder.update({
+        where: { id: current.id },
+        data: { status: ProductionStatus.CANCELED },
+        include: {
+          details: {
+            include: {
+              product: {
+                select: { publicId: true, skuCode: true, productName: true },
+              },
+            },
+          },
+        },
       });
+
+      // 4. Audit Log the change
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.internal_production_orders,
+        current.id,
+        current,
+        updatedOrder,
+      );
+
+      return mapToDto(ProductionOrderResponseDto, updatedOrder);
     });
   }
 
-  async findAll(userId: string, page: number = 1, limit: number = 20) {
-    const skip = (page - 1) * limit;
-    const [total, data] = await Promise.all([
+  async findOne(userId: string, orderCode: string) {
+    const order = await this.prisma.internalProductionOrder.findUnique({
+      where: { userId_orderCode: { userId, orderCode } },
+      include: {
+        details: {
+          include: {
+            product: {
+              select: { publicId: true, skuCode: true, productName: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Product order not found.');
+    }
+
+    return mapToDto(ProductionOrderResponseDto, order);
+  }
+
+  async getSummary(userId: string) {
+    const [totalOrders, completedOrders, canceledOrders] = await Promise.all([
       this.prisma.internalProductionOrder.count({
         where: { userId },
       }),
+      this.prisma.internalProductionOrder.count({
+        where: { userId, status: ProductionStatus.ACTIVE },
+      }),
+      this.prisma.internalProductionOrder.count({
+        where: { userId, status: ProductionStatus.CANCELED },
+      }),
+    ]);
+
+    return {
+      totalOrders,
+      completedOrders,
+      canceledOrders,
+    };
+  }
+
+  async update(
+    userId: string,
+    orderCode: string,
+    updateDto: UpdateProductionOrderDto,
+  ) {
+    return await this.prisma.$transaction(
+      async (tx) => {
+        // Lock user row
+        await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+
+        const existing = await tx.internalProductionOrder.findUnique({
+          where: { userId_orderCode: { userId, orderCode } },
+          include: {
+            details: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        });
+
+        if (!existing) {
+          throw new NotFoundException('Product order not found.');
+        }
+
+        if (existing.status === ProductionStatus.CANCELED) {
+          throw new BadRequestException('Cannot update a canceled production order.');
+        }
+
+        // If details are provided, perform the revert and apply logic
+        if (updateDto.details) {
+          // 1. REVERT: Revert old details' stock and costing changes
+          const oldDetails = existing.details;
+
+          // 1.1 Compute raw material values in the old details
+          let oldRawMaterialValue = 0;
+          let oldFinishedQty = 0;
+
+          for (const d of oldDetails) {
+            if (d.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+              const unitCost = Number(d.product.openingStockUnitCost || 0);
+              oldRawMaterialValue += d.quantity * unitCost;
+            } else if (d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+              oldFinishedQty += d.quantity;
+            }
+          }
+
+          const oldFinishedUnitCost = oldFinishedQty > 0
+            ? oldRawMaterialValue / oldFinishedQty
+            : 0;
+
+          // 1.2 Revert finished goods
+          for (const d of oldDetails) {
+            if (d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+              const product = await tx.product.findUnique({
+                where: { id: d.productId },
+              });
+              if (!product) throw new NotFoundException(`Product ${d.productId} not found.`);
+
+              // Check if sufficient stock to deduct
+              if (product.currentStock < d.quantity) {
+                throw new BadRequestException(
+                  `Cannot update order because product ${product.productName} has insufficient stock to revert the old finished goods. Current stock is ${product.currentStock}.`,
+                );
+              }
+
+              const revertedStock = product.currentStock - d.quantity;
+              let revertedCost = Number(product.openingStockUnitCost || 0);
+
+              if (revertedStock > 0) {
+                revertedCost = ((product.currentStock * Number(product.openingStockUnitCost || 0)) - (d.quantity * oldFinishedUnitCost)) / revertedStock;
+              }
+
+              await tx.product.update({
+                where: { id: product.id },
+                data: {
+                  currentStock: revertedStock,
+                  openingStockUnitCost: revertedCost,
+                },
+              });
+            }
+          }
+
+          // 1.3 Revert raw materials
+          for (const d of oldDetails) {
+            if (d.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+              const product = await tx.product.findUnique({
+                where: { id: d.productId },
+              });
+              if (!product) throw new NotFoundException(`Product ${d.productId} not found.`);
+
+              await tx.product.update({
+                where: { id: product.id },
+                data: {
+                  currentStock: product.currentStock + d.quantity,
+                },
+              });
+            }
+          }
+
+          // 2. APPLY: Validate and apply new details
+          const newProductPublicIds = updateDto.details.map((d) => d.productPublicId);
+          const newProducts = await tx.product.findMany({
+            where: { publicId: { in: newProductPublicIds } },
+          });
+          const newProductsMap = new Map(newProducts.map((p) => [p.publicId, p]));
+
+          if (newProducts.length !== newProductPublicIds.length) {
+            throw new NotFoundException('One or more products in the new details not found.');
+          }
+
+          // Check if user owns all new products and validate types/stocks
+          let newFinishedCount = 0;
+          let newRawCount = 0;
+
+          for (const detail of updateDto.details) {
+            const product = newProductsMap.get(detail.productPublicId)!;
+
+            if (product.userId !== userId) {
+              throw new ForbiddenException(
+                `You do not have access to product: ${product.productName}`,
+              );
+            }
+
+            if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+              if (product.productType !== ProductType.RAW_MATERIAL) {
+                throw new BadRequestException(
+                  `Product ${product.productName} must be a RAW_MATERIAL to issue.`,
+                );
+              }
+              if (product.currentStock < detail.quantity) {
+                throw new BadRequestException(
+                  `Insufficient stock for product: ${product.productName}. Current stock is ${product.currentStock}.`,
+                );
+              }
+              newRawCount++;
+            }
+
+            if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+              if (product.productType !== ProductType.FINISHED_GOOD) {
+                throw new BadRequestException(
+                  `Product ${product.productName} must be a FINISHED_GOOD to receive.`,
+                );
+              }
+              newFinishedCount++;
+            }
+          }
+
+          if (!newRawCount || !newFinishedCount) {
+            throw new BadRequestException(
+              'Finished products and raw materials are required in the new details.',
+            );
+          }
+
+          // Calculate new raw material values
+          let newRawMaterialValue = 0;
+          for (const detail of updateDto.details) {
+            if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+              const product = newProductsMap.get(detail.productPublicId)!;
+              const unitCost = Number(product.openingStockUnitCost || 0);
+              newRawMaterialValue += detail.quantity * unitCost;
+            }
+          }
+
+          let newFinishedQty = 0;
+          for (const detail of updateDto.details) {
+            if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+              newFinishedQty += detail.quantity;
+            }
+          }
+
+          const newFinishedUnitCost = newFinishedQty > 0
+            ? newRawMaterialValue / newFinishedQty
+            : 0;
+
+          // Apply raw material stock deductions
+          for (const detail of updateDto.details) {
+            const product = newProductsMap.get(detail.productPublicId)!;
+            if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
+              const updated = await tx.product.updateMany({
+                where: { id: product.id, currentStock: { gte: detail.quantity } },
+                data: { currentStock: { decrement: detail.quantity } },
+              });
+              if (updated.count === 0) {
+                throw new BadRequestException(
+                  `Insufficient stock for product: ${product.productName}.`,
+                );
+              }
+            }
+          }
+
+          // Apply finished goods stock and cost additions
+          for (const detail of updateDto.details) {
+            const product = newProductsMap.get(detail.productPublicId)!;
+            if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
+              const oldStock = product.currentStock;
+              const oldUnitCost = Number(product.openingStockUnitCost || 0);
+              const newStock = oldStock + detail.quantity;
+
+              let newUnitCost = oldUnitCost;
+              if (newStock > 0) {
+                newUnitCost = ((oldStock * oldUnitCost) + (detail.quantity * newFinishedUnitCost)) / newStock;
+              }
+
+              await tx.product.update({
+                where: { id: product.id },
+                data: {
+                  currentStock: newStock,
+                  openingStockUnitCost: newUnitCost,
+                },
+              });
+            }
+          }
+
+          // Replace details: delete old, create new
+          await tx.productionDetail.deleteMany({
+            where: { orderId: existing.id },
+          });
+
+          await tx.productionDetail.createMany({
+            data: updateDto.details.map((detail) => {
+              const product = newProductsMap.get(detail.productPublicId)!;
+              return {
+                orderId: existing.id,
+                productId: product.id,
+                transactionType: detail.transactionType,
+                quantity: detail.quantity,
+              };
+            }),
+          });
+        }
+
+        // Update the order itself (notes, transactionAt)
+        const updateOrderData: Prisma.InternalProductionOrderUpdateInput = {};
+        if (updateDto.notes !== undefined) {
+          updateOrderData.notes = updateDto.notes;
+        }
+        if (updateDto.transactionAt !== undefined) {
+          updateOrderData.transactionAt = new Date(updateDto.transactionAt);
+        }
+
+        const updatedOrder = await tx.internalProductionOrder.update({
+          where: { id: existing.id },
+          data: updateOrderData,
+          include: {
+            details: {
+              include: {
+                product: {
+                  select: { publicId: true, skuCode: true, productName: true },
+                },
+              },
+            },
+          },
+        });
+
+        // Audit Log the update
+        await this.auditLog.logChange(
+          tx,
+          userId,
+          'UPDATE',
+          tableWrite.internal_production_orders,
+          existing.id,
+          existing,
+          updatedOrder,
+        );
+
+        return updatedOrder;
+      },
+      {
+        maxWait: 5000,
+        timeout: 15000,
+      },
+    );
+
+    this.log.log(LOG_ACTIONS.UPDATE_PRODUCTION_ORDER, {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      orderCode,
+    });
+  }
+
+  async findAll(userId: string, queryDto: GetProductionOrdersQueryDto) {
+    const page = queryDto.page ?? 1;
+    const limit = queryDto.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const statusQuery = queryDto.status || queryDto.type;
+    let statusFilter: ProductionStatus | undefined = undefined;
+
+    if (statusQuery) {
+      const upper = statusQuery.toUpperCase();
+      if (upper === 'ACTIVE' || upper === 'COMPLETED' || upper === 'HOÀN TẤT' || upper === 'HOAN TAT') {
+        statusFilter = ProductionStatus.ACTIVE;
+      } else if (upper === 'CANCELED' || upper === 'CANCELLED' || upper === 'ĐÃ HỦY' || upper === 'DA HUY') {
+        statusFilter = ProductionStatus.CANCELED;
+      }
+    }
+
+    const where: Prisma.InternalProductionOrderWhereInput = {
+      userId,
+      ...(statusFilter && { status: statusFilter }),
+    };
+
+    const [total, data] = await Promise.all([
+      this.prisma.internalProductionOrder.count({ where }),
       this.prisma.internalProductionOrder.findMany({
-        where: { userId },
+        where,
         take: limit,
         skip,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -361,12 +739,13 @@ export class InternalProductionOrdersService {
         },
       }),
     ]);
+
     return {
       data: mapToDto(ProductionOrderResponseDto, data),
       meta: {
         total,
         page,
-        lastPage: Math.ceil(total / limit),
+        lastPage: Math.ceil(total / limit) || 1,
       },
     };
   }

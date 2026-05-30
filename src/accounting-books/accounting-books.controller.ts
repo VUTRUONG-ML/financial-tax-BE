@@ -23,9 +23,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getRevenueBookSummary(
@@ -49,9 +49,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getRevenueBookRecords(
@@ -78,9 +78,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getCashFlowBookSummary(
@@ -104,9 +104,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getCashFlowBookRecords(
@@ -134,9 +134,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getExpenseBookSummary(
@@ -160,9 +160,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getExpenseBookRecords(
@@ -189,9 +189,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getInventoryBookSummary(
@@ -216,9 +216,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getInventoryBookRecords(
