@@ -24,5 +24,4 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./
 
 EXPOSE 3000
-# Deploy migration trước khi start để đảm bảo schema mới nhất (như Module C3 em vừa làm) [cite: 484, 506]
 CMD ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm db:seed && pnpm start:prod"]
