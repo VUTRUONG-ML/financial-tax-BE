@@ -96,16 +96,16 @@ import { apiCall } from '../lib/http-client';
 import type { InternalProductionOrder } from '../types/invoice';
 import { getProducts } from './master.service';
 
-export interface ProductionDetailPayload {
+export interface ProductionItemPayload {
   productPublicId: string;
-  transactionType: 'ISSUE_MATERIAL' | 'RECEIVE_PRODUCT';
   quantity: number;
 }
 
 export interface SaveProductionOrderPayload {
   notes?: string;
   transactionAt: string;
-  details: ProductionDetailPayload[];
+  materials: ProductionItemPayload[];
+  products: ProductionItemPayload[];
 }
 
 /**

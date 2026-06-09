@@ -121,8 +121,6 @@ export class ProductsService {
       const upper = productType.toUpperCase();
       if (upper === 'FINISHED_GOOD' || upper === 'FINISH_GOOD') {
         mappedType = 'FINISHED_GOOD';
-      } else if (upper === 'RAW_MATERIAL' || upper === 'RAW_METARIAL') {
-        mappedType = 'RAW_MATERIAL';
       } else if (upper === 'SERVICE') {
         mappedType = 'SERVICE';
       } else {
@@ -265,14 +263,11 @@ export class ProductsService {
     });
 
     let finished_good = 0;
-    let raw_material = 0;
     let service = 0;
 
     for (const item of counts) {
       if (item.productType === 'FINISHED_GOOD') {
         finished_good = item._count.id;
-      } else if (item.productType === 'RAW_MATERIAL') {
-        raw_material = item._count.id;
       } else if (item.productType === 'SERVICE') {
         service = item._count.id;
       }
@@ -303,7 +298,7 @@ export class ProductsService {
       tong_san_pham,
       tong_san_pham_phan_loai: {
         FINISHED_GOOD: finished_good,
-        RAW_MATERIAL: raw_material,
+        RAW_MATERIAL: 0,
         SERVICE: service,
       },
       tong_gia_tri_ton_kho,

@@ -209,7 +209,6 @@ model Product {
 
 enum ProductType {
   FINISHED_GOOD
-  RAW_MATERIAL
   SERVICE
 }
 
@@ -267,7 +266,7 @@ model Invoice {
   cqtCode String? @map("cqt_code")
 
   // Ngày phát hành hóa đơn (thay thế transactionDate và issuedAt)
-  issueDate DateTime @default(now()) @map("issue_date")
+  issueDate DateTime @default(now()) @map("issue_date") @db.Timestamptz(3)
 
   @@index([userId, issueDate, status])
   @@map("invoices")
@@ -310,7 +309,7 @@ model InboundInvoice {
   sellerName    String   @map("seller_name")
   sellerTaxCode String?  @map("seller_tax_code")
   invoiceNo     String   @map("invoice_no") // Số hóa đơn của người bán
-  issueDate     DateTime @map("issue_date") // Ngày xuất trên hóa đơn
+  issueDate     DateTime @map("issue_date") @db.Timestamptz(3) // Ngày xuất trên hóa đơn
 
   totalAmount   Decimal              @map("total_amount") @db.Decimal(18, 4)
   attachmentUrl String?              @map("attachment_url") @db.Text

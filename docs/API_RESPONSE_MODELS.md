@@ -106,7 +106,7 @@ This document describes the request and response data structures of the core API
 {
   "file": "Binary File (Image) - Optional",
   "productName": "string",
-  "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\"",
+  "productType": "\"FINISHED_GOOD\" | \"SERVICE\"",
   "skuCode": "string (Optional)",
   "unit": "string",
   "sellingPrice": "number",
@@ -127,7 +127,7 @@ This document describes the request and response data structures of the core API
     "publicId": "string",
     "skuCode": "string",
     "productName": "string",
-    "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\"",
+    "productType": "\"FINISHED_GOOD\" | \"SERVICE\"",
     "unit": "string",
     "imageUrl": "string",
     "currentStock": "number",
@@ -151,7 +151,7 @@ This document describes the request and response data structures of the core API
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
-- `productType`: `"FINISHED_GOOD" | "RAW_MATERIAL" | "SERVICE" (Optional) (Backend also tolerates common spelling variations like "FINISH_GOOD" or "RAW_METARIAL")`
+- `productType`: `"FINISHED_GOOD" | "SERVICE" (Optional) (Backend also tolerates finish_good spelling variation)`
 
 #### Request Body
 
@@ -170,7 +170,7 @@ None
       "publicId": "string",
       "skuCode": "string",
       "productName": "string",
-      "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\"",
+      "productType": "\"FINISHED_GOOD\" | \"SERVICE\"",
       "unit": "string",
       "imageUrl": "string",
       "currentStock": "number",
@@ -211,7 +211,7 @@ None
     "publicId": "string",
     "skuCode": "string",
     "productName": "string",
-    "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\"",
+    "productType": "\"FINISHED_GOOD\" | \"SERVICE\"",
     "unit": "string",
     "imageUrl": "string",
     "currentStock": "number",
@@ -238,7 +238,7 @@ None
 {
   "file": "Binary File (Image) - Optional",
   "productName": "string (Optional)",
-  "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\" (Optional)",
+  "productType": "\"FINISHED_GOOD\" | \"SERVICE\" (Optional)",
   "skuCode": "string (Optional)",
   "unit": "string (Optional)",
   "sellingPrice": "number (Optional)",
@@ -259,7 +259,7 @@ None
     "publicId": "string",
     "skuCode": "string",
     "productName": "string",
-    "productType": "\"FINISHED_GOOD\" | \"RAW_MATERIAL\" | \"SERVICE\"",
+    "productType": "\"FINISHED_GOOD\" | \"SERVICE\"",
     "unit": "string",
     "imageUrl": "string",
     "currentStock": "number",
@@ -322,7 +322,7 @@ None
     "tong_san_pham": "number",
     "tong_san_pham_phan_loai": {
       "FINISHED_GOOD": "number",
-      "RAW_MATERIAL": "number",
+      "RAW_MATERIAL": "0 (Deprecated / Always 0)",
       "SERVICE": "number"
     },
     "tong_gia_tri_ton_kho": "number",
@@ -2155,10 +2155,15 @@ None
 {
   "notes": "string (Optional)",
   "transactionAt": "Date string",
-  "details": [
+  "materials": [
     {
       "productPublicId": "string",
-      "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+      "quantity": "number"
+    }
+  ],
+  "products": [
+    {
+      "productPublicId": "string",
       "quantity": "number"
     }
   ]
@@ -2361,10 +2366,15 @@ None
 {
   "notes": "string (Optional)",
   "transactionAt": "Date string (Optional)",
-  "details": [
+  "materials": [
     {
       "productPublicId": "string",
-      "transactionType": "\"ISSUE_MATERIAL\" | \"RECEIVE_PRODUCT\"",
+      "quantity": "number"
+    }
+  ],
+  "products": [
+    {
+      "productPublicId": "string",
       "quantity": "number"
     }
   ]

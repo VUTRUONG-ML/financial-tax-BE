@@ -1273,7 +1273,16 @@ export class AccountingBooksService {
           p.unit AS "Unit",
           SUM(t."So_Luong_Nhap" - t."So_Luong_Xuat") OVER (
             PARTITION BY t."Product_Id" 
-            ORDER BY t."Ngay_Chung_Tu" ASC, t.flow_type ASC, t.detail_id ASC
+            ORDER BY 
+              t."Ngay_Chung_Tu" ASC, 
+              CASE t.flow_type 
+                WHEN 'TX_INBOUND' THEN 1 
+                WHEN 'TX_PROD_RECEIVE' THEN 2 
+                WHEN 'TX_PROD_ISSUE' THEN 3 
+                WHEN 'TX_OUTBOUND' THEN 4 
+                ELSE 5 
+              END ASC,
+              t.detail_id ASC
           ) AS running_balance_in_period,
           COUNT(*) OVER () AS total_count
         FROM transactions t
@@ -1297,7 +1306,17 @@ export class AccountingBooksService {
         rb.total_count
       FROM running_balances rb
       LEFT JOIN opening_balances ob ON rb."Product_Id" = ob.product_id
-      ORDER BY rb."Product_Id" ASC, rb."Ngay_Chung_Tu" ASC, rb.flow_type ASC, rb.detail_id ASC
+      ORDER BY 
+        rb."Product_Id" ASC, 
+        rb."Ngay_Chung_Tu" ASC, 
+        CASE rb.flow_type 
+          WHEN 'TX_INBOUND' THEN 1 
+          WHEN 'TX_PROD_RECEIVE' THEN 2 
+          WHEN 'TX_PROD_ISSUE' THEN 3 
+          WHEN 'TX_OUTBOUND' THEN 4 
+          ELSE 5 
+        END ASC,
+        rb.detail_id ASC
       LIMIT ${limitVal} OFFSET ${offsetVal}
     `;
 

@@ -104,7 +104,7 @@ Trả về các chỉ số thống kê kho hàng tổng hợp của hộ kinh do
     "tong_san_pham": 42,
     "tong_san_pham_phan_loai": {
       "FINISHED_GOOD": 25,
-      "RAW_MATERIAL": 12,
+      "RAW_MATERIAL": 0,
       "SERVICE": 5
     },
     "tong_gia_tri_ton_kho": 125000000.5,
@@ -116,7 +116,7 @@ Trả về các chỉ số thống kê kho hàng tổng hợp của hộ kinh do
 
 #### Ý nghĩa các trường dữ liệu:
 1. `tong_san_pham`: Tổng số lượng tất cả sản phẩm của user hiện tại.
-2. `tong_san_pham_phan_loai`: Số lượng sản phẩm được chia nhóm theo phân loại (`FINISHED_GOOD`, `RAW_MATERIAL`, `SERVICE`).
+2. `tong_san_pham_phan_loai`: Số lượng sản phẩm được chia nhóm theo phân loại (`FINISHED_GOOD`, `SERVICE` - `RAW_MATERIAL` hiện đã bị loại bỏ và luôn trả về `0`).
 3. `tong_gia_tri_ton_kho`: Tổng giá trị tồn kho hiện thời của các sản phẩm vật lý (Tính bằng công thức: $\sum (\text{currentStock} \times \text{openingStockUnitCost})$ cho toàn bộ sản phẩm **không phải** `SERVICE`).
 4. `sap_het_hang`: Tổng số lượng sản phẩm vật lý đang ở mức báo động (Số lượng tồn kho `currentStock < 15`, loại trừ `SERVICE`).
 
@@ -131,7 +131,7 @@ Endpoint này đã được cập nhật thêm bộ lọc theo phân loại sả
 * **Query Parameters:**
   * `page` (Optional): Số trang hiện tại (Default: `1`).
   * `limit` (Optional): Số phần tử trên một trang (Default: `20`).
-  * `productType` (Optional): Lọc danh sách theo loại sản phẩm. Sử dụng giá trị chuẩn: `FINISHED_GOOD`, `RAW_MATERIAL`, và `SERVICE` (hệ thống hỗ trợ sửa lỗi chính tả nếu vô tình gửi `FINISH_GOOD` hoặc `RAW_METARIAL`).
+  * `productType` (Optional): Lọc danh sách theo loại sản phẩm. Sử dụng giá trị chuẩn: `FINISHED_GOOD` và `SERVICE` (hệ thống hỗ trợ sửa lỗi chính tả nếu vô tình gửi `FINISH_GOOD`).
 * **Response Body (JSON):**
 ```json
 {
@@ -175,7 +175,7 @@ export interface ProductFE {
   id: string;
   sku_code: string;
   product_name: string;
-  product_type: 'FINISHED_GOOD' | 'RAW_MATERIAL' | 'SERVICE';
+  product_type: 'FINISHED_GOOD' | 'SERVICE';
   unit: string;
   image_url: string;
   current_stock: number | null;

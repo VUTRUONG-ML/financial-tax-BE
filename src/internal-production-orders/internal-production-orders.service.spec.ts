@@ -107,6 +107,55 @@ describe('InternalProductionOrdersService', () => {
     });
   });
 
+  describe('create', () => {
+    it('should throw NotFoundException if one or more products do not exist', async () => {
+      jest.spyOn(prisma.product, 'findMany').mockResolvedValue([]);
+      
+      const payload = {
+        materials: [{ productPublicId: 'raw-1', quantity: 10 }],
+        products: [{ productPublicId: 'fin-1', quantity: 2 }],
+      };
+
+      await expect(service.create('user-1', payload)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should throw BadRequestException if a product is a service', async () => {
+      const mockProducts = [
+        { publicId: 'raw-1', userId: 'user-1', productType: 'SERVICE', productName: 'Svc' },
+        { publicId: 'fin-1', userId: 'user-1', productType: 'FINISHED_GOOD', productName: 'Fin' },
+      ];
+      jest.spyOn(prisma.product, 'findMany').mockResolvedValue(mockProducts as any);
+
+      const payload = {
+        materials: [{ productPublicId: 'raw-1', quantity: 10 }],
+        products: [{ productPublicId: 'fin-1', quantity: 2 }],
+      };
+
+      await expect(service.create('user-1', payload)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException if material stock is insufficient', async () => {
+      const mockProducts = [
+        { publicId: 'raw-1', userId: 'user-1', productType: 'FINISHED_GOOD', productName: 'Raw', currentStock: 5 },
+        { publicId: 'fin-1', userId: 'user-1', productType: 'FINISHED_GOOD', productName: 'Fin', currentStock: 0 },
+      ];
+      jest.spyOn(prisma.product, 'findMany').mockResolvedValue(mockProducts as any);
+
+      const payload = {
+        materials: [{ productPublicId: 'raw-1', quantity: 10 }],
+        products: [{ productPublicId: 'fin-1', quantity: 2 }],
+      };
+
+      await expect(service.create('user-1', payload)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
   describe('cancel', () => {
     it('should throw NotFoundException if order does not exist', async () => {
       const mockTx = {

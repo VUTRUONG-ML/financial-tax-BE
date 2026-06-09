@@ -37,70 +37,67 @@ export class InternalProductionOrdersService {
   ) { }
 
   async create(userId: string, createDto: CreateProductionOrderDto) {
-    const productPublicIds = createDto.details.map((d) => d.productPublicId);
+    const materialPublicIds = createDto.materials.map((m) => m.productPublicId);
+    const productPublicIds = createDto.products.map((p) => p.productPublicId);
+    const allPublicIds = Array.from(new Set([...materialPublicIds, ...productPublicIds]));
 
     const products = await this.prisma.product.findMany({
-      where: { publicId: { in: productPublicIds } },
+      where: { publicId: { in: allPublicIds } },
     });
 
     const productsMap = new Map(products.map((p) => [p.publicId, p]));
 
-    if (products.length !== productPublicIds.length) {
+    if (products.length !== allPublicIds.length) {
       throw new NotFoundException('One or more products not found.');
     }
 
-    let countFinish = 0; // Đếm số lượng thành phẩm
-    let countRaw = 0; // Đến số lượng nguyên liệu
     // Validation
-    for (const detail of createDto.details) {
-      const product = productsMap.get(detail.productPublicId);
-
-      if (!product) {
-        throw new NotFoundException(
-          `Product not found: ${detail.productPublicId}`,
-        );
-      }
-
+    for (const mat of createDto.materials) {
+      const product = productsMap.get(mat.productPublicId)!;
       if (product.userId !== userId) {
         throw new ForbiddenException(
           `You do not have access to product: ${product.productName}`,
         );
       }
-
-      if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
-        if (product.productType !== ProductType.RAW_MATERIAL) {
-          throw new BadRequestException(
-            `Product ${product.productName} must be a RAW_MATERIAL to issue.`,
-          );
-        }
-        if (product.currentStock < detail.quantity) {
-          throw new BadRequestException(
-            `Insufficient stock for product: ${product.productName}. Current stock is ${product.currentStock}.`,
-          );
-        }
-        ++countRaw;
+      if (product.productType === ProductType.SERVICE) {
+        throw new BadRequestException(
+          `Product ${product.productName} is a SERVICE and cannot be used as raw material.`,
+        );
       }
-
-      if (
-        detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
-      ) {
-        if (product.productType !== ProductType.FINISHED_GOOD) {
-          throw new BadRequestException(
-            `Product ${product.productName} must be a FINISHED_GOOD to receive.`,
-          );
-        }
-        ++countFinish;
+      if (product.currentStock < mat.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for product: ${product.productName}. Current stock is ${product.currentStock}.`,
+        );
       }
     }
-    if (!countRaw || !countFinish) {
-      this.log.warn(LOG_ACTIONS.CREATE_PRODUCTION_ORDER, {
-        reason: 'FINISH_GOOD_OR_RAW_MATERIAL_EMPTY',
-        userId,
-      });
-      throw new BadRequestException(
-        'Finished products and raw materials are required.',
-      );
+
+    for (const prod of createDto.products) {
+      const product = productsMap.get(prod.productPublicId)!;
+      if (product.userId !== userId) {
+        throw new ForbiddenException(
+          `You do not have access to product: ${product.productName}`,
+        );
+      }
+      if (product.productType === ProductType.SERVICE) {
+        throw new BadRequestException(
+          `Product ${product.productName} is a SERVICE and cannot be produced.`,
+        );
+      }
     }
+
+    // Map input to details array to keep the rest of the costing calculation logic unchanged
+    const details = [
+      ...createDto.materials.map((m) => ({
+        productPublicId: m.productPublicId,
+        transactionType: ProductionTransactionType.ISSUE_MATERIAL,
+        quantity: m.quantity,
+      })),
+      ...createDto.products.map((p) => ({
+        productPublicId: p.productPublicId,
+        transactionType: ProductionTransactionType.RECEIVE_PRODUCT,
+        quantity: p.quantity,
+      })),
+    ];
 
     const result = await this.prisma.$transaction(
       async (tx) => {
@@ -128,7 +125,7 @@ export class InternalProductionOrdersService {
 
         // Auto-Costing: Calculate total raw material value
         let totalRawMaterialValue = 0;
-        for (const detail of createDto.details) {
+        for (const detail of details) {
           if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
             const product = productsMap.get(detail.productPublicId)!;
             const unitCost = Number(product.openingStockUnitCost || 0);
@@ -137,7 +134,7 @@ export class InternalProductionOrdersService {
         }
 
         let totalFinishedQty = 0;
-        for (const detail of createDto.details) {
+        for (const detail of details) {
           if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
             totalFinishedQty += detail.quantity;
           }
@@ -148,7 +145,7 @@ export class InternalProductionOrdersService {
           : 0;
 
         // Deduct/Increment stocks and update costing
-        for (const detail of createDto.details) {
+        for (const detail of details) {
           const product = productsMap.get(detail.productPublicId)!;
 
           if (
@@ -195,7 +192,7 @@ export class InternalProductionOrdersService {
               ? new Date(createDto.transactionAt)
               : new Date(),
             details: {
-              create: createDto.details.map((detail) => {
+              create: details.map((detail) => {
                 const product = productsMap.get(detail.productPublicId)!;
                 return {
                   productId: product.id,
@@ -447,8 +444,26 @@ export class InternalProductionOrdersService {
           throw new BadRequestException('Cannot update a canceled production order.');
         }
 
-        // If details are provided, perform the revert and apply logic
-        if (updateDto.details) {
+        const hasDetailsUpdate = updateDto.materials !== undefined || updateDto.products !== undefined;
+        if (hasDetailsUpdate) {
+          if (!updateDto.materials || !updateDto.products) {
+            throw new BadRequestException('Both materials and products arrays are required when updating production order details.');
+          }
+
+          // Map the materials and products arrays to updateDetails array
+          const updateDetails = [
+            ...updateDto.materials.map((m) => ({
+              productPublicId: m.productPublicId,
+              transactionType: ProductionTransactionType.ISSUE_MATERIAL,
+              quantity: m.quantity,
+            })),
+            ...updateDto.products.map((p) => ({
+              productPublicId: p.productPublicId,
+              transactionType: ProductionTransactionType.RECEIVE_PRODUCT,
+              quantity: p.quantity,
+            })),
+          ];
+
           // 1. REVERT: Revert old details' stock and costing changes
           const oldDetails = existing.details;
 
@@ -519,7 +534,7 @@ export class InternalProductionOrdersService {
           }
 
           // 2. APPLY: Validate and apply new details
-          const newProductPublicIds = updateDto.details.map((d) => d.productPublicId);
+          const newProductPublicIds = updateDetails.map((d) => d.productPublicId);
           const newProducts = await tx.product.findMany({
             where: { publicId: { in: newProductPublicIds } },
           });
@@ -530,10 +545,7 @@ export class InternalProductionOrdersService {
           }
 
           // Check if user owns all new products and validate types/stocks
-          let newFinishedCount = 0;
-          let newRawCount = 0;
-
-          for (const detail of updateDto.details) {
+          for (const detail of updateDetails) {
             const product = newProductsMap.get(detail.productPublicId)!;
 
             if (product.userId !== userId) {
@@ -542,39 +554,24 @@ export class InternalProductionOrdersService {
               );
             }
 
+            if (product.productType === ProductType.SERVICE) {
+              throw new BadRequestException(
+                `Product ${product.productName} is a SERVICE and cannot be used in a production order.`,
+              );
+            }
+
             if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
-              if (product.productType !== ProductType.RAW_MATERIAL) {
-                throw new BadRequestException(
-                  `Product ${product.productName} must be a RAW_MATERIAL to issue.`,
-                );
-              }
               if (product.currentStock < detail.quantity) {
                 throw new BadRequestException(
                   `Insufficient stock for product: ${product.productName}. Current stock is ${product.currentStock}.`,
                 );
               }
-              newRawCount++;
             }
-
-            if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
-              if (product.productType !== ProductType.FINISHED_GOOD) {
-                throw new BadRequestException(
-                  `Product ${product.productName} must be a FINISHED_GOOD to receive.`,
-                );
-              }
-              newFinishedCount++;
-            }
-          }
-
-          if (!newRawCount || !newFinishedCount) {
-            throw new BadRequestException(
-              'Finished products and raw materials are required in the new details.',
-            );
           }
 
           // Calculate new raw material values
           let newRawMaterialValue = 0;
-          for (const detail of updateDto.details) {
+          for (const detail of updateDetails) {
             if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
               const product = newProductsMap.get(detail.productPublicId)!;
               const unitCost = Number(product.openingStockUnitCost || 0);
@@ -583,7 +580,7 @@ export class InternalProductionOrdersService {
           }
 
           let newFinishedQty = 0;
-          for (const detail of updateDto.details) {
+          for (const detail of updateDetails) {
             if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
               newFinishedQty += detail.quantity;
             }
@@ -594,7 +591,7 @@ export class InternalProductionOrdersService {
             : 0;
 
           // Apply raw material stock deductions
-          for (const detail of updateDto.details) {
+          for (const detail of updateDetails) {
             const product = newProductsMap.get(detail.productPublicId)!;
             if (detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
               const updated = await tx.product.updateMany({
@@ -610,7 +607,7 @@ export class InternalProductionOrdersService {
           }
 
           // Apply finished goods stock and cost additions
-          for (const detail of updateDto.details) {
+          for (const detail of updateDetails) {
             const product = newProductsMap.get(detail.productPublicId)!;
             if (detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
               const oldStock = product.currentStock;
@@ -638,7 +635,7 @@ export class InternalProductionOrdersService {
           });
 
           await tx.productionDetail.createMany({
-            data: updateDto.details.map((detail) => {
+            data: updateDetails.map((detail) => {
               const product = newProductsMap.get(detail.productPublicId)!;
               return {
                 orderId: existing.id,

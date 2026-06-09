@@ -2,7 +2,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
-  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -11,18 +10,11 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProductionTransactionType } from '@prisma/client';
 
-export class ProductionDetailDto {
+export class ProductionItemDto {
   @IsString()
   @IsNotEmpty()
   productPublicId!: string;
-
-  @IsEnum(ProductionTransactionType, {
-    message: 'The transaction type must be ISSUE_MATERIAL, RECEIVE_PRODUCT',
-  })
-  @IsNotEmpty()
-  transactionType!: ProductionTransactionType;
 
   @IsInt()
   @Min(1)
@@ -42,7 +34,14 @@ export class CreateProductionOrderDto {
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => ProductionDetailDto)
+  @Type(() => ProductionItemDto)
   @IsNotEmpty()
-  details!: ProductionDetailDto[];
+  materials!: ProductionItemDto[];
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ProductionItemDto)
+  @IsNotEmpty()
+  products!: ProductionItemDto[];
 }

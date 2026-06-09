@@ -17,7 +17,7 @@ export class CreateProductDto {
 
   @IsNotEmpty()
   @IsEnum(ProductType, {
-    message: 'The product type must be FINISHED_GOOD, RAW_MATERIAL, or SERVICE',
+    message: 'The product type must be FINISHED_GOOD or SERVICE',
   })
   productType!: ProductType;
 
