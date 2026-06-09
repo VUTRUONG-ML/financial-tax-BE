@@ -12,6 +12,8 @@ import {
   LOG_STATUS,
 } from '../common/constants/log-events.constant';
 import { AppLogger } from '../common/logger/app-logger.service';
+import { mapToDto } from 'src/common/utils/mapper.util';
+import { VoucherCategoryResponseDto } from './dto/response-voucher-category.dto';
 
 @Injectable()
 export class VoucherCategoriesService {
@@ -23,9 +25,13 @@ export class VoucherCategoriesService {
     userId: string,
     createVoucherCategoryDto: CreateVoucherCategoryDto,
   ) {
+    const s2cExpenseMapping = createVoucherCategoryDto.s2cExpenseMapping ??
+      (createVoucherCategoryDto.type === 'PAYMENT' ? 'ITEM_F' : 'NONE');
+
     const category = await this.prisma.voucherCategory.create({
       data: {
         ...createVoucherCategoryDto,
+        s2cExpenseMapping,
         userId,
       },
     });
@@ -36,16 +42,17 @@ export class VoucherCategoriesService {
       categoryId: category.id,
     });
 
-    return category;
+    return mapToDto(VoucherCategoryResponseDto, category);
   }
 
   async findAll(userId: string) {
-    return this.prisma.voucherCategory.findMany({
+    const categories = await this.prisma.voucherCategory.findMany({
       where: {
         OR: [{ userId: null }, { userId }],
       },
       orderBy: [{ type: 'asc' }, { id: 'asc' }],
     });
+    return mapToDto(VoucherCategoryResponseDto, categories);
   }
 
   async update(
@@ -78,7 +85,7 @@ export class VoucherCategoriesService {
       categoryId: id,
     });
 
-    return updated;
+    return mapToDto(VoucherCategoryResponseDto, updated);
   }
 
   async remove(userId: string, id: number) {

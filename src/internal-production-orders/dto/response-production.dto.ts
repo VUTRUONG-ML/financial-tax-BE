@@ -36,6 +36,9 @@ export class ProductionOrderResponseDto {
   status!: ProductionStatus;
 
   @Expose()
+  transactionAt!: Date;
+
+  @Expose()
   createdAt!: Date;
 
   // Giấu toàn bộ id, userId và updatedAt theo yêu cầu của ông

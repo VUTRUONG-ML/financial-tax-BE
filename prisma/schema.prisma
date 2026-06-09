@@ -38,15 +38,14 @@ model User {
   voucherCategories VoucherCategory[]
   vouchers          Voucher[]
 
-
   setUpCompletedAt DateTime? @map("setup_completed_at")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  productionOrders InternalProductionOrder[]
-  financialPeriods FinancialPeriod[]
-  revenueTrackers  RevenueTracker[]
-  taxDeclarationDraft   TaxDeclarationDraft[]
+  productionOrders    InternalProductionOrder[]
+  financialPeriods    FinancialPeriod[]
+  revenueTrackers     RevenueTracker[]
+  taxDeclarationDraft TaxDeclarationDraft[]
 
   @@map("users")
 }
@@ -93,12 +92,12 @@ model TaxCategory {
   xmlIndicator   String? @map("xml_indicator") // VD: <ct28>
   sortOrder      Int     @default(0) @map("sort_order")
 
-  // Quan hệ Cha - Con (Recursive)
   parent   TaxCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children TaxCategory[] @relation("CategoryHierarchy")
 
   popularTags UiPopularTag[]
   taxConfigs  TaxConfiguration[]
+  products    Product[]
 
   @@map("tax_categories_dictionary")
 }
@@ -192,13 +191,17 @@ model Product {
   openingStockUnitCost Decimal @default(0) @map("opening_stock_unit_cost") @db.Decimal(18, 4)
   openingStockValue    Decimal @default(0) @map("opening_stock_value") @db.Decimal(18, 4)
 
-  // Cache O(1) — cập nhật qua DB Transaction khi có hóa đơn mua/bán
-  currentStock Int @default(0) @map("current_stock")
+  currentStock       Int     @default(0) @map("current_stock")
+  taxCategoryId      Int?    @map("tax_category_id")
+  isInventoryTracked Boolean @default(true) @map("is_inventory_tracked")
 
-  user                  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  invoiceDetails        InvoiceDetail[]
-  inboundInvoiceDetails InboundInvoiceDetail[]
-  productionDetails     ProductionDetail[]
+  user                     User                      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  taxCategory              TaxCategory?              @relation(fields: [taxCategoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoiceDetails           InvoiceDetail[]
+  inboundInvoiceDetails    InboundInvoiceDetail[]
+  productionDetails        ProductionDetail[]
+  openingInventoryBalances OpeningInventoryBalance[]
+  inventoryMovements       InventoryMovement[]
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -209,7 +212,6 @@ model Product {
 
 enum ProductType {
   FINISHED_GOOD
-  RAW_MATERIAL
   SERVICE
 }
 
@@ -267,11 +269,9 @@ model Invoice {
   cqtCode String? @map("cqt_code")
 
   // Ngày phát hành hóa đơn (thay thế transactionDate và issuedAt)
-  issueDate DateTime @default(now()) @map("issue_date")
+  issueDate DateTime @default(now()) @map("issue_date") @db.Timestamptz(3)
 
-  // Tìm hóa đơn theo user + trạng thái là query phổ biến nhất
-  @@index([userId, status])
-  @@index([userId, issueDate])
+  @@index([userId, issueDate, status])
   @@map("invoices")
 }
 
@@ -312,7 +312,7 @@ model InboundInvoice {
   sellerName    String   @map("seller_name")
   sellerTaxCode String?  @map("seller_tax_code")
   invoiceNo     String   @map("invoice_no") // Số hóa đơn của người bán
-  issueDate     DateTime @map("issue_date") // Ngày xuất trên hóa đơn
+  issueDate     DateTime @map("issue_date") @db.Timestamptz(3) // Ngày xuất trên hóa đơn
 
   totalAmount   Decimal              @map("total_amount") @db.Decimal(18, 4)
   attachmentUrl String?              @map("attachment_url") @db.Text
@@ -379,10 +379,11 @@ enum VoucherStatus {
 
 // Danh mục Hạng mục Thu/Chi (Cho phép Mặc định Hệ thống hoặc Riêng tư User)
 model VoucherCategory {
-  id           Int         @id @default(autoincrement())
-  userId       String?     @map("user_id") // Null: Hạng mục default system
-  type         VoucherType
-  categoryName String      @map("category_name")
+  id                Int               @id @default(autoincrement())
+  userId            String?           @map("user_id") // Null: Hạng mục default system
+  type              VoucherType
+  categoryName      String            @map("category_name")
+  s2cExpenseMapping S2cExpenseMapping @default(NONE) @map("s2c_expense_mapping")
 
   vouchers Voucher[]
 
@@ -402,6 +403,7 @@ model Voucher {
   content             String        @db.Text
   amount              Decimal       @map("amount") @db.Decimal(18, 4)
   paymentMethod       PaymentMethod @map("payment_method")
+  contactName         String?       @map("contact_name")
   isDeductibleExpense Boolean       @default(false) @map("is_deductible_expense")
   inboundInvoiceId    Int?          @map("inbound_invoice_id")
   outboundInvoiceId   Int?          @map("outbound_invoice_id")
@@ -420,7 +422,7 @@ model Voucher {
   @@index([userId, transactionAt])
   @@index([inboundInvoiceId])
   @@index([outboundInvoiceId])
-  @@index([userId, voucherType])
+  @@index([userId, paymentMethod, status, transactionAt, id])
   @@map("vouchers")
 }
 
@@ -437,11 +439,12 @@ enum ProductionStatus {
 }
 
 model InternalProductionOrder {
-  id        Int              @id @default(autoincrement())
-  userId    String           @map("user_id")
-  orderCode String           @map("order_code") // Ví dụ: LSX-0426-0001
-  notes     String?          @db.Text
-  status    ProductionStatus @default(ACTIVE)
+  id            Int              @id @default(autoincrement())
+  userId        String           @map("user_id")
+  orderCode     String           @map("order_code") // Ví dụ: LSX-0426-0001
+  notes         String?          @db.Text
+  status        ProductionStatus @default(ACTIVE)
+  transactionAt DateTime         @default(now()) @map("transaction_at") @db.Timestamptz(3)
 
   user    User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details ProductionDetail[]
@@ -450,6 +453,7 @@ model InternalProductionOrder {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([userId, orderCode])
+  @@index([userId, transactionAt])
   @@index([userId, createdAt])
   @@map("internal_production_orders")
 }
@@ -489,13 +493,16 @@ model FinancialPeriod {
   vatRateSnapShot   Decimal?     @map("vat_rate_snapshot") @db.Decimal(5, 4)
   pitRateSnapShot   Decimal?     @map("pit_rate_snapshot") @db.Decimal(5, 4)
   taxAmount         Decimal      @default(0.00) @map("tax_amount") @db.Decimal(18, 4)
+  vatAmount         Decimal?     @map("vat_amount") @db.Decimal(18, 4)
+  pitAmount         Decimal?     @map("pit_amount") @db.Decimal(18, 4)
   actualPaymentDate DateTime?    @map("actual_payment_date") @db.Date
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  taxDeclaration TaxDeclaration?
-  taxDeclarationDraft   TaxDeclarationDraft?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  taxDeclaration      TaxDeclaration?
+  taxDeclarationDraft TaxDeclarationDraft?
+  inventoryMovements  InventoryMovement[]
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([userId, periodName, startDate], name: "userId_periodName_startDate")
   @@index([userId, status])
@@ -508,6 +515,8 @@ model TaxDeclaration {
   periodId        Int       @unique @map("period_id")
   declaredRevenue Decimal   @map("declared_revenue") @db.Decimal(18, 4)
   declaredExpense Decimal   @map("declared_expense") @db.Decimal(18, 4)
+  ytdRevenue      Decimal   @default(0.00) @map("ytd_revenue") @db.Decimal(18, 4)
+  ytdExpense      Decimal   @default(0.00) @map("ytd_expense") @db.Decimal(18, 4)
   vatTaxAmount    Decimal   @map("vat_tax_amount") @db.Decimal(18, 4)
   pitTaxAmount    Decimal   @map("pit_tax_amount") @db.Decimal(18, 4)
   totalTaxAmount  Decimal   @map("total_tax_amount") @db.Decimal(18, 4)
@@ -523,9 +532,9 @@ model TaxDeclaration {
 }
 
 model TaxDeclarationDraft {
-  id                String          @id @default(uuid()) @map("id")
-  userId            String          @map("user_id")
-  financialPeriodId Int             @unique @map("financial_period_id")
+  id                String @id @default(uuid()) @map("id")
+  userId            String @map("user_id")
+  financialPeriodId Int    @unique @map("financial_period_id")
 
   // Bước 1: Thông tin Hộ kinh doanh (MST, Tên, Ngành nghề, Địa chỉ...) tinh chỉnh từ Profile
   // Cấu trúc dự kiến: { taxCode: string, businessName: string, ownerName: string, cccdNumber: string, provinceCity: string }
@@ -553,7 +562,6 @@ model TaxDeclarationDraft {
   @@map("tax_declaration_drafts")
 }
 
-
 enum FilingPeriod {
   MONTHLY // Khai thuế theo tháng
   QUARTERLY // Khai thuế theo quý
@@ -572,4 +580,71 @@ model RevenueTracker {
 
   @@unique([userId, year])
   @@map("revenue_trackers")
+}
+
+enum S2cExpenseMapping {
+  ITEM_A
+  ITEM_B
+  ITEM_C
+  ITEM_D
+  ITEM_E
+  ITEM_F
+  NONE
+}
+
+enum SourceDocumentType {
+  INBOUND_INVOICE
+  OUTBOUND_INVOICE
+  PRODUCTION_ORDER
+}
+
+enum InventoryMovementType {
+  OPENING
+  PURCHASE_IN
+  SALE_OUT
+  PRODUCTION_IN
+  PRODUCTION_OUT
+  ADJUSTMENT
+}
+
+model OpeningInventoryBalance {
+  id              Int      @id @default(autoincrement())
+  productId       Int      @map("product_id")
+  periodYear      Int      @map("period_year")
+  openingQuantity Int      @map("opening_quantity")
+  openingUnitCost Decimal  @map("opening_unit_cost") @db.Decimal(18, 4)
+  openingValue    Decimal  @map("opening_value") @db.Decimal(18, 4)
+  sourceNote      String?  @map("source_note") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([productId, periodYear], name: "productId_periodYear")
+  @@index([productId])
+  @@map("opening_inventory_balances")
+}
+
+model InventoryMovement {
+  id                 Int                   @id @default(autoincrement())
+  publicId           String                @unique @default(cuid()) @map("public_id")
+  productId          Int                   @map("product_id")
+  periodId           Int                   @map("period_id")
+  movementType       InventoryMovementType @map("movement_type")
+  quantity           Int                   @map("quantity")
+  unitCost           Decimal               @map("unit_cost") @db.Decimal(18, 4)
+  totalValue         Decimal               @map("total_value") @db.Decimal(18, 4)
+  sourceDocumentType SourceDocumentType?   @map("source_document_type")
+  sourceDocumentId   Int?                  @map("source_document_id")
+  movementDate       DateTime              @map("movement_date") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  product Product         @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  period  FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([productId])
+  @@index([periodId])
+  @@index([movementDate])
+  @@map("inventory_movements")
 }

@@ -26,6 +26,7 @@ import { InvoiceResponseDto } from './dto/response-invoice.dto';
 import { CreateInvoiceDetailDto } from './dto/create-invoice-detail.dto';
 import { Decimal } from '@prisma/client/runtime/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { moment } from 'src/common/utils/time.util';
 
 @Injectable()
 export class InvoicesService {
@@ -199,61 +200,84 @@ export class InvoicesService {
     publicId: string,
     userId: string,
     cqtCode?: string,
-    tx: Prisma.TransactionClient = this.prisma,
+    txParam?: Prisma.TransactionClient,
   ) {
-    /**
-     * Khóa trạng thái invoice là issued khi đã được cơ quan thuế cấp mã
-     */
-    const invoice = await tx.invoice.findUnique({
-      where: { publicId },
-    });
-    if (!invoice) {
-      this.log.warn('LOCK_INVOICE', {
-        status: LOG_STATUS.FAILED,
-        reason: 'INVOICE_NOT_FOUND',
-        userId,
-        publicId,
+    const run = async (tx: Prisma.TransactionClient) => {
+      /**
+       * Khóa trạng thái invoice là issued khi đã được cơ quan thuế cấp mã
+       */
+      const invoice = await tx.invoice.findUnique({
+        where: { publicId },
       });
-      throw new NotFoundException('Invoice not found.');
-    }
+      if (!invoice) {
+        this.log.warn('LOCK_INVOICE', {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVOICE_NOT_FOUND',
+          userId,
+          publicId,
+        });
+        throw new NotFoundException('Invoice not found.');
+      }
 
-    if (invoice.status !== 'PENDING_ISSUED') {
-      this.log.warn('LOCK_INVOICE', {
-        status: LOG_STATUS.FAILED,
-        reason: 'STATUS_MUST_HAVE_PENDING_ISSUED',
-        userId,
-        publicId,
+      if (invoice.status !== 'PENDING_ISSUED') {
+        this.log.warn('LOCK_INVOICE', {
+          status: LOG_STATUS.FAILED,
+          reason: 'STATUS_MUST_HAVE_PENDING_ISSUED',
+          userId,
+          publicId,
+        });
+      }
+      await tx.invoice.update({
+        where: {
+          publicId,
+        },
+        data: {
+          status: 'ISSUED',
+          cqtCode,
+        },
       });
+
+      // GHI VAO SỔ (doanh thu)
+      const year = invoice.issueDate.getFullYear();
+      await tx.revenueTracker.upsert({
+        where: {
+          userId_year: { userId, year },
+        },
+        update: {
+          revenueYtd: { increment: invoice.totalPayment },
+        },
+        create: {
+          userId,
+          year,
+          revenueYtd: invoice.totalPayment,
+        },
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.invoices,
+        invoice.id,
+        { status: invoice.status, cqtCode: null },
+        { status: 'ISSUED', cqtCode },
+      );
+
+      this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        invoicePublicId: publicId,
+      });
+
+      // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
+      return { ...invoice, status: 'ISSUED', cqtCode };
+    };
+
+    if (txParam) {
+      return await run(txParam);
+    } else {
+      return await this.prisma.$transaction(run);
     }
-    await tx.invoice.update({
-      where: {
-        publicId,
-      },
-      data: {
-        status: 'ISSUED',
-        cqtCode,
-      },
-    });
-
-    await this.auditLog.logChange(
-      tx,
-      userId,
-      'UPDATE',
-      tableWrite.invoices,
-      invoice.id,
-      { status: invoice.status, cqtCode: null },
-      { status: 'ISSUED', cqtCode },
-    );
-
-    this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
-      status: LOG_STATUS.SUCCESS,
-      userId,
-      invoicePublicId: publicId,
-    });
-
-    // GHI VAO SỔ S01 (doanh thu) ------------------
-    // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
-    return { ...invoice, status: 'ISSUED', cqtCode };
   }
 
   /**
@@ -281,12 +305,12 @@ export class InvoicesService {
       // 1. Tạo Invoice header
       const invoiceSymbol = generateInvoiceSymbol();
 
-      const nowTime = new Date();
+      const targetDate = moment(dto.issueDate).startOf('day').toDate();
       const activeTaxConfig = await tx.taxConfiguration.findFirst({
         where: {
           userId,
-          applyFromDate: { lte: nowTime },
-          applyToDate: { gte: nowTime },
+          applyFromDate: { lte: targetDate },
+          applyToDate: { gte: targetDate },
         },
         orderBy: { applyFromDate: 'desc' },
       });
@@ -300,6 +324,7 @@ export class InvoicesService {
           userId,
           invoiceSymbol,
           isB2C: dto.isB2C ?? true,
+          issueDate: new Date(dto.issueDate),
           buyerName: dto.buyerName,
           buyerTaxCode: dto.buyerTaxCode,
           buyerAddress: dto.buyerAddress,
@@ -326,22 +351,6 @@ export class InvoicesService {
           quantity,
           totalAmount: lineTotal,
         })),
-      });
-
-      // 3. Cộng doanh thu lũy kế
-      const year = new Date().getFullYear();
-      await tx.revenueTracker.upsert({
-        where: {
-          userId_year: { userId, year },
-        },
-        update: {
-          revenueYtd: { increment: invoice.totalPayment },
-        },
-        create: {
-          userId,
-          year,
-          revenueYtd: invoice.totalPayment,
-        },
       });
 
       // 4. Ghi AuditLog trong cùng Transaction
@@ -510,13 +519,49 @@ export class InvoicesService {
     }
   }
 
-  async findAll(userId: string, page: number = 1, limit: number = 20) {
+  async findAll(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    status?: string,
+  ) {
     const skip = (page - 1) * limit;
 
+    const where: Prisma.InvoiceWhereInput = { userId };
+
+    if (status) {
+      const upperStatus = status.trim().toUpperCase();
+      if (
+        upperStatus === 'DRAFT' ||
+        upperStatus === 'BAN_NHAP' ||
+        upperStatus === 'BẢN NHÁP'
+      ) {
+        where.status = 'DRAFT';
+      } else if (
+        upperStatus === 'ISSUED' ||
+        upperStatus === 'DA_PHAT_HANH' ||
+        upperStatus === 'ĐÃ PHÁT HÀNH'
+      ) {
+        where.status = 'ISSUED';
+      } else if (
+        upperStatus === 'SYNC_FAILED' ||
+        upperStatus === 'LOI_DONG_BO' ||
+        upperStatus === 'LỖI ĐỒNG BỘ'
+      ) {
+        where.status = 'SYNC_FAILED';
+      } else if (
+        upperStatus === 'CANCELED' ||
+        upperStatus === 'DA_HUY' ||
+        upperStatus === 'ĐÃ HỦY'
+      ) {
+        where.status = 'CANCELED';
+      }
+    }
+
     const [total, data] = await Promise.all([
-      this.prisma.invoice.count({ where: { userId } }),
+      this.prisma.invoice.count({ where }),
       this.prisma.invoice.findMany({
-        where: { userId },
+        where,
         take: limit, // LIMIT
         skip: skip, // OFFSET
         orderBy: { createdAt: 'desc' },
@@ -683,25 +728,15 @@ export class InvoicesService {
           invoice.totalPayment,
         );
 
-        // Cập nhật doanh thu năm
-        if (deltaPayment.gt(0) || deltaPayment.lt(0)) {
-          await tx.revenueTracker.updateMany({
-            where: {
-              userId,
-              year: invoice.issueDate.getFullYear(),
-              revenueYtd: { gte: deltaPayment },
-            },
-            data: { revenueYtd: { increment: deltaPayment } },
-          });
-        }
-
         // Tạo chi tiết mới
-        const nowTime = new Date();
+        const targetDate = moment(dto.issueDate ?? invoice.issueDate)
+          .startOf('day')
+          .toDate();
         const activeTaxConfig = await tx.taxConfiguration.findFirst({
           where: {
             userId,
-            applyFromDate: { lte: nowTime },
-            applyToDate: { gte: nowTime },
+            applyFromDate: { lte: targetDate },
+            applyToDate: { gte: targetDate },
           },
           orderBy: { applyFromDate: 'desc' },
         });
@@ -799,16 +834,6 @@ export class InvoicesService {
         where: { invoiceId: invoice.id },
       });
 
-      // Trừ doanh thu
-      await tx.revenueTracker.updateMany({
-        where: {
-          userId,
-          year: invoice.issueDate.getFullYear(),
-          revenueYtd: { gte: invoice.totalPayment },
-        },
-        data: { revenueYtd: { decrement: invoice.totalPayment } },
-      });
-
       // xóa invoice
       await tx.invoice.delete({
         where: { publicId },
@@ -830,5 +855,33 @@ export class InvoicesService {
         invoiceId: invoice.id,
       });
     });
+  }
+
+  async getSummary(userId: string) {
+    const [tong_hoa_don, aggregateResult] = await Promise.all([
+      this.prisma.invoice.count({
+        where: { userId },
+      }),
+      this.prisma.invoice.aggregate({
+        where: { userId, status: 'ISSUED' },
+        _sum: {
+          totalPayment: true,
+          taxPayable: true,
+        },
+      }),
+    ]);
+
+    const tong_doanh_thu = aggregateResult._sum.totalPayment
+      ? Number(aggregateResult._sum.totalPayment)
+      : 0;
+    const tong_thue = aggregateResult._sum.taxPayable
+      ? Number(aggregateResult._sum.taxPayable)
+      : 0;
+
+    return {
+      tong_hoa_don,
+      tong_doanh_thu,
+      tong_thue,
+    };
   }
 }

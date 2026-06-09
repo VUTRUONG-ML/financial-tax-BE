@@ -8,8 +8,10 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -18,13 +20,18 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageUploadPipe } from '../common/constants/file-upload.constants';
 import { Throttle } from '@nestjs/throttler';
+import { PeriodLockGuard } from '../common/guards/period-lock.guard';
+import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('products')
+@UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   // POST /products
   @Post()
+  @CheckPeriod()
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   async create(
@@ -38,9 +45,28 @@ export class ProductsController {
 
   // GET /products
   @Get()
-  async findAll(@CurrentUser('id') userId: string) {
-    const data = await this.productsService.findAll(userId);
-    return { message: 'Products retrieved successfully.', data };
+  async findAll(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('productType') productType?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.productsService.findAll(
+      userId,
+      pageNumber,
+      limitNumber,
+      productType,
+    );
+    return { message: 'Products retrieved successfully.', ...result };
+  }
+
+  // GET /products/summary
+  @Get('summary')
+  async getSummary(@CurrentUser('id') userId: string) {
+    const data = await this.productsService.getSummary(userId);
+    return { message: 'Product summary retrieved successfully.', data };
   }
 
   // GET /products/:publicId
@@ -55,6 +81,7 @@ export class ProductsController {
 
   // PUT /products/:publicId
   @Put(':publicId')
+  @CheckPeriod()
   @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   @HttpCode(HttpStatus.OK)
@@ -70,6 +97,7 @@ export class ProductsController {
 
   // DELETE /products/:publicId
   @Delete(':publicId')
+  @CheckPeriod()
   @HttpCode(HttpStatus.OK)
   async remove(
     @CurrentUser('id') userId: string,

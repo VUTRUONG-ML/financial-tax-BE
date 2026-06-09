@@ -69,7 +69,32 @@ export class OnboardingService {
         defaultMethod = 'PROFIT_20'; // Nhóm 4: Bắt buộc lợi nhuận 20%
         break;
     }
+    if (defaultMethod && !taxGroup.allowedMethods.includes(defaultMethod)) {
+      throw new BadRequestException(
+        'The pit method is not allowed for this tax group.',
+      );
+    }
     return defaultMethod;
+  }
+  private mapPitMethodToRate(
+    method: PitMethod | null,
+    categoryPitRate: Decimal,
+  ): Decimal {
+    if (!method) return new Decimal(0);
+    switch (method) {
+      case 'EXEMPT':
+        return new Decimal(0);
+      case 'PERCENTAGE':
+        return categoryPitRate;
+      case 'PROFIT_15':
+        return new Decimal(0.15);
+      case 'PROFIT_17':
+        return new Decimal(0.17);
+      case 'PROFIT_20':
+        return new Decimal(0.2);
+      default:
+        return new Decimal(0);
+    }
   }
   private async findEffectiveTaxRate(
     tx: Prisma.TransactionClient,
@@ -194,7 +219,10 @@ export class OnboardingService {
           applyFromDate: now,
           applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
-          pitRateSnapShot: taxRates.pitRate,
+          pitRateSnapShot: this.mapPitMethodToRate(
+            defaultPitMethod,
+            taxRates.pitRate,
+          ),
         },
       });
 
@@ -329,7 +357,10 @@ export class OnboardingService {
           applyFromDate: now,
           applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
-          pitRateSnapShot: taxRates.pitRate,
+          pitRateSnapShot: this.mapPitMethodToRate(
+            defaultPitMethod,
+            taxRates.pitRate,
+          ),
         },
       });
       await this.auditLog.logChange(

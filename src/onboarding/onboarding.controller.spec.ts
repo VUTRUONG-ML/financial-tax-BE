@@ -8,7 +8,15 @@ describe('OnboardingController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OnboardingController],
-      providers: [OnboardingService],
+      providers: [
+        {
+          provide: OnboardingService,
+          useValue: {
+            setupTaxConfiguration: jest.fn(),
+            updateTaxConfiguration: jest.fn(),
+          },
+        },
+      ],
     }).compile();
 
     controller = module.get<OnboardingController>(OnboardingController);

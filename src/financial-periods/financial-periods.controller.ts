@@ -57,7 +57,6 @@ export class FinancialPeriodsController {
   }
 
   @Patch(':id/reopen')
-  @ApiOperation({ summary: 'Chốt sổ của kì (chỉ Admin)' })
   @HttpCode(HttpStatus.OK)
   async reopenPeriod(
     @CurrentUser() user: RequestUser,

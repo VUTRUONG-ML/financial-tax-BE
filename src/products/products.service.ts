@@ -11,7 +11,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { LOG_STATUS } from '../common/constants/log-events.constant';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProductType } from '@prisma/client';
 import {
   AuditLogService,
   tableWrite,
@@ -29,7 +29,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly auditLog: AuditLogService,
-  ) {}
+  ) { }
 
   private safeDeleteImage(publicId: string) {
     this.cloudinaryService.deleteFile(publicId).catch((error: Error) => {
@@ -108,13 +108,49 @@ export class ProductsService {
   }
 
   // ─── FIND ALL ─────────────────────────────────────────────────────────────
-  async findAll(userId: string) {
-    const products = await this.prisma.product.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    productType?: string,
+  ) {
+    const skip = (page - 1) * limit;
 
-    return mapToDto(ProductResponseDto, products);
+    let mappedType: ProductType | undefined;
+    if (productType) {
+      const upper = productType.toUpperCase();
+      if (upper === 'FINISHED_GOOD' || upper === 'FINISH_GOOD') {
+        mappedType = 'FINISHED_GOOD';
+      } else if (upper === 'SERVICE') {
+        mappedType = 'SERVICE';
+      } else {
+        throw new BadRequestException('Invalid productType query parameter.');
+      }
+    }
+
+    const where: Prisma.ProductWhereInput = {
+      userId,
+      ...(mappedType && { productType: mappedType }),
+    };
+
+    const [total, data] = await Promise.all([
+      this.prisma.product.count({ where }),
+      this.prisma.product.findMany({
+        where,
+        take: limit, // LIMIT
+        skip: skip, // OFFSET
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return {
+      data: mapToDto(ProductResponseDto, data),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
   }
 
   // ─── FIND ONE ─────────────────────────────────────────────────────────────
@@ -210,6 +246,64 @@ export class ProductsService {
 
     this.log.log('Product deleted', { userId, publicId });
     return { message: 'Product deleted successfully.' };
+  }
+
+  // ─── SUMMARY ──────────────────────────────────────────────────────────────
+  async getSummary(userId: string) {
+    // 1. Tổng sản phẩm
+    const tong_san_pham = await this.prisma.product.count({
+      where: { userId },
+    });
+
+    // 2. Tổng sản phẩm phân loại
+    const counts = await this.prisma.product.groupBy({
+      by: ['productType'],
+      where: { userId },
+      _count: { id: true },
+    });
+
+    let finished_good = 0;
+    let service = 0;
+
+    for (const item of counts) {
+      if (item.productType === 'FINISHED_GOOD') {
+        finished_good = item._count.id;
+      } else if (item.productType === 'SERVICE') {
+        service = item._count.id;
+      }
+    }
+
+    // 3. Tổng giá trị tồn kho (loại trừ SERVICE)
+    const products = await this.prisma.product.findMany({
+      where: { userId, productType: { not: 'SERVICE' } },
+      select: { currentStock: true, openingStockUnitCost: true },
+    });
+
+    const tong_gia_tri_ton_kho = products.reduce((acc, p) => {
+      const stock = p.currentStock || 0;
+      const unitCost = Number(p.openingStockUnitCost || 0);
+      return acc + (stock * unitCost);
+    }, 0);
+
+    // 4. Số lượng sản phẩm sắp hết hàng (dưới 15 đơn vị, loại trừ SERVICE)
+    const sap_het_hang = await this.prisma.product.count({
+      where: {
+        userId,
+        productType: { not: 'SERVICE' },
+        currentStock: { lt: 15 },
+      },
+    });
+
+    return {
+      tong_san_pham,
+      tong_san_pham_phan_loai: {
+        FINISHED_GOOD: finished_good,
+        RAW_MATERIAL: 0,
+        SERVICE: service,
+      },
+      tong_gia_tri_ton_kho,
+      sap_het_hang,
+    };
   }
 
   async updateStockFromCanceledInvoice(

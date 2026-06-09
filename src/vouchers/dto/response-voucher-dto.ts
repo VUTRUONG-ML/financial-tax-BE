@@ -9,6 +9,7 @@ export class VoucherResponseDto {
   @Expose() transactionAt!: Date;
   @Expose() content!: string;
   @Expose() paymentMethod!: PaymentMethod;
+  @Expose() contactName?: string;
   @Expose() isDeductibleExpense!: boolean;
   @Expose() status!: VoucherStatus;
   @Expose() createdAt!: Date;

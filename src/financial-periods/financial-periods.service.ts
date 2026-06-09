@@ -22,6 +22,7 @@ import {
   PeriodStatus,
   Prisma,
   Role,
+  TaxConfiguration,
   VoucherStatus,
   VoucherType,
 } from '@prisma/client';
@@ -314,6 +315,48 @@ export class FinancialPeriodsService {
     return { revenue, expense };
   }
 
+  private async calculateYtdTaxForPercentageMethod(
+    userId: string,
+    targetFp: { startDate: Date },
+    ytdRevenue: Decimal,
+    ytdExpense: Decimal,
+    currentTaxConfig: TaxConfiguration,
+    client: Prisma.TransactionClient,
+  ): Promise<{ vatAmount: Decimal; pitAmount: Decimal }> {
+    const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+
+    const aggregateResult = await client.financialPeriod.aggregate({
+      _sum: {
+        vatAmount: true,
+        pitAmount: true,
+      },
+      where: {
+        userId,
+        startDate: { gte: startOfYear },
+        endDate: { lt: targetFp.startDate },
+        status: PeriodStatus.CLOSED,
+      },
+    });
+
+    const prevVatAmount = aggregateResult._sum.vatAmount ?? new Decimal(0);
+    const prevPitAmount = aggregateResult._sum.pitAmount ?? new Decimal(0);
+
+    const ytdTaxResult = this.taxEngine.calculateTotalTax(
+      ytdRevenue,
+      ytdExpense,
+      currentTaxConfig,
+    );
+
+    const ytdVatAmount = ytdTaxResult.vatAmount;
+    const ytdPitAmount =
+      ytdTaxResult.pitAmountDetails.percentageMethodAmount ?? new Decimal(0);
+
+    const vatAmount = Decimal.max(0, ytdVatAmount.sub(prevVatAmount));
+    const pitAmount = Decimal.max(0, ytdPitAmount.sub(prevPitAmount));
+
+    return { vatAmount, pitAmount };
+  }
+
   /**
    * Service dùng để chốt sổ cho người dùng.
    * Nếu truyền vào tx thì chạy chung transaction với caller.
@@ -328,10 +371,14 @@ export class FinancialPeriodsService {
     period: FinancialPeriodResponseDto;
     vatAmount: Decimal;
     pitAmount: Decimal;
+    ytdRevenue: Decimal;
+    ytdExpense: Decimal;
   }> {
     const run = async (client: Prisma.TransactionClient) => {
-      await client.$executeRaw`SELECT id FROM financial_periods WHERE public_id = ${publicId} FOR UPDATE`;
-
+      await client.financialPeriod.update({
+        where: { publicId },
+        data: {},
+      });
       // 1. Kiểm tra kì thuế
       const targetFp = await client.financialPeriod.findUnique({
         where: { publicId },
@@ -422,13 +469,12 @@ export class FinancialPeriodsService {
         );
       }
 
-      // Hàm này giờ sẽ cho tính revenue với expense từ tham số đầu vào nếu người dùng muốn chốt sổ với một doanh thu khác với doanh thu thực tế.
-      let taxableRevenue = new Decimal(0);
-      let expense = new Decimal(0);
+      let inPeriodRevenue = new Decimal(0);
+      let inPeriodExpense = new Decimal(0);
 
       if (dto?.revenue !== undefined && dto?.expense !== undefined) {
-        taxableRevenue = new Decimal(dto.revenue);
-        expense = new Decimal(dto.expense);
+        inPeriodRevenue = new Decimal(dto.revenue);
+        inPeriodExpense = new Decimal(dto.expense);
       } else {
         const realtimeData = await this.calculateRealtimeTaxData(
           userId,
@@ -436,30 +482,79 @@ export class FinancialPeriodsService {
           targetFp.endDate,
           client,
         );
-        taxableRevenue = realtimeData.revenue;
-        expense = realtimeData.expense;
+        inPeriodRevenue = realtimeData.revenue;
+        inPeriodExpense = realtimeData.expense;
       }
 
-      // Dùng service tính thuế với pitRate và vatRate trong taxConfiguration
-      const taxResult = this.taxEngine.calculateTotalTax(
-        taxableRevenue,
-        expense,
-        currentTaxConfig,
-      );
-      const vatAmount = taxResult.vatAmount;
-      // Lấy pit amount đã được dùng để tính tổng thuế dựa theo phương thức đã chọn
-      const pitAmount =
+      const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+      const mostRecentDeclaration = await client.taxDeclaration.findFirst({
+        where: {
+          period: {
+            userId,
+            startDate: { gte: startOfYear },
+            endDate: { lt: targetFp.startDate },
+            status: PeriodStatus.CLOSED,
+          },
+        },
+        orderBy: {
+          period: {
+            endDate: 'desc',
+          },
+        },
+      });
+
+      const ytdRevenue = (
+        mostRecentDeclaration?.ytdRevenue ?? new Decimal(0)
+      ).add(inPeriodRevenue);
+      const ytdExpense = (
+        mostRecentDeclaration?.ytdExpense ?? new Decimal(0)
+      ).add(inPeriodExpense);
+
+      this.log.debug('CALCULATE_YTD_REVENUE', {
+        ytdRevenue,
+        ytdExpense,
+        period: publicId,
+        userId,
+      });
+
+      let vatAmount = new Decimal(0);
+      let pitAmount = new Decimal(0);
+      let totalTax = new Decimal(0);
+
+      const isPercentageGroup2 =
         currentTaxConfig.chosenPitMethod === 'PERCENTAGE' &&
-        currentTaxConfig.taxGroupId === 2
-          ? (taxResult.pitAmountDetails.percentageMethodAmount ??
-            new Decimal(0))
-          : (taxResult.pitAmountDetails.profitMethodAmount ?? new Decimal(0));
-      const totalTax = taxResult.totalTaxDue;
+        currentTaxConfig.taxGroupId === 2;
+
+      if (isPercentageGroup2) {
+        const ytdTax = await this.calculateYtdTaxForPercentageMethod(
+          userId,
+          targetFp,
+          ytdRevenue,
+          ytdExpense,
+          currentTaxConfig,
+          client,
+        );
+        vatAmount = ytdTax.vatAmount;
+        pitAmount = ytdTax.pitAmount;
+        totalTax = vatAmount.add(pitAmount);
+      } else {
+        const taxResult = this.taxEngine.calculateTotalTax(
+          inPeriodRevenue,
+          inPeriodExpense,
+          currentTaxConfig,
+        );
+        vatAmount = taxResult.vatAmount;
+        pitAmount =
+          taxResult.pitAmountDetails.profitMethodAmount ?? new Decimal(0);
+        totalTax = taxResult.totalTaxDue;
+      }
 
       const updatedFp = await client.financialPeriod.update({
         where: { id: targetFp.id },
         data: {
           taxAmount: totalTax,
+          vatAmount: vatAmount,
+          pitAmount: pitAmount,
           vatRateSnapShot: currentTaxConfig.vatRateSnapShot,
           pitRateSnapShot: currentTaxConfig.pitRateSnapShot,
           status: PeriodStatus.CLOSED,
@@ -473,12 +568,16 @@ export class FinancialPeriodsService {
         updatedFp.id,
         {
           taxAmount: targetFp.taxAmount,
+          vatAmount: targetFp.vatAmount,
+          pitAmount: targetFp.pitAmount,
           vatRateSnapShot: targetFp.vatRateSnapShot,
           pitRateSnapShot: targetFp.pitRateSnapShot,
           status: targetFp.status,
         },
         {
           taxAmount: updatedFp.taxAmount,
+          vatAmount: updatedFp.vatAmount,
+          pitAmount: updatedFp.pitAmount,
           vatRateSnapShot: updatedFp.vatRateSnapShot,
           pitRateSnapShot: updatedFp.pitRateSnapShot,
           status: updatedFp.status,
@@ -494,6 +593,8 @@ export class FinancialPeriodsService {
         period: mapToDto(FinancialPeriodResponseDto, updatedFp),
         vatAmount,
         pitAmount,
+        ytdRevenue,
+        ytdExpense,
       };
     };
 
@@ -736,21 +837,59 @@ export class FinancialPeriodsService {
       );
     }
 
-    // 3. Tính tổng doanh thu và chi phí bằng hàm dùng chung
+    const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+    const mostRecentDeclaration = await this.prisma.taxDeclaration.findFirst({
+      where: {
+        period: {
+          userId,
+          startDate: { gte: startOfYear },
+          endDate: { lt: targetFp.startDate },
+          status: PeriodStatus.CLOSED,
+        },
+      },
+      orderBy: {
+        period: {
+          endDate: 'desc',
+        },
+      },
+    });
+
     const realtimeData = await this.calculateRealtimeTaxData(
       userId,
       targetFp.startDate,
       targetFp.endDate,
     );
-    const taxableRevenue = realtimeData.revenue;
-    const expense = realtimeData.expense;
+    const inPeriodRevenue = realtimeData.revenue;
+    const inPeriodExpense = realtimeData.expense;
 
-    // 4. Gọi tax-engine với mức doanh thu thứ 2 (taxGroupId = 2) để mô phỏng
-    const pitAmountDetails = this.taxEngine.calculatePitAmount(
-      taxableRevenue,
-      expense,
+    const ytdRevenue = (
+      mostRecentDeclaration?.ytdRevenue ?? new Decimal(0)
+    ).add(inPeriodRevenue);
+    const ytdExpense = (
+      mostRecentDeclaration?.ytdExpense ?? new Decimal(0)
+    ).add(inPeriodExpense);
+
+    // Tính pitAmount theo phương thức lợi nhuận (Không dùng YTD)
+    const inPeriodTaxResult = this.taxEngine.calculatePitAmount(
+      inPeriodRevenue,
+      inPeriodExpense,
       currentTaxConfig,
     );
+
+    // Tính pitAmount theo phương thức phần trăm doanh thu (Dùng YTD)
+    const ytdTax = await this.calculateYtdTaxForPercentageMethod(
+      userId,
+      targetFp,
+      ytdRevenue,
+      ytdExpense,
+      currentTaxConfig,
+      this.prisma,
+    );
+
+    const pitAmountDetails = {
+      profitMethodAmount: inPeriodTaxResult.profitMethodAmount,
+      percentageMethodAmount: ytdTax.pitAmount,
+    };
 
     this.log.log(LOG_ACTIONS.CALCULATE_TAX, {
       status: LOG_STATUS.SUCCESS,

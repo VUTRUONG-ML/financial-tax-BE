@@ -7,6 +7,8 @@ import {
   IsString,
   ValidateNested,
   IsEnum,
+  IsNotEmpty,
+  IsDateString,
 } from 'class-validator';
 import { CreateInvoiceDetailDto } from './create-invoice-detail.dto';
 import { PaymentMethod } from '@prisma/client';
@@ -44,6 +46,10 @@ export class CreateInvoiceDto {
 
   @IsEnum(PaymentMethod)
   paymentMethod!: PaymentMethod;
+
+  @IsNotEmpty()
+  @IsDateString()
+  issueDate!: string;
 
   /**
    * Danh sách hàng hóa trong hóa đơn. Tối thiểu 1 dòng.

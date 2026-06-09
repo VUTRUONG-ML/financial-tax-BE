@@ -26,6 +26,7 @@ import { FinancialPeriodsModule } from './financial-periods/financial-periods.mo
 import { TaxEngineModule } from './tax-engine/tax-engine.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { TaxDeclarationModule } from './tax-declaration/tax-declaration.module';
+import { AccountingBooksModule } from './accounting-books/accounting-books.module';
 
 @Module({
   imports: [
@@ -38,7 +39,7 @@ import { TaxDeclarationModule } from './tax-declaration/tax-declaration.module';
       {
         name: 'medium', // Quy tắc trung bình: bảo vệ tài nguyên
         ttl: 60000, // 1 phút
-        limit: 20, // Chỉ 20 lần/phút cho các tác vụ nặng như Hủy/Tạo
+        limit: 50, // Chỉ 20 lần/phút cho các tác vụ nặng như Hủy/Tạo
       },
     ]),
     PrismaModule,
@@ -61,6 +62,7 @@ import { TaxDeclarationModule } from './tax-declaration/tax-declaration.module';
     TaxEngineModule,
     DashboardModule,
     TaxDeclarationModule,
+    AccountingBooksModule,
   ],
   controllers: [AppController],
   providers: [

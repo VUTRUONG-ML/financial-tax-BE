@@ -152,7 +152,6 @@ export class TaxDeclarationService {
   async getStep2(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
     const draft = await this.findDraftByPeriodId(period.id);
-
     // Ưu tiên trả về dữ liệu đã lưu trong draft
     if (draft?.step2Data) return draft.step2Data as unknown as Step2Data;
 
@@ -498,6 +497,8 @@ export class TaxDeclarationService {
         period: closedPeriod,
         vatAmount,
         pitAmount,
+        ytdRevenue,
+        ytdExpense,
       } = await this.financialPeriodsService.closeFinancialPeriod(
         userId,
         publicId,
@@ -515,11 +516,13 @@ export class TaxDeclarationService {
           periodId,
           declaredRevenue: revenue,
           declaredExpense: expense,
+          ytdRevenue,
+          ytdExpense,
           vatTaxAmount: vatAmount,
           pitTaxAmount: pitAmount,
           totalTaxAmount: closedPeriod.taxAmount,
           chosenPitMethod,
-          xmlContent: `<mock><declaredRevenue>${revenue}</declaredRevenue><declaredExpense>${expense}</declaredExpense></mock>`,
+          xmlContent: `<mock><declaredRevenue>${revenue}</declaredRevenue><declaredExpense>${expense}</declaredExpense><ytdRevenue>${ytdRevenue}</ytdRevenue><ytdExpense>${ytdExpense}</ytdExpense></mock>`,
         },
       });
 

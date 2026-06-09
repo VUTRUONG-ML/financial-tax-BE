@@ -1,6 +1,5 @@
-// src/vouchers/dto/voucher-category-response.dto.ts
 import { Expose, Transform } from 'class-transformer';
-import { VoucherType } from '@prisma/client';
+import { VoucherType, S2cExpenseMapping } from '@prisma/client';
 
 export class VoucherCategoryResponseDto {
   @Expose()
@@ -11,6 +10,9 @@ export class VoucherCategoryResponseDto {
 
   @Expose()
   type!: VoucherType;
+
+  @Expose()
+  s2cExpenseMapping!: S2cExpenseMapping;
 
   @Expose()
   @Transform(({ obj }) => obj.userId === null || obj.userId === undefined) // Trả về true nếu userId là null (hạng mục hệ thống)

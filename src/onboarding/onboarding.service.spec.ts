@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { AuditLogService } from '../core/audit-log/audit-log.service';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
+import { Decimal } from '@prisma/client/runtime/client';
 import {
   BadRequestException,
   ConflictException,
@@ -53,7 +55,7 @@ const mockActiveConfig = (overrides = {}) => ({
   userId: MOCK_USER_ID,
   industryId: MOCK_TAX_CATEGORY_ID,
   taxGroupId: MOCK_TAX_GROUP_ID,
-  applyFromDate: new Date(Date.now() - TAX_QUARTER_COOLDOWN_MS - 1000), // Đã qua đủ 90 ngày
+  applyFromDate: new Date(Date.now() - TAX_QUARTER_COOLDOWN_MS - 24 * 60 * 60 * 1000), // Đã qua đủ 91 ngày
   applyToDate: MAX_EFFECTIVE_DATE,
   vatRateSnapShot: 0.05,
   pitRateSnapShot: 0.02,
@@ -111,6 +113,12 @@ describe('OnboardingService', () => {
           provide: AuditLogService,
           useValue: {
             logChange: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: FinancialPeriodsService,
+          useValue: {
+            createInitialPeriod: jest.fn().mockResolvedValue({}),
           },
         },
       ],
@@ -188,6 +196,81 @@ describe('OnboardingService', () => {
           data: expect.objectContaining({
             vatRateSnapShot: mockTaxCategory().vatRate,
             pitRateSnapShot: mockTaxCategory().pitRate,
+          }),
+        }),
+      );
+    });
+
+    it('should snapshot pitRate as 0 for taxGroupId 1 (EXEMPT)', async () => {
+      const tx = buildMockTx();
+      tx.taxConfiguration.findFirst.mockResolvedValue(null);
+      tx.taxConfiguration.create.mockResolvedValue({ id: 'cfg-snap-1' });
+      tx.taxGroup.findUnique.mockResolvedValue({
+        id: 1,
+        allowedMethods: [PitMethod.EXEMPT],
+      });
+      arrangeTx(tx);
+
+      await service.setupTaxConfiguration(MOCK_USER_ID, {
+        ...baseDto(),
+        taxGroupId: 1,
+      });
+
+      expect(tx.taxConfiguration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vatRateSnapShot: mockTaxCategory().vatRate,
+            pitRateSnapShot: new Decimal(0),
+          }),
+        }),
+      );
+    });
+
+    it('should snapshot pitRate as 0.17 for taxGroupId 3 (PROFIT_17)', async () => {
+      const tx = buildMockTx();
+      tx.taxConfiguration.findFirst.mockResolvedValue(null);
+      tx.taxConfiguration.create.mockResolvedValue({ id: 'cfg-snap-3' });
+      tx.taxGroup.findUnique.mockResolvedValue({
+        id: 3,
+        allowedMethods: [PitMethod.PROFIT_17],
+      });
+      arrangeTx(tx);
+
+      await service.setupTaxConfiguration(MOCK_USER_ID, {
+        ...baseDto(),
+        taxGroupId: 3,
+      });
+
+      expect(tx.taxConfiguration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vatRateSnapShot: mockTaxCategory().vatRate,
+            pitRateSnapShot: new Decimal(0.17),
+          }),
+        }),
+      );
+    });
+
+    it('should snapshot pitRate as 0.20 for taxGroupId 4 (PROFIT_20)', async () => {
+      const tx = buildMockTx();
+      tx.taxConfiguration.findFirst.mockResolvedValue(null);
+      tx.taxConfiguration.create.mockResolvedValue({ id: 'cfg-snap-4' });
+      tx.taxGroup.findUnique.mockResolvedValue({
+        id: 4,
+        allowedMethods: [PitMethod.PROFIT_20],
+      });
+      arrangeTx(tx);
+
+      await service.setupTaxConfiguration(MOCK_USER_ID, {
+        ...baseDto(),
+        taxGroupId: 4,
+      });
+
+      expect(tx.taxConfiguration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vatRateSnapShot: mockTaxCategory().vatRate,
+            pitRateSnapShot: new Decimal(0.20),
           }),
         }),
       );
