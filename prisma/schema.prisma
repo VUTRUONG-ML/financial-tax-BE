@@ -683,6 +683,11 @@ enum CogsPostedStatus {
   FAILED
 }
 
+enum StockIssueDocument {
+  INVOICE
+  PRODUCTION_ORDER
+}
+
 model StockReceipt {
   id                Int                    @id @default(autoincrement())
   receiptCode       String                 @unique @map("receipt_code") @db.VarChar(50)
@@ -723,14 +728,14 @@ model StockReceiptDetail {
 }
 
 model StockIssue {
-  id                 Int              @id @default(autoincrement())
-  issueCode          String           @unique @map("issue_code") @db.VarChar(50)
-  issueDate          DateTime         @map("issue_date") @db.Timestamptz(3)
-  issueType          StockIssueType   @map("issue_type")
-  sourceDocumentType String?          @map("source_document_type") @db.VarChar(50)
-  sourceDocumentId   Int?             @map("source_document_id")
-  status             StockIssueStatus @default(DRAFT)
-  periodId           Int              @map("period_id")
+  id                 Int                 @id @default(autoincrement())
+  issueCode          String              @unique @map("issue_code") @db.VarChar(50)
+  issueDate          DateTime            @map("issue_date") @db.Timestamptz(3)
+  issueType          StockIssueType      @map("issue_type")
+  sourceDocumentType StockIssueDocument? @map("source_document_type")
+  sourceDocumentId   Int?                @map("source_document_id")
+  status             StockIssueStatus    @default(DRAFT)
+  periodId           Int                 @map("period_id")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
