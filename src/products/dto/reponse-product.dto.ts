@@ -15,6 +15,8 @@ export class ProductResponseDto {
   @Expose() currentStock!: number;
   @Expose() openingStockQuantity!: number;
   @Expose() createdAt!: Date;
+  @Expose() taxCategoryId?: number;
+  @Expose() isInventoryTracked!: boolean;
 
   @Expose()
   @Transform(({ value }) => (value ? Number(value) : 0))

@@ -16,7 +16,6 @@ import {
   AuditLogService,
   tableWrite,
 } from '../core/audit-log/audit-log.service';
-import { plainToInstance } from 'class-transformer';
 import { ProductResponseDto } from './dto/reponse-product.dto';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { Decimal } from '@prisma/client/runtime/client';
@@ -75,6 +74,17 @@ export class ProductsService {
     const unitCost = dto.openingStockUnitCost ?? 0;
     const openingStockValue = qty * unitCost;
 
+    if (dto.taxCategoryId) {
+      const taxCategoryExists = await this.prisma.taxCategory.findUnique({
+        where: { id: dto.taxCategoryId },
+      });
+      if (!taxCategoryExists) {
+        throw new BadRequestException(
+          'Invalid taxCategoryId. Tax category does not exist.',
+        );
+      }
+    }
+
     try {
       const product = await this.prisma.product.create({
         data: {
@@ -91,6 +101,8 @@ export class ProductsService {
           openingStockValue,
           // Khởi tạo cache tồn kho = số lượng đầu kỳ
           currentStock: qty,
+          taxCategoryId: dto.taxCategoryId,
+          isInventoryTracked: dto.productType === 'SERVICE' ? false : true,
         },
         omit: { id: true },
       });
@@ -98,8 +110,6 @@ export class ProductsService {
       // chèn vào bảng Sổ kho (S05-HKD) với diễn giải là "Kết chuyển số dư đầu kỳ".
       return product;
     } catch (dbError) {
-      // TRICK CAO CẤP: Nếu lưu DB lỗi, ta nên xóa ảnh vừa upload trên Cloudinary
-      // để tránh rác server (Rollback ảnh)
       if (imageData.publicId) {
         this.safeDeleteImage(imageData.publicId);
       }
@@ -178,11 +188,24 @@ export class ProductsService {
     file?: Express.Multer.File,
   ) {
     // Truyền file vào dto để bỏ qua lỗi khi gửi file thông qua multiple/form-data mà validatepipe bắt lỗi truyền dư field
-    const { file: fileDto, ...dtoWithoutFile } = dto;
+    const dtoWithoutFile = { ...dto };
+    delete dtoWithoutFile.file;
     // Kiểm tra tồn tại & ownership
     const current = await this.findOneByPublicId(userId, publicId);
     const oldImage = current.imagePublicId ?? '';
     const imageData = await this.handleImageUpload(userId, file);
+
+    if (dto.taxCategoryId) {
+      const taxCategoryExists = await this.prisma.taxCategory.findUnique({
+        where: { id: dto.taxCategoryId },
+      });
+      if (!taxCategoryExists) {
+        throw new BadRequestException(
+          'Invalid taxCategoryId. Tax category does not exist.',
+        );
+      }
+    }
+
     // Spread DTO fields (currentStock không có trong UpdateProductDto)
     const { openingStockQuantity, openingStockUnitCost } = dto;
 
@@ -209,6 +232,7 @@ export class ProductsService {
             imageUrl: imageData.url,
             imagePublicId: imageData.publicId,
           }),
+          isInventoryTracked: dto.productType === 'SERVICE' ? false : dto.productType === undefined ? current.isInventoryTracked : true,
           openingStockValue,
         },
       });
@@ -282,7 +306,7 @@ export class ProductsService {
     const tong_gia_tri_ton_kho = products.reduce((acc, p) => {
       const stock = p.currentStock || 0;
       const unitCost = Number(p.openingStockUnitCost || 0);
-      return acc + (stock * unitCost);
+      return acc + stock * unitCost;
     }, 0);
 
     // 4. Số lượng sản phẩm sắp hết hàng (dưới 15 đơn vị, loại trừ SERVICE)

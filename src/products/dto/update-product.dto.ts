@@ -3,9 +3,7 @@ import { CreateProductDto } from './create-product.dto';
 import { IsOptional } from 'class-validator';
 
 /**
- * UpdateProductDto kế thừa tất cả field từ CreateProductDto (đều optional).
- * currentStock KHÔNG có trong CreateProductDto nên KHÔNG thể truyền vào đây —
- * cột này chỉ được cập nhật nội bộ qua DB Transaction khi có hóa đơn.
+ * UpdateProductDto kế thừa tất cả field từ CreateProductDto
  */
 export class UpdateProductDto extends PartialType(CreateProductDto) {
   @IsOptional()
