@@ -12,7 +12,7 @@ export class PeriodLockGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
     private validationService: FinancialPeriodValidationService,
-  ) { }
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // 1. Kiểm tra xem method có gắn decorator @CheckPeriod không
@@ -31,7 +31,9 @@ export class PeriodLockGuard implements CanActivate {
 
     if (!user || !user.id) return false;
 
-    const checkDateRaw = (request.body?.issueDate || request.body?.transactionAt) as string | undefined;
+    const checkDateRaw = (request.body?.issueDate ||
+      request.body?.transactionAt ||
+      request.body?.receiptDate) as string | undefined;
     const checkDate = checkDateRaw
       ? moment(checkDateRaw).toDate()
       : moment().toDate();

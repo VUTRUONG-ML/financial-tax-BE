@@ -1,8 +1,8 @@
 export function generateMonthlySequenceCode(
   prefix: string,
+  transactionDate: Date,
   lastCode?: string,
 ): string {
-  const transactionDate = new Date();
   const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
   const yy = transactionDate.getFullYear().toString().slice(-2);
   const mmyy = `${mm}${yy}`;

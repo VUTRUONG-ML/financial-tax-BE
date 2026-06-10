@@ -15,7 +15,7 @@ export class FinancialPeriodValidationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly period: FinancialPeriodsService,
-  ) {}
+  ) { }
 
   /**
    * Hàm này thực hiện kiểm tra xem hành động hiện tại có thuộc một kì nào không mục đích là để kiểm tra trạng thái đã chốt hay còn mở của kì đó.
@@ -30,14 +30,12 @@ export class FinancialPeriodValidationService {
     const issueDate = moment(date).startOf('day').toDate();
 
     return await this.prisma.$transaction(async (tx) => {
-      // KỸ THUẬT CỐT LÕI (Pessimistic Lock): Khóa luồng xử lý theo từng userId độc lập
       await tx.user.update({
         where: { id: userId },
         data: {},
       });
 
       // 1. Tìm kiếm kỳ tài chính chứa mốc thời gian giao dịch
-      // Lúc này, luồng chạy vào đây đã là duy nhất (Sequential) đối với user này
       let currentPeriod = await tx.financialPeriod.findFirst({
         where: {
           userId,
@@ -50,7 +48,6 @@ export class FinancialPeriodValidationService {
       if (!currentPeriod) {
         const startOfMonth = moment(issueDate).startOf('month').toDate();
 
-        // CHẶN: Kiểm tra xem kỳ tài chính liền trước đã đóng (CLOSED) chưa
         // Tìm các kì kết thúc trước tháng của issueDate (startOfMonth)
         const isPreviousOpenPeriod =
           (await tx.financialPeriod.count({

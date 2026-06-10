@@ -27,6 +27,8 @@ import { TaxEngineModule } from './tax-engine/tax-engine.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { TaxDeclarationModule } from './tax-declaration/tax-declaration.module';
 import { AccountingBooksModule } from './accounting-books/accounting-books.module';
+import { StocksModule } from './stocks/stocks.module';
+import { InventoryMovementsModule } from './inventory-movements/inventory-movements.module';
 
 @Module({
   imports: [
@@ -63,6 +65,8 @@ import { AccountingBooksModule } from './accounting-books/accounting-books.modul
     DashboardModule,
     TaxDeclarationModule,
     AccountingBooksModule,
+    StocksModule,
+    InventoryMovementsModule,
   ],
   controllers: [AppController],
   providers: [

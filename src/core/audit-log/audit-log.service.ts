@@ -19,6 +19,10 @@ export enum tableWrite {
   revenue = 'revenue_trackers',
   tax_declaration = 'tax_declarations',
   tax_declaration_draft = 'tax_declaration_drafts',
+  stockReceipts = 'stock_receipts',
+  stockReceiptDetails = 'stock_receipt_details',
+  stockIssues = 'stock_issues',
+  stockIssueDetails = 'stock_issue_details',
 }
 @Injectable()
 export class AuditLogService {
