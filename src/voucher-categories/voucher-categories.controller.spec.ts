@@ -9,7 +9,9 @@ describe('VoucherCategoriesController', () => {
       controllers: [VoucherCategoriesController],
     }).compile();
 
-    controller = module.get<VoucherCategoriesController>(VoucherCategoriesController);
+    controller = module.get<VoucherCategoriesController>(
+      VoucherCategoriesController,
+    );
   });
 
   it('should be defined', () => {

@@ -10,4 +10,4 @@ import { FinancialPeriodsModule } from '../financial-periods/financial-periods.m
   providers: [InboundInvoicesService],
   imports: [VouchersModule, ProductsModule, FinancialPeriodsModule],
 })
-export class InboundInvoicesModule { }
+export class InboundInvoicesModule {}

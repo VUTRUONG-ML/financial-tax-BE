@@ -1,4 +1,12 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsInt, Min, Max, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsString,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum TimeFrame {

@@ -57,4 +57,7 @@ export class CreateProductDto {
     return undefined;
   })
   isInventoryTracked?: boolean;
+
+  @IsOptional()
+  file?: any;
 }

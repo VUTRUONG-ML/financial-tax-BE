@@ -31,7 +31,7 @@ export class InboundInvoicesService {
     private readonly auditLog: AuditLogService,
     private readonly voucherService: VouchersService,
     private readonly productService: ProductsService,
-  ) { }
+  ) {}
 
   async findAllInboundInvoices(
     userId: string,
@@ -76,7 +76,7 @@ export class InboundInvoicesService {
             },
           },
         },
-        orderBy: { issueDate: 'desc' }
+        orderBy: { issueDate: 'desc' },
       }),
     ]);
     return {
@@ -181,7 +181,9 @@ export class InboundInvoicesService {
 
           let newUnitCost = oldUnitCost;
           if (newStock > 0) {
-            newUnitCost = ((oldStock * oldUnitCost) + (item.quantity * item.unitCost)) / newStock;
+            newUnitCost =
+              (oldStock * oldUnitCost + item.quantity * item.unitCost) /
+              newStock;
           }
 
           await tx.product.update({
@@ -354,7 +356,10 @@ export class InboundInvoicesService {
 
         let newUnitCost = oldUnitCost;
         if (newStock > 0) {
-          newUnitCost = ((oldStock * oldUnitCost) + (item.quantity * Number(item.unitCost || 0))) / newStock;
+          newUnitCost =
+            (oldStock * oldUnitCost +
+              item.quantity * Number(item.unitCost || 0)) /
+            newStock;
         }
 
         await tx.product.update({
@@ -469,28 +474,32 @@ export class InboundInvoicesService {
       if (finalIsSynced && !existing.isSyncedToInventory) {
         const itemsToSync = dto.items
           ? itemsWithInternalId
-          : await tx.inboundInvoiceDetail.findMany({
-            where: { inboundInvoiceId: existing.id },
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  productType: true,
-                  currentStock: true,
-                  openingStockUnitCost: true,
+          : await tx.inboundInvoiceDetail
+              .findMany({
+                where: { inboundInvoiceId: existing.id },
+                include: {
+                  product: {
+                    select: {
+                      id: true,
+                      productType: true,
+                      currentStock: true,
+                      openingStockUnitCost: true,
+                    },
+                  },
                 },
-              },
-            },
-          }).then((details) =>
-            details.map((d) => ({
-              productId: d.productId,
-              quantity: d.quantity,
-              unitCost: Number(d.unitCost || 0),
-              productType: d.product.productType,
-              currentStock: d.product.currentStock,
-              openingStockUnitCost: Number(d.product.openingStockUnitCost || 0),
-            })),
-          );
+              })
+              .then((details) =>
+                details.map((d) => ({
+                  productId: d.productId,
+                  quantity: d.quantity,
+                  unitCost: Number(d.unitCost || 0),
+                  productType: d.product.productType,
+                  currentStock: d.product.currentStock,
+                  openingStockUnitCost: Number(
+                    d.product.openingStockUnitCost || 0,
+                  ),
+                })),
+              );
 
         for (const item of itemsToSync) {
           if (item.productType === 'SERVICE') continue;
@@ -520,10 +529,12 @@ export class InboundInvoicesService {
         where: { id: existing.id },
         data: {
           sellerName: dto.sellerName ?? undefined,
-          sellerTaxCode: dto.sellerTaxCode !== undefined ? dto.sellerTaxCode : undefined,
+          sellerTaxCode:
+            dto.sellerTaxCode !== undefined ? dto.sellerTaxCode : undefined,
           invoiceNo: dto.invoiceNo ?? undefined,
           issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
-          attachmentUrl: dto.attachmentUrl !== undefined ? dto.attachmentUrl : undefined,
+          attachmentUrl:
+            dto.attachmentUrl !== undefined ? dto.attachmentUrl : undefined,
           isSyncedToInventory: finalIsSynced,
           totalAmount: finalTotalAmount,
         },
@@ -580,24 +591,25 @@ export class InboundInvoicesService {
   }
 
   async getSummary(userId: string) {
-    const [tong_so_luong_hoa_don, aggregateActive, aggregateUnpaid] = await Promise.all([
-      this.prisma.inboundInvoice.count({
-        where: { userId },
-      }),
-      this.prisma.inboundInvoice.aggregate({
-        where: { userId, status: 'ACTIVE' },
-        _sum: {
-          totalAmount: true,
-        },
-      }),
-      this.prisma.inboundInvoice.aggregate({
-        where: { userId, status: 'ACTIVE', isPaid: false },
-        _sum: {
-          totalAmount: true,
-          paidAmount: true,
-        },
-      }),
-    ]);
+    const [tong_so_luong_hoa_don, aggregateActive, aggregateUnpaid] =
+      await Promise.all([
+        this.prisma.inboundInvoice.count({
+          where: { userId },
+        }),
+        this.prisma.inboundInvoice.aggregate({
+          where: { userId, status: 'ACTIVE' },
+          _sum: {
+            totalAmount: true,
+          },
+        }),
+        this.prisma.inboundInvoice.aggregate({
+          where: { userId, status: 'ACTIVE', isPaid: false },
+          _sum: {
+            totalAmount: true,
+            paidAmount: true,
+          },
+        }),
+      ]);
 
     const tong_doanh_thu = aggregateActive._sum.totalAmount
       ? Number(aggregateActive._sum.totalAmount)

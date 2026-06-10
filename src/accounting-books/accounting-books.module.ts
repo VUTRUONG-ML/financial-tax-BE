@@ -9,4 +9,4 @@ import { TaxEngineModule } from '../tax-engine/tax-engine.module';
   providers: [AccountingBooksService],
   imports: [PrismaModule, TaxEngineModule],
 })
-export class AccountingBooksModule { }
+export class AccountingBooksModule {}

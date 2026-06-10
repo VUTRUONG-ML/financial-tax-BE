@@ -38,7 +38,7 @@ export class VouchersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) { }
+  ) {}
 
   private calculateNewPaymentState(
     currentPaid: Decimal,
@@ -500,7 +500,9 @@ export class VouchersService {
         throw new BadRequestException('Cannot update a canceled voucher');
       }
 
-      const isLinked = existing.inboundInvoiceId !== null || existing.outboundInvoiceId !== null;
+      const isLinked =
+        existing.inboundInvoiceId !== null ||
+        existing.outboundInvoiceId !== null;
 
       if (isLinked) {
         // Locked fields check: voucherType, amount, inboundInvoicePublicId, outboundInvoicePublicId, isDeductibleExpense
@@ -514,11 +516,13 @@ export class VouchersService {
 
         const hasInboundLinkChange =
           updateVoucherDto.inboundInvoicePublicId !== undefined &&
-          updateVoucherDto.inboundInvoicePublicId !== existing.inboundInvoice?.publicId;
+          updateVoucherDto.inboundInvoicePublicId !==
+            existing.inboundInvoice?.publicId;
 
         const hasOutboundLinkChange =
           updateVoucherDto.outboundInvoicePublicId !== undefined &&
-          updateVoucherDto.outboundInvoicePublicId !== existing.outBoundInvoice?.publicId;
+          updateVoucherDto.outboundInvoicePublicId !==
+            existing.outBoundInvoice?.publicId;
 
         const hasIsDeductibleChange =
           updateVoucherDto.isDeductibleExpense !== undefined &&
@@ -537,12 +541,14 @@ export class VouchersService {
         }
       }
 
-      const newVoucherType = updateVoucherDto.voucherType ?? existing.voucherType;
+      const newVoucherType =
+        updateVoucherDto.voucherType ?? existing.voucherType;
       const newAmount =
         updateVoucherDto.amount !== undefined
           ? new Decimal(updateVoucherDto.amount)
           : existing.amount;
-      const newPaymentMethod = updateVoucherDto.paymentMethod ?? existing.paymentMethod;
+      const newPaymentMethod =
+        updateVoucherDto.paymentMethod ?? existing.paymentMethod;
       const newIsDeductibleExpense =
         updateVoucherDto.isDeductibleExpense ?? existing.isDeductibleExpense;
 
@@ -575,7 +581,8 @@ export class VouchersService {
 
       // Handle invoice link changes for unlinked voucher
       const newInboundInvoicePublicId = updateVoucherDto.inboundInvoicePublicId;
-      const newOutboundInvoicePublicId = updateVoucherDto.outboundInvoicePublicId;
+      const newOutboundInvoicePublicId =
+        updateVoucherDto.outboundInvoicePublicId;
 
       let invoice: { id: number; type: string } | undefined = undefined;
       if (newInboundInvoicePublicId || newOutboundInvoicePublicId) {
@@ -595,8 +602,10 @@ export class VouchersService {
         ...updateVoucherDto,
       };
       if (invoice) {
-        updateData.inboundInvoiceId = invoice.type === 'INBOUND' ? invoice.id : null;
-        updateData.outboundInvoiceId = invoice.type === 'OUTBOUND' ? invoice.id : null;
+        updateData.inboundInvoiceId =
+          invoice.type === 'INBOUND' ? invoice.id : null;
+        updateData.outboundInvoiceId =
+          invoice.type === 'OUTBOUND' ? invoice.id : null;
       }
       delete updateData.inboundInvoicePublicId;
       delete updateData.outboundInvoicePublicId;
@@ -723,7 +732,10 @@ export class VouchersService {
         throw new NotFoundException('Voucher not found');
       }
 
-      if (existing.inboundInvoiceId !== null || existing.outboundInvoiceId !== null) {
+      if (
+        existing.inboundInvoiceId !== null ||
+        existing.outboundInvoiceId !== null
+      ) {
         throw new BadRequestException(
           'Voucher is linked to an invoice and cannot be deleted.',
         );
@@ -803,7 +815,12 @@ export class VouchersService {
       const year = yearMatch ? parseInt(yearMatch[1], 10) : moment().year();
 
       const startMonth = (quarter - 1) * 3;
-      const startDate = moment().year(year).month(startMonth).date(1).startOf('day').toDate();
+      const startDate = moment()
+        .year(year)
+        .month(startMonth)
+        .date(1)
+        .startOf('day')
+        .toDate();
       const endDate = moment(startDate).endOf('quarter').toDate();
       return { startDate, endDate };
     }
@@ -827,7 +844,12 @@ export class VouchersService {
     if (yyyymmMatch) {
       const year = parseInt(yyyymmMatch[1], 10);
       const month = parseInt(yyyymmMatch[2], 10) - 1;
-      const startDate = moment().year(year).month(month).date(1).startOf('day').toDate();
+      const startDate = moment()
+        .year(year)
+        .month(month)
+        .date(1)
+        .startOf('day')
+        .toDate();
       const endDate = moment(startDate).endOf('month').toDate();
       return { startDate, endDate };
     }
@@ -840,74 +862,77 @@ export class VouchersService {
       return { startDate, endDate };
     }
 
-    throw new BadRequestException('Invalid fromDate format. Expected month (YYYY-MM, MM/YYYY) or quarter (YYYY-Q#).');
+    throw new BadRequestException(
+      'Invalid fromDate format. Expected month (YYYY-MM, MM/YYYY) or quarter (YYYY-Q#).',
+    );
   }
 
   async getSummary(userId: string, fromDate: string) {
     const { startDate, endDate } = this.parsePeriod(fromDate);
 
-    const [periodReceipts, periodPayments, cashGroup, bankGroup] = await Promise.all([
-      // 1. Tổng tiền thu trong kỳ (tháng/quý)
-      this.prisma.voucher.aggregate({
-        where: {
-          userId,
-          voucherType: 'RECEIPT',
-          status: 'ACTIVE',
-          transactionAt: {
-            gte: startDate,
-            lte: endDate,
+    const [periodReceipts, periodPayments, cashGroup, bankGroup] =
+      await Promise.all([
+        // 1. Tổng tiền thu trong kỳ (tháng/quý)
+        this.prisma.voucher.aggregate({
+          where: {
+            userId,
+            voucherType: 'RECEIPT',
+            status: 'ACTIVE',
+            transactionAt: {
+              gte: startDate,
+              lte: endDate,
+            },
           },
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-      // 2. Tổng tiền chi trong kỳ (tháng/quý)
-      this.prisma.voucher.aggregate({
-        where: {
-          userId,
-          voucherType: 'PAYMENT',
-          status: 'ACTIVE',
-          transactionAt: {
-            gte: startDate,
-            lte: endDate,
+          _sum: {
+            amount: true,
           },
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-      // 3. Phân nhóm Thu/Chi tiền mặt từ fromDate đến hiện tại
-      this.prisma.voucher.groupBy({
-        by: ['voucherType'],
-        where: {
-          userId,
-          status: 'ACTIVE',
-          paymentMethod: 'CASH',
-          transactionAt: {
-            gte: startDate,
+        }),
+        // 2. Tổng tiền chi trong kỳ (tháng/quý)
+        this.prisma.voucher.aggregate({
+          where: {
+            userId,
+            voucherType: 'PAYMENT',
+            status: 'ACTIVE',
+            transactionAt: {
+              gte: startDate,
+              lte: endDate,
+            },
           },
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-      // 4. Phân nhóm Thu/Chi chuyển khoản từ fromDate đến hiện tại
-      this.prisma.voucher.groupBy({
-        by: ['voucherType'],
-        where: {
-          userId,
-          status: 'ACTIVE',
-          paymentMethod: 'BANK',
-          transactionAt: {
-            gte: startDate,
+          _sum: {
+            amount: true,
           },
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-    ]);
+        }),
+        // 3. Phân nhóm Thu/Chi tiền mặt từ fromDate đến hiện tại
+        this.prisma.voucher.groupBy({
+          by: ['voucherType'],
+          where: {
+            userId,
+            status: 'ACTIVE',
+            paymentMethod: 'CASH',
+            transactionAt: {
+              gte: startDate,
+            },
+          },
+          _sum: {
+            amount: true,
+          },
+        }),
+        // 4. Phân nhóm Thu/Chi chuyển khoản từ fromDate đến hiện tại
+        this.prisma.voucher.groupBy({
+          by: ['voucherType'],
+          where: {
+            userId,
+            status: 'ACTIVE',
+            paymentMethod: 'BANK',
+            transactionAt: {
+              gte: startDate,
+            },
+          },
+          _sum: {
+            amount: true,
+          },
+        }),
+      ]);
 
     const tong_tien_thu = Number(periodReceipts._sum.amount || 0);
     const tong_tien_chi = Number(periodPayments._sum.amount || 0);

@@ -35,7 +35,7 @@ export class StocksService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly inventoryMovementsService: InventoryMovementsService,
-  ) { }
+  ) {}
 
   async createStockReceipt(
     userId: string,
@@ -220,7 +220,7 @@ export class StocksService {
           details: {
             include: {
               product: {
-                select: { publicId: true, productName: true, skuCode: true }
+                select: { publicId: true, productName: true, skuCode: true },
               },
             },
           },

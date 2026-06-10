@@ -45,7 +45,8 @@ export class UserResponseDto {
   @Expose()
   @Transform(({ obj }) => {
     const taxConfig = obj.taxConfig;
-    if (!taxConfig || !taxConfig.industry) return 'Phân phối, cung cấp hàng hóa';
+    if (!taxConfig || !taxConfig.industry)
+      return 'Phân phối, cung cấp hàng hóa';
     return taxConfig.industry.categoryName;
   })
   industry_label!: string;

@@ -65,7 +65,8 @@ export class InternalProductionOrdersController {
 
   @Get('summary')
   async getSummary(@CurrentUser('id') userId: string) {
-    const result = await this.internalProductionOrdersService.getSummary(userId);
+    const result =
+      await this.internalProductionOrdersService.getSummary(userId);
     return {
       message: 'Production orders summary retrieved successfully',
       data: result,

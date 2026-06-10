@@ -7,6 +7,6 @@ import { FinancialPeriodsModule } from '../financial-periods/financial-periods.m
 @Module({
   imports: [FinancialPeriodsModule],
   controllers: [InternalProductionOrdersController],
-  providers: [InternalProductionOrdersService]
+  providers: [InternalProductionOrdersService],
 })
 export class InternalProductionOrdersModule {}

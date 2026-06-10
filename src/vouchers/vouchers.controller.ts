@@ -24,7 +24,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('vouchers')
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class VouchersController {
-  constructor(private readonly vouchersService: VouchersService) { }
+  constructor(private readonly vouchersService: VouchersService) {}
 
   @Post()
   @CheckPeriod()

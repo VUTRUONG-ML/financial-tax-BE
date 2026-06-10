@@ -43,7 +43,11 @@ export function parseDateRange(
       }
       const { year, quarter } = customRange;
       const startMonth = (quarter - 1) * 3;
-      const qStart = moment().date(1).year(year).month(startMonth).startOf('month');
+      const qStart = moment()
+        .date(1)
+        .year(year)
+        .month(startMonth)
+        .startOf('month');
       const qEnd = qStart.add(2, 'month').endOf('month');
       startDate = qStart.startOf('day').toDate();
       endDate = qEnd.endOf('day').toDate();

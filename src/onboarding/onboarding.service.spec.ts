@@ -55,7 +55,9 @@ const mockActiveConfig = (overrides = {}) => ({
   userId: MOCK_USER_ID,
   industryId: MOCK_TAX_CATEGORY_ID,
   taxGroupId: MOCK_TAX_GROUP_ID,
-  applyFromDate: new Date(Date.now() - TAX_QUARTER_COOLDOWN_MS - 24 * 60 * 60 * 1000), // Đã qua đủ 91 ngày
+  applyFromDate: new Date(
+    Date.now() - TAX_QUARTER_COOLDOWN_MS - 24 * 60 * 60 * 1000,
+  ), // Đã qua đủ 91 ngày
   applyToDate: MAX_EFFECTIVE_DATE,
   vatRateSnapShot: 0.05,
   pitRateSnapShot: 0.02,
@@ -270,7 +272,7 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             vatRateSnapShot: mockTaxCategory().vatRate,
-            pitRateSnapShot: new Decimal(0.20),
+            pitRateSnapShot: new Decimal(0.2),
           }),
         }),
       );

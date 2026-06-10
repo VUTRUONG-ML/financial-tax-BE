@@ -28,7 +28,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly auditLog: AuditLogService,
-  ) { }
+  ) {}
 
   private safeDeleteImage(publicId: string) {
     this.cloudinaryService.deleteFile(publicId).catch((error: Error) => {
@@ -68,7 +68,8 @@ export class ProductsService {
     dto: CreateProductDto,
     file?: Express.Multer.File,
   ) {
-    const imageData = await this.handleImageUpload(userId, file);
+    const fileToUpload = file || (dto.file as Express.Multer.File | undefined);
+    const imageData = await this.handleImageUpload(userId, fileToUpload);
 
     const qty = dto.openingStockQuantity ?? 0;
     const unitCost = dto.openingStockUnitCost ?? 0;
@@ -193,7 +194,8 @@ export class ProductsService {
     // Kiểm tra tồn tại & ownership
     const current = await this.findOneByPublicId(userId, publicId);
     const oldImage = current.imagePublicId ?? '';
-    const imageData = await this.handleImageUpload(userId, file);
+    const fileToUpload = file || (dto.file as Express.Multer.File | undefined);
+    const imageData = await this.handleImageUpload(userId, fileToUpload);
 
     if (dto.taxCategoryId) {
       const taxCategoryExists = await this.prisma.taxCategory.findUnique({
@@ -232,7 +234,12 @@ export class ProductsService {
             imageUrl: imageData.url,
             imagePublicId: imageData.publicId,
           }),
-          isInventoryTracked: dto.productType === 'SERVICE' ? false : dto.productType === undefined ? current.isInventoryTracked : true,
+          isInventoryTracked:
+            dto.productType === 'SERVICE'
+              ? false
+              : dto.productType === undefined
+                ? current.isInventoryTracked
+                : true,
           openingStockValue,
         },
       });
@@ -274,28 +281,26 @@ export class ProductsService {
 
   // ─── SUMMARY ──────────────────────────────────────────────────────────────
   async getSummary(userId: string) {
-    // 1. Tổng sản phẩm
-    const tong_san_pham = await this.prisma.product.count({
-      where: { userId },
-    });
-
-    // 2. Tổng sản phẩm phân loại
-    const counts = await this.prisma.product.groupBy({
-      by: ['productType'],
-      where: { userId },
-      _count: { id: true },
-    });
-
-    let finished_good = 0;
-    let service = 0;
-
-    for (const item of counts) {
-      if (item.productType === 'FINISHED_GOOD') {
-        finished_good = item._count.id;
-      } else if (item.productType === 'SERVICE') {
-        service = item._count.id;
-      }
-    }
+    const [counts, finishGoodCount, serviceCount, sapHetCount] =
+      await Promise.all([
+        this.prisma.product.count({ where: { userId } }),
+        this.prisma.product.count({
+          where: {
+            userId,
+            productType: 'FINISHED_GOOD',
+          },
+        }),
+        this.prisma.product.count({
+          where: { userId, productType: 'SERVICE' },
+        }),
+        this.prisma.product.count({
+          where: {
+            userId,
+            productType: { not: 'SERVICE' },
+            currentStock: { lt: 15 },
+          },
+        }),
+      ]);
 
     // 3. Tổng giá trị tồn kho (loại trừ SERVICE)
     const products = await this.prisma.product.findMany({
@@ -309,24 +314,15 @@ export class ProductsService {
       return acc + stock * unitCost;
     }, 0);
 
-    // 4. Số lượng sản phẩm sắp hết hàng (dưới 15 đơn vị, loại trừ SERVICE)
-    const sap_het_hang = await this.prisma.product.count({
-      where: {
-        userId,
-        productType: { not: 'SERVICE' },
-        currentStock: { lt: 15 },
-      },
-    });
-
     return {
-      tong_san_pham,
+      tong_san_pham: counts,
       tong_san_pham_phan_loai: {
-        FINISHED_GOOD: finished_good,
+        FINISHED_GOOD: finishGoodCount,
         RAW_MATERIAL: 0,
-        SERVICE: service,
+        SERVICE: serviceCount,
       },
       tong_gia_tri_ton_kho,
-      sap_het_hang,
+      sap_het_hang: sapHetCount,
     };
   }
 

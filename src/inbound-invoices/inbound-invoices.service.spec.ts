@@ -83,8 +83,11 @@ describe('InboundInvoicesService', () => {
         },
       };
 
-      jest.spyOn(service['prisma'].inboundInvoice, 'count').mockResolvedValue(mockCount);
-      jest.spyOn(service['prisma'].inboundInvoice, 'aggregate')
+      jest
+        .spyOn(service['prisma'].inboundInvoice, 'count')
+        .mockResolvedValue(mockCount);
+      jest
+        .spyOn(service['prisma'].inboundInvoice, 'aggregate')
         .mockResolvedValueOnce(mockAggregateActive as any)
         .mockResolvedValueOnce(mockAggregateUnpaid as any);
 
@@ -93,11 +96,15 @@ describe('InboundInvoicesService', () => {
       expect(service['prisma'].inboundInvoice.count).toHaveBeenCalledWith({
         where: { userId: mockUserId },
       });
-      expect(service['prisma'].inboundInvoice.aggregate).toHaveBeenNthCalledWith(1, {
+      expect(
+        service['prisma'].inboundInvoice.aggregate,
+      ).toHaveBeenNthCalledWith(1, {
         where: { userId: mockUserId, status: 'ACTIVE' },
         _sum: { totalAmount: true },
       });
-      expect(service['prisma'].inboundInvoice.aggregate).toHaveBeenNthCalledWith(2, {
+      expect(
+        service['prisma'].inboundInvoice.aggregate,
+      ).toHaveBeenNthCalledWith(2, {
         where: { userId: mockUserId, status: 'ACTIVE', isPaid: false },
         _sum: { totalAmount: true, paidAmount: true },
       });

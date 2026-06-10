@@ -33,7 +33,7 @@ export class AccountingBooksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
-  ) { }
+  ) {}
 
   async generateBookMetadata(
     bookKey: AccountingBookKey,
@@ -719,10 +719,14 @@ export class AccountingBooksService {
       chi_phi_khac: 0,
     };
 
-    const chi_phi_nguyen_vat_lieu = Number(summaryRow.chi_phi_nguyen_vat_lieu || 0);
+    const chi_phi_nguyen_vat_lieu = Number(
+      summaryRow.chi_phi_nguyen_vat_lieu || 0,
+    );
     const chi_phi_nhan_cong = Number(summaryRow.chi_phi_nhan_cong || 0);
     const chi_phi_khau_hao = Number(summaryRow.chi_phi_khau_hao || 0);
-    const chi_phi_dich_vu_mua_ngoai = Number(summaryRow.chi_phi_dich_vu_mua_ngoai || 0);
+    const chi_phi_dich_vu_mua_ngoai = Number(
+      summaryRow.chi_phi_dich_vu_mua_ngoai || 0,
+    );
     const chi_phi_lai_vay = Number(summaryRow.chi_phi_lai_vay || 0);
     const chi_phi_khac = Number(summaryRow.chi_phi_khac || 0);
 

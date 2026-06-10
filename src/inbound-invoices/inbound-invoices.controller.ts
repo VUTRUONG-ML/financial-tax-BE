@@ -23,7 +23,7 @@ import { UpdateInboundInvoiceDto } from './dto/update-inbound-invoice.dto';
 export class InboundInvoicesController {
   constructor(
     private readonly inboundInvoicesService: InboundInvoicesService,
-  ) { }
+  ) {}
 
   @Get()
   async findAllInboundInvoice(
@@ -123,7 +123,11 @@ export class InboundInvoicesController {
     @Param('publicId') publicId: string,
     @Body() dto: UpdateInboundInvoiceDto,
   ) {
-    const data = await this.inboundInvoicesService.update(userId, publicId, dto);
+    const data = await this.inboundInvoicesService.update(
+      userId,
+      publicId,
+      dto,
+    );
     return {
       message: 'Update success.',
       data,

@@ -29,8 +29,12 @@ describe('InternalProductionOrdersController', () => {
       .useValue({ canActivate: () => true })
       .compile();
 
-    controller = module.get<InternalProductionOrdersController>(InternalProductionOrdersController);
-    service = module.get<InternalProductionOrdersService>(InternalProductionOrdersService);
+    controller = module.get<InternalProductionOrdersController>(
+      InternalProductionOrdersController,
+    );
+    service = module.get<InternalProductionOrdersService>(
+      InternalProductionOrdersService,
+    );
   });
 
   it('should be defined', () => {
@@ -89,9 +93,17 @@ describe('InternalProductionOrdersController', () => {
       };
       jest.spyOn(service, 'update').mockResolvedValue(mockResult as any);
 
-      const result = await controller.update('user-1', 'LSX-0526-0001', mockDto);
+      const result = await controller.update(
+        'user-1',
+        'LSX-0526-0001',
+        mockDto,
+      );
 
-      expect(service.update).toHaveBeenCalledWith('user-1', 'LSX-0526-0001', mockDto);
+      expect(service.update).toHaveBeenCalledWith(
+        'user-1',
+        'LSX-0526-0001',
+        mockDto,
+      );
       expect(result).toEqual({
         message: 'Internal production order updated successfully',
         data: mockResult,

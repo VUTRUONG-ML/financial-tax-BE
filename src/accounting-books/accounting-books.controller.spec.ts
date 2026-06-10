@@ -27,7 +27,9 @@ describe('AccountingBooksController', () => {
       ],
     }).compile();
 
-    controller = module.get<AccountingBooksController>(AccountingBooksController);
+    controller = module.get<AccountingBooksController>(
+      AccountingBooksController,
+    );
     service = module.get(AccountingBooksService) as any;
   });
 
@@ -171,5 +173,3 @@ describe('AccountingBooksController', () => {
     });
   });
 });
-
-

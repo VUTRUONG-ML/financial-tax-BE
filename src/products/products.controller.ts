@@ -37,7 +37,7 @@ export class ProductsController {
   async create(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateProductDto,
-    @UploadedFile(ImageUploadPipe) file: Express.Multer.File,
+    @UploadedFile(ImageUploadPipe) file?: Express.Multer.File,
   ) {
     const data = await this.productsService.create(userId, dto, file);
     return { message: 'Product created successfully.', data };

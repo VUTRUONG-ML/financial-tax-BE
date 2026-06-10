@@ -1,4 +1,10 @@
-import { IsEnum, IsNotEmpty, IsString, MaxLength, IsOptional } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  IsOptional,
+} from 'class-validator';
 import { VoucherType, S2cExpenseMapping } from '@prisma/client';
 
 export class CreateVoucherCategoryDto {

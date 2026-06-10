@@ -3,10 +3,7 @@ import { AccountingBooksService } from './accounting-books.service';
 import { PrismaService } from 'src/core/prisma/prisma.service';
 import { parseDateRange } from 'src/common/utils/date-range-parser.util';
 import { moment } from 'src/common/utils/time.util';
-import {
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { Decimal } from '@prisma/client/runtime/client';
 
@@ -23,38 +20,78 @@ describe('DateRangeParser', () => {
 
   it('should parse thang_nay correctly', () => {
     const { startDate, endDate } = parseDateRange('thang_nay');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-01 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
+    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-05-01 00:00:00',
+    );
+    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-05-22 23:59:59',
+    );
   });
 
   it('should parse thang_truoc correctly', () => {
     const { startDate, endDate } = parseDateRange('thang_truoc');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-04-01 00:00:00');
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-04-30 23:59:59');
+    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-04-01 00:00:00',
+    );
+    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-04-30 23:59:59',
+    );
   });
 
   it('should parse quy_nay correctly', () => {
     const { startDate, endDate } = parseDateRange('quy_nay');
-    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-04-01 00:00:00'); // Q2 starts in April
-    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-05-22 23:59:59');
+    expect(moment(startDate).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-04-01 00:00:00',
+    ); // Q2 starts in April
+    expect(moment(endDate).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-05-22 23:59:59',
+    );
   });
 
   it('should parse custom with year and quarter correctly', () => {
-    const { startDate: s1, endDate: e1 } = parseDateRange('custom', { year: 2026, quarter: 1 });
-    expect(moment(s1).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-01-01 00:00:00');
-    expect(moment(e1).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-03-31 23:59:59');
+    const { startDate: s1, endDate: e1 } = parseDateRange('custom', {
+      year: 2026,
+      quarter: 1,
+    });
+    expect(moment(s1).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-01-01 00:00:00',
+    );
+    expect(moment(e1).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-03-31 23:59:59',
+    );
 
-    const { startDate: s2, endDate: e2 } = parseDateRange('custom', { year: 2026, quarter: 2 });
-    expect(moment(s2).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-04-01 00:00:00');
-    expect(moment(e2).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-06-30 23:59:59');
+    const { startDate: s2, endDate: e2 } = parseDateRange('custom', {
+      year: 2026,
+      quarter: 2,
+    });
+    expect(moment(s2).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-04-01 00:00:00',
+    );
+    expect(moment(e2).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-06-30 23:59:59',
+    );
 
-    const { startDate: s3, endDate: e3 } = parseDateRange('custom', { year: 2026, quarter: 3 });
-    expect(moment(s3).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-07-01 00:00:00');
-    expect(moment(e3).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-09-30 23:59:59');
+    const { startDate: s3, endDate: e3 } = parseDateRange('custom', {
+      year: 2026,
+      quarter: 3,
+    });
+    expect(moment(s3).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-07-01 00:00:00',
+    );
+    expect(moment(e3).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-09-30 23:59:59',
+    );
 
-    const { startDate: s4, endDate: e4 } = parseDateRange('custom', { year: 2026, quarter: 4 });
-    expect(moment(s4).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-10-01 00:00:00');
-    expect(moment(e4).format('YYYY-MM-DD HH:mm:ss')).toBe('2026-12-31 23:59:59');
+    const { startDate: s4, endDate: e4 } = parseDateRange('custom', {
+      year: 2026,
+      quarter: 4,
+    });
+    expect(moment(s4).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-10-01 00:00:00',
+    );
+    expect(moment(e4).format('YYYY-MM-DD HH:mm:ss')).toBe(
+      '2026-12-31 23:59:59',
+    );
   });
 
   it('should throw BadRequestException for missing customRange', () => {
@@ -64,7 +101,6 @@ describe('DateRangeParser', () => {
   it('should throw BadRequestException for unsupported timeframe', () => {
     expect(() => parseDateRange('future')).toThrow(BadRequestException);
   });
-
 });
 
 describe('AccountingBooksService', () => {
@@ -177,18 +213,18 @@ describe('AccountingBooksService', () => {
       prisma.invoice.aggregate.mockResolvedValue({
         _sum: { totalPayment: new Decimal(30000000) as any },
         _count: { id: 2 },
-        _max: { updatedAt: new Date() }
+        _max: { updatedAt: new Date() },
       } as any);
 
       prisma.voucher.aggregate.mockResolvedValue({
         _sum: { amount: new Decimal(0) as any },
         _count: { id: 0 },
-        _max: { updatedAt: new Date() }
+        _max: { updatedAt: new Date() },
       } as any);
 
       prisma.invoice.count.mockResolvedValue(2);
       prisma.invoice.findMany.mockResolvedValue(mockInvoices as any);
-      
+
       taxEngine.calculateTotalTax.mockImplementation((rev, exp) => {
         const pitRate = 0.005; // mock 0.5%
         return {
@@ -207,7 +243,10 @@ describe('AccountingBooksService', () => {
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
 
-      const result = await service.getRevenueBookSummary('user-001', 'thang_nay');
+      const result = await service.getRevenueBookSummary(
+        'user-001',
+        'thang_nay',
+      );
 
       expect(result.activeBookKey).toBe('S1a-HKD');
       expect(result.books['S1a-HKD']).toBeDefined();
@@ -229,7 +268,10 @@ describe('AccountingBooksService', () => {
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
 
-      const result = await service.getRevenueBookSummary('user-001', 'thang_nay');
+      const result = await service.getRevenueBookSummary(
+        'user-001',
+        'thang_nay',
+      );
 
       expect(result.activeBookKey).toBe('S2a-HKD');
       expect(result.books['S2a-HKD']).toBeDefined();
@@ -250,7 +292,10 @@ describe('AccountingBooksService', () => {
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
 
-      const result = await service.getRevenueBookRecords('user-001', 'thang_nay');
+      const result = await service.getRevenueBookRecords(
+        'user-001',
+        'thang_nay',
+      );
       expect(result.activeBookKey).toBe('S1a-HKD');
       expect(result.rows).toHaveLength(2);
       expect(result.syncCode).toBeDefined();
@@ -283,7 +328,8 @@ describe('AccountingBooksService', () => {
         content: 'Chi tiền lương nhân viên',
         isDeductibleExpense: true,
         category: {
-          categoryName: 'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
+          categoryName:
+            'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
         },
         inboundInvoice: {
           invoiceNo: 'HD001',
@@ -298,7 +344,8 @@ describe('AccountingBooksService', () => {
         content: 'Chi tiền điện tháng 5',
         isDeductibleExpense: true,
         category: {
-          categoryName: 'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
+          categoryName:
+            'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
         },
         inboundInvoice: null,
       },
@@ -327,13 +374,35 @@ describe('AccountingBooksService', () => {
       } as any);
 
       const mockCategories = [
-        { id: 1, categoryName: 'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.' },
-        { id: 2, categoryName: 'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...' },
-        { id: 3, categoryName: 'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.' },
-        { id: 4, categoryName: 'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...' },
-        { id: 5, categoryName: 'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...' },
+        {
+          id: 1,
+          categoryName:
+            'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.',
+        },
+        {
+          id: 2,
+          categoryName:
+            'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
+        },
+        {
+          id: 3,
+          categoryName:
+            'Chi phí thuê kho bãi, mặt bằng phục vụ hoạt động sản xuất, kinh doanh.',
+        },
+        {
+          id: 4,
+          categoryName:
+            'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
+        },
+        {
+          id: 5,
+          categoryName:
+            'Các khoản chi khác phục vụ trực tiếp hoạt động sản xuất, kinh doanh...',
+        },
       ];
-      (prisma.voucherCategory.findMany as jest.Mock).mockResolvedValue(mockCategories);
+      (prisma.voucherCategory.findMany as jest.Mock).mockResolvedValue(
+        mockCategories,
+      );
 
       prisma.voucher.findMany.mockResolvedValue(mockVouchers as any);
       prisma.voucher.count.mockResolvedValue(3);
@@ -354,7 +423,10 @@ describe('AccountingBooksService', () => {
     });
 
     it('should generate summary for S2c-HKD grouped correctly', async () => {
-      const result = await service.getExpenseBookSummary('user-001', 'thang_nay');
+      const result = await service.getExpenseBookSummary(
+        'user-001',
+        'thang_nay',
+      );
 
       expect(result.activeBookKey).toBe('S2c-HKD');
       expect(result.books['S2c-HKD']).toBeDefined();
@@ -371,7 +443,10 @@ describe('AccountingBooksService', () => {
     });
 
     it('should retrieve records mapped to ExpenseBookRowDto', async () => {
-      const result = await service.getExpenseBookRecords('user-001', 'thang_nay');
+      const result = await service.getExpenseBookRecords(
+        'user-001',
+        'thang_nay',
+      );
 
       expect(result.activeBookKey).toBe('S2c-HKD');
       expect(result.rows).toHaveLength(3);
@@ -434,7 +509,11 @@ describe('AccountingBooksService', () => {
           },
         ]); // Mock period totals query
 
-      const result = await service.getInventoryBookSummary('user-001', 'thang_nay', ['prod-1', 'prod-2']);
+      const result = await service.getInventoryBookSummary(
+        'user-001',
+        'thang_nay',
+        ['prod-1', 'prod-2'],
+      );
 
       expect(result.activeBookKey).toBe('S2d-HKD');
       expect(result.books['S2d-HKD']).toBeDefined();
@@ -476,7 +555,11 @@ describe('AccountingBooksService', () => {
 
       (prisma.$queryRaw as jest.Mock).mockResolvedValue(mockRecords);
 
-      const result = await service.getInventoryBookRecords('user-001', 'thang_nay', ['prod-1']);
+      const result = await service.getInventoryBookRecords(
+        'user-001',
+        'thang_nay',
+        ['prod-1'],
+      );
 
       expect(result.activeBookKey).toBe('S2d-HKD');
       expect(result.rows).toHaveLength(2);

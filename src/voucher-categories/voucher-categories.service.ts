@@ -25,7 +25,8 @@ export class VoucherCategoriesService {
     userId: string,
     createVoucherCategoryDto: CreateVoucherCategoryDto,
   ) {
-    const s2cExpenseMapping = createVoucherCategoryDto.s2cExpenseMapping ??
+    const s2cExpenseMapping =
+      createVoucherCategoryDto.s2cExpenseMapping ??
       (createVoucherCategoryDto.type === 'PAYMENT' ? 'ITEM_F' : 'NONE');
 
     const category = await this.prisma.voucherCategory.create({
