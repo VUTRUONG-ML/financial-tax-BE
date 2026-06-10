@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { StocksService } from './stocks.service';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
+import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
@@ -37,6 +38,26 @@ export class StocksController {
     );
     return {
       message: 'Stock receipt created successfully',
+      data: result,
+    };
+  }
+
+  @Post('issues')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.CREATED)
+  async createStockIssue(
+    @CurrentUser('id') userId: string,
+    @Body() createDto: CreateStockIssueDto,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.createStockIssue(
+      userId,
+      createDto,
+      req.financialPeriodId,
+    );
+    return {
+      message: 'Stock issue created successfully',
       data: result,
     };
   }

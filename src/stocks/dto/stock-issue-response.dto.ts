@@ -1,7 +1,14 @@
 import { Expose, Transform, Type } from 'class-transformer';
-import { StockReceiptSourceType, StockReceiptStatus } from '@prisma/client';
+import {
+  StockIssueType,
+  StockIssueStatus,
+  CogsPostedStatus,
+} from '@prisma/client';
 
-export class StockReceiptDetailResponseDto {
+export class StockIssueDetailResponseDto {
+  @Expose()
+  id!: number;
+
   @Expose()
   @Transform(
     ({ obj }) => (obj as { product?: { publicId: string } }).product?.publicId,
@@ -26,42 +33,42 @@ export class StockReceiptDetailResponseDto {
   quantity!: number;
 
   @Expose()
-  @Transform(({ value }) => Number(value))
-  unitCost!: number;
+  @Transform(({ value }) => (value !== null ? Number(value) : null))
+  provisionalUnitCost?: number;
 
   @Expose()
-  @Transform(({ value }) => Number(value))
-  totalValue!: number;
+  @Transform(({ value }) => (value !== null ? Number(value) : null))
+  finalWeightedUnitCost?: number;
 
   @Expose()
-  taxCategoryIdSnapshot?: number;
+  @Transform(({ value }) => (value !== null ? Number(value) : null))
+  finalCogsValue?: number;
+
+  @Expose()
+  cogsPostedToS2c!: CogsPostedStatus;
 }
 
-export class StockReceiptResponseDto {
+export class StockIssueResponseDto {
   @Expose()
-  receiptCode!: string;
+  id!: number;
 
   @Expose()
-  receiptDate!: Date;
+  issueCode!: string;
 
   @Expose()
-  sourceType!: StockReceiptSourceType;
+  issueDate!: Date;
 
   @Expose()
-  supplierName?: string;
+  issueType!: StockIssueType;
 
   @Expose()
-  sourceInvoiceNo?: string;
+  sourceDocumentType?: string;
 
   @Expose()
-  sourceDocumentUrl?: string;
+  sourceDocumentId?: number;
 
   @Expose()
-  @Transform(({ value }) => Number(value))
-  totalValue!: number;
-
-  @Expose()
-  status!: StockReceiptStatus;
+  status!: StockIssueStatus;
 
   @Expose()
   @Transform(
@@ -74,6 +81,6 @@ export class StockReceiptResponseDto {
   createdAt!: Date;
 
   @Expose()
-  @Type(() => StockReceiptDetailResponseDto)
-  details!: StockReceiptDetailResponseDto[];
+  @Type(() => StockIssueDetailResponseDto)
+  details!: StockIssueDetailResponseDto[];
 }

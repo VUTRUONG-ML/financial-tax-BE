@@ -11,6 +11,8 @@ import {
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { StockReceiptResponseDto } from './dto/stock-receipt-response.dto';
+import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
+import { StockIssueResponseDto } from './dto/stock-issue-response.dto';
 import { generateMonthlySequenceCode } from '../common/utils/code-generator.util';
 import {
   LOG_ACTIONS,
@@ -22,6 +24,10 @@ import {
   StockReceiptSourceType,
   StockReceiptStatus,
   InventoryMovementType,
+  StockIssueType,
+  StockIssueStatus,
+  StockIssueDocument,
+  SourceDocumentType,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
@@ -35,7 +41,7 @@ export class StocksService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly inventoryMovementsService: InventoryMovementsService,
-  ) {}
+  ) { }
 
   async createStockReceipt(
     userId: string,
@@ -197,6 +203,13 @@ export class StocksService {
             unitCost: itemCost,
             totalValue: itemTotal,
             movementDate: transactionDate,
+            sourceDocumentId: receipt.id,
+            sourceDocumentType:
+              movementType === 'PRODUCTION_IN'
+                ? 'PRODUCTION_ORDER'
+                : movementType === 'PURCHASE_IN'
+                  ? 'INBOUND_INVOICE'
+                  : undefined,
           },
           client,
         );
@@ -224,6 +237,7 @@ export class StocksService {
               },
             },
           },
+          period: { select: { periodName: true } },
         },
       });
 
@@ -246,6 +260,231 @@ export class StocksService {
       });
 
       return mapToDto(StockReceiptResponseDto, finalReceipt);
+    };
+
+    if (tx !== (this.prisma as unknown as Prisma.TransactionClient)) {
+      return run(tx);
+    }
+    return this.prisma.$transaction(run);
+  }
+
+  async createStockIssue(
+    userId: string,
+    createDto: CreateStockIssueDto,
+    periodId: number,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<StockIssueResponseDto> {
+    const run = async (client: Prisma.TransactionClient) => {
+      const period = await client.financialPeriod.findUnique({
+        where: { id: periodId },
+      });
+
+      if (!period || period.userId !== userId) {
+        throw new NotFoundException(
+          'Financial period not found or access denied.',
+        );
+      }
+
+      const productPublicIds = createDto.products.map((p) => p.productPublicId);
+      const uniqueProductPublicIds = Array.from(new Set(productPublicIds));
+
+      const qtyDetailMap = new Map<string, number>();
+
+      for (const item of createDto.products) {
+        qtyDetailMap.set(
+          item.productPublicId,
+          (qtyDetailMap.get(item.productPublicId) ?? 0) + item.quantity,
+        );
+      }
+
+      const products = await client.product.findMany({
+        where: {
+          publicId: { in: uniqueProductPublicIds },
+          userId,
+        },
+      });
+
+      if (products.length !== uniqueProductPublicIds.length) {
+        this.log.warn(LOG_ACTIONS.CREATE_STOCK_ISSUE, {
+          status: LOG_STATUS.FAILED,
+          reason: 'PRODUCTS_NOT_FOUND',
+          userId,
+        });
+        throw new NotFoundException(
+          'One or more products not found or access denied.',
+        );
+      }
+
+      for (const p of products) {
+        if (p.productType === ProductType.SERVICE || !p.isInventoryTracked) {
+          this.log.warn(LOG_ACTIONS.CREATE_STOCK_ISSUE, {
+            status: LOG_STATUS.FAILED,
+            reason: 'PRODUCT_NOT_TRACKED_OR_SERVICE',
+            userId,
+            productName: p.productName,
+          });
+          throw new BadRequestException(
+            `Product ${p.productName} is a service or is not inventory tracked.`,
+          );
+        }
+      }
+
+      await client.user.update({
+        where: { id: userId },
+        data: {},
+      });
+
+      // sort để chống deadlock
+      products.sort((a, b) => a.id - b.id);
+
+      const transactionDate = new Date(createDto.issueDate);
+      const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
+      const yy = transactionDate.getFullYear().toString().slice(-2);
+      const mmyy = `${mm}${yy}`;
+      const prefix = 'PXK';
+
+      const lastIssue = await client.stockIssue.findFirst({
+        where: {
+          period: { userId },
+          issueCode: { startsWith: `${prefix}-${mmyy}-` },
+        },
+        orderBy: { id: 'desc' },
+        select: { issueCode: true },
+      });
+
+      const lastCode = lastIssue?.issueCode;
+      const issueCode = generateMonthlySequenceCode(
+        prefix,
+        transactionDate,
+        lastCode,
+      );
+
+      const issue = await client.stockIssue.create({
+        data: {
+          issueCode,
+          issueDate: transactionDate,
+          issueType: createDto.issueType,
+          sourceDocumentType: createDto.sourceDocumentType || null,
+          sourceDocumentId: createDto.sourceDocumentId || null,
+          status: StockIssueStatus.APPROVED,
+          periodId: period.id,
+        },
+      });
+
+      for (const productEntity of products) {
+        const quantity = qtyDetailMap.get(productEntity.publicId) ?? 0;
+        const itemQty = new Decimal(quantity);
+        const provUnitCost = productEntity.openingStockUnitCost;
+        const itemTotal = itemQty.mul(provUnitCost);
+
+        // Create StockIssueDetail
+        await client.stockIssueDetail.create({
+          data: {
+            issueId: issue.id,
+            productId: productEntity.id,
+            quantity: itemQty,
+            provisionalUnitCost: provUnitCost,
+            finalWeightedUnitCost: null,
+            finalCogsValue: null,
+            cogsPostedToS2c: 'PENDING',
+          },
+        });
+
+        // Determine inventory movement type based on issueType
+        let movementType: InventoryMovementType;
+        if (createDto.issueType === StockIssueType.SALE) {
+          movementType = InventoryMovementType.SALE_OUT;
+        } else if (createDto.issueType === StockIssueType.PRODUCTION) {
+          movementType = InventoryMovementType.PRODUCTION_OUT;
+        } else {
+          movementType = InventoryMovementType.ADJUSTMENT;
+        }
+
+        // Map StockIssueDocument to SourceDocumentType for inventory movements
+        let sourceDocType: SourceDocumentType | undefined;
+        if (createDto.sourceDocumentType === 'INVOICE') {
+          sourceDocType = SourceDocumentType.OUTBOUND_INVOICE;
+        } else if (createDto.sourceDocumentType === 'PRODUCTION_ORDER') {
+          sourceDocType = SourceDocumentType.PRODUCTION_ORDER;
+        }
+
+        // Create InventoryMovement via injected service
+        await this.inventoryMovementsService.createInventoryMovement(
+          {
+            productId: productEntity.id,
+            periodId: period.id,
+            movementType,
+            quantity: Math.round(quantity),
+            unitCost: provUnitCost,
+            totalValue: itemTotal,
+            movementDate: transactionDate,
+            sourceDocumentType: sourceDocType,
+            sourceDocumentId: issue.id,
+          },
+          client,
+        );
+
+        // Update product stock using updateMany to prevent negative stock
+        const qtyToSubtract = Math.round(quantity);
+        const updateResult = await client.product.updateMany({
+          where: {
+            id: productEntity.id,
+            productType: { not: ProductType.SERVICE },
+            currentStock: { gte: qtyToSubtract },
+          },
+          data: {
+            currentStock: { decrement: qtyToSubtract },
+          },
+        });
+
+        if (updateResult.count === 0) {
+          this.log.warn(LOG_ACTIONS.CREATE_STOCK_ISSUE, {
+            status: LOG_STATUS.FAILED,
+            reason: 'INSUFFICIENT_STOCK',
+            userId,
+            productId: productEntity.id,
+            productName: productEntity.productName,
+          });
+          throw new BadRequestException(
+            `Insufficient stock for product ${productEntity.productName}. Current stock is less than requested quantity ${qtyToSubtract}.`,
+          );
+        }
+      }
+
+      // Fetch the full issue with details and products for mapping DTO
+      const finalIssue = await client.stockIssue.findUnique({
+        where: { id: issue.id },
+        include: {
+          details: {
+            include: {
+              product: {
+                select: { publicId: true, productName: true, skuCode: true },
+              },
+            },
+          },
+          period: { select: { periodName: true } },
+        },
+      });
+
+      // Audit Log change
+      await this.auditLog.logChange(
+        client,
+        userId,
+        'CREATE',
+        tableWrite.stockIssues,
+        issue.id,
+        null,
+        finalIssue,
+      );
+
+      this.log.log(LOG_ACTIONS.CREATE_STOCK_ISSUE, {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        issueId: issue.id,
+        issueCode: issue.issueCode,
+      });
+
+      return mapToDto(StockIssueResponseDto, finalIssue);
     };
 
     if (tx !== (this.prisma as unknown as Prisma.TransactionClient)) {
