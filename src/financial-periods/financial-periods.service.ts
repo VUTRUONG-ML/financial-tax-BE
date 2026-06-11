@@ -44,7 +44,7 @@ export class FinancialPeriodsService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly taxEngine: TaxEngineService,
-  ) {}
+  ) { }
 
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
     const now = moment(issueDate).startOf('day');
@@ -222,6 +222,23 @@ export class FinancialPeriodsService {
 
     // 2. Nếu chưa có, tiến hành tạo mới
     if (!period) {
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { createdAt: true },
+      });
+
+      if (user && user.createdAt > targetDate) {
+        this.log.warn(LOG_ACTIONS.ENSURE_FINANCIAL_PERIOD, {
+          reason: 'TARGET_DATE_INVALID',
+          userId,
+          targetDate,
+          userCreated: user.createdAt,
+        });
+        throw new BadRequestException(
+          'Target date less than user created time.',
+        );
+      }
+
       const taxConfig = await tx.taxConfiguration.findFirst({
         where: {
           userId,
