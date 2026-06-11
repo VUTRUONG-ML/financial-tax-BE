@@ -22,7 +22,7 @@ import { Request } from 'express';
 @Controller('stocks')
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class StocksController {
-  constructor(private readonly stocksService: StocksService) { }
+  constructor(private readonly stocksService: StocksService) {}
 
   @Post('receipts')
   @CheckPeriod()
@@ -80,6 +80,26 @@ export class StocksController {
     );
     return {
       message: 'Stock issue created successfully',
+      data: result,
+    };
+  }
+
+  @Patch('issues/:issueCode/cancel')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async cancelStockIssue(
+    @CurrentUser('id') userId: string,
+    @Param('issueCode') issueCode: string,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.cancelIssue(
+      userId,
+      req.financialPeriodId,
+      issueCode,
+    );
+    return {
+      message: 'Stock issue canceled successfully',
       data: result,
     };
   }

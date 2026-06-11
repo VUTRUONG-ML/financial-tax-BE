@@ -51,7 +51,6 @@ export class StocksService {
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<StockReceiptResponseDto> {
     const run = async (client: Prisma.TransactionClient) => {
-
       const period = await client.financialPeriod.findUnique({
         where: { id: periodId },
       });
@@ -61,7 +60,6 @@ export class StocksService {
           'Financial period not found or access denied.',
         );
       }
-
 
       const productPublicIds = createDto.products.map((p) => p.productPublicId);
       const uniqueProductPublicIds = Array.from(new Set(productPublicIds));
@@ -353,7 +351,12 @@ export class StocksService {
         }
 
         const movementType = InventoryMovementType.ADJUSTMENT_DECREASE;
-        const srcType = SourceDocumentType.INBOUND_INVOICE;
+        let srcType: SourceDocumentType | undefined;
+        if (current.sourceType === 'PURCHASE') {
+          srcType = SourceDocumentType.INBOUND_INVOICE;
+        } else if (current.sourceType === 'PRODUCTION') {
+          srcType = SourceDocumentType.PRODUCTION_ORDER;
+        }
         await this.inventoryMovementsService.createInventoryMovement(
           {
             productId: item.productId,
@@ -628,6 +631,174 @@ export class StocksService {
     if (tx !== (this.prisma as unknown as Prisma.TransactionClient)) {
       return run(tx);
     }
+    return this.prisma.$transaction(run);
+  }
+
+  async cancelIssue(
+    userId: string,
+    periodId: number,
+    issueCode: string,
+    isSystemAction = false, // nếu hủy từ hóa đơn sẽ để là true
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<StockIssueResponseDto> {
+    const run = async (client: Prisma.TransactionClient) => {
+      const current = await client.stockIssue.findFirst({
+        where: {
+          issueCode,
+          period: {
+            userId,
+          },
+        },
+        include: { details: true },
+      });
+
+      if (!current) {
+        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_ISSUE, {
+          status: LOG_STATUS.FAILED,
+          userId,
+          reason: 'ISSUE_NOT_FOUND',
+          issueCode,
+        });
+        throw new NotFoundException('The stock issue does not exist.');
+      }
+
+      if (!isSystemAction) {
+        if (current.issueType === StockIssueType.SALE) {
+          this.log.warn(LOG_ACTIONS.CANCEL_STOCK_ISSUE, {
+            status: LOG_STATUS.FAILED,
+            userId,
+            reason: 'SALE_ISSUE_CANNOT_BE_CANCELLED',
+            issueCode,
+          });
+          throw new BadRequestException(
+            'Cannot cancel stock issues of type SALE.',
+          );
+        }
+
+        if (current.sourceDocumentType === 'INVOICE') {
+          this.log.warn(LOG_ACTIONS.CANCEL_STOCK_ISSUE, {
+            status: LOG_STATUS.FAILED,
+            userId,
+            reason: 'INVOICE_SOURCE_ISSUE_CANNOT_BE_CANCELLED_DIRECTLY',
+            issueCode,
+          });
+          throw new BadRequestException(
+            'Cannot cancel stock issues originating from invoices directly.',
+          );
+        }
+      }
+
+      const updateIssue = await client.stockIssue.updateMany({
+        where: {
+          issueCode,
+          periodId,
+          status: { not: StockIssueStatus.CANCELLED },
+        },
+        data: {
+          status: StockIssueStatus.CANCELLED,
+        },
+      });
+
+      if (updateIssue.count === 0) {
+        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_ISSUE, {
+          status: LOG_STATUS.FAILED,
+          userId,
+          reason: 'ISSUE_CANCELED',
+          issueCode,
+        });
+        throw new BadRequestException('The stock issue has been canceled.');
+      }
+
+      const items = current.details;
+      const transactionDate = moment().toDate();
+
+      for (const item of items) {
+        const provisionalUnitCost = item.provisionalUnitCost || new Decimal(0);
+        const itemTotal = item.quantity.mul(provisionalUnitCost);
+
+        // Update product stock levels by incrementing
+        const updateProduct = await client.product.updateMany({
+          where: {
+            id: item.productId,
+            userId,
+          },
+          data: {
+            currentStock: { increment: Number(item.quantity) },
+          },
+        });
+
+        if (updateProduct.count === 0) {
+          this.log.warn(LOG_ACTIONS.CANCEL_STOCK_ISSUE, {
+            status: LOG_STATUS.FAILED,
+            reason: 'PRODUCT_NOT_FOUND',
+            userId,
+            productId: item.productId,
+          });
+          throw new BadRequestException(
+            `Product not found for cancel stock issue code: ${issueCode}.`,
+          );
+        }
+
+        let srcType: SourceDocumentType | undefined;
+        if (current.issueType === 'SALE') {
+          srcType = SourceDocumentType.OUTBOUND_INVOICE;
+        } else if (current.issueType === 'PRODUCTION') {
+          srcType = SourceDocumentType.PRODUCTION_ORDER;
+        }
+
+        const movementType = InventoryMovementType.ADJUSTMENT_INCREASE;
+        await this.inventoryMovementsService.createInventoryMovement(
+          {
+            productId: item.productId,
+            periodId,
+            movementType,
+            quantity: Number(item.quantity),
+            unitCost: provisionalUnitCost,
+            totalValue: itemTotal,
+            movementDate: transactionDate,
+            sourceDocumentType: srcType,
+            sourceDocumentId: current.id,
+          },
+          client,
+        );
+      }
+
+      await this.auditLog.logChange(
+        client,
+        userId,
+        'UPDATE',
+        tableWrite.stockIssues,
+        current.id,
+        { status: current.status },
+        { status: StockIssueStatus.CANCELLED },
+      );
+
+      this.log.log(LOG_ACTIONS.CANCEL_STOCK_ISSUE, {
+        userId,
+        issueCode,
+        status: LOG_STATUS.SUCCESS,
+      });
+
+      const resIssue = await client.stockIssue.findUnique({
+        where: { id: current.id },
+        include: {
+          period: {
+            select: { periodName: true },
+          },
+          details: {
+            include: {
+              product: {
+                select: { publicId: true, productName: true, skuCode: true },
+              },
+            },
+          },
+        },
+      });
+
+      return mapToDto(StockIssueResponseDto, resIssue);
+    };
+
+    if (tx !== this.prisma) return run(tx);
     return this.prisma.$transaction(run);
   }
 }
