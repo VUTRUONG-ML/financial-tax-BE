@@ -409,6 +409,7 @@ model Voucher {
   isDeductibleExpense Boolean       @default(false) @map("is_deductible_expense")
   inboundInvoiceId    Int?          @map("inbound_invoice_id")
   outboundInvoiceId   Int?          @map("outbound_invoice_id")
+  stockReceiptId      Int?          @map("stock_receipt_id")
   status              VoucherStatus @default(ACTIVE)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -419,6 +420,7 @@ model Voucher {
   // Liên kết tùy chọn về chứng từ nhập kho nếu Phiếu Chi đó để trả tiền nhà cung cấp
   inboundInvoice  InboundInvoice? @relation(fields: [inboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   outBoundInvoice Invoice?        @relation(fields: [outboundInvoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  stockReceipt    StockReceipt?   @relation(fields: [stockReceiptId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([userId, voucherCode])
   @@index([userId, transactionAt])
@@ -608,7 +610,8 @@ enum InventoryMovementType {
   SALE_OUT
   PRODUCTION_IN
   PRODUCTION_OUT
-  ADJUSTMENT
+  ADJUSTMENT_INCREASE
+  ADJUSTMENT_DECREASE
 }
 
 model OpeningInventoryBalance {
@@ -703,8 +706,9 @@ model StockReceipt {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  period  FinancialPeriod      @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details StockReceiptDetail[]
+  period   FinancialPeriod      @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details  StockReceiptDetail[]
+  vouchers Voucher[]
 
   @@index([periodId])
   @@map("stock_receipts")

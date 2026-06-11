@@ -3,6 +3,8 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -20,7 +22,7 @@ import { Request } from 'express';
 @Controller('stocks')
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class StocksController {
-  constructor(private readonly stocksService: StocksService) {}
+  constructor(private readonly stocksService: StocksService) { }
 
   @Post('receipts')
   @CheckPeriod()
@@ -35,6 +37,26 @@ export class StocksController {
       userId,
       createDto,
       req.financialPeriodId,
+    );
+    return {
+      message: 'Stock receipt created successfully',
+      data: result,
+    };
+  }
+
+  @Patch('receipts/:receiptCode/cancel')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async cancelStockReceipt(
+    @CurrentUser('id') userId: string,
+    @Param('receiptCode') receiptCode: string,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.cancelReceipt(
+      userId,
+      req.financialPeriodId,
+      receiptCode,
     );
     return {
       message: 'Stock receipt created successfully',

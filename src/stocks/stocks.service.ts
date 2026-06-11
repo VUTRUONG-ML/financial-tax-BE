@@ -32,6 +32,7 @@ import {
 import { Decimal } from '@prisma/client/runtime/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { InventoryMovementsService } from '../inventory-movements/inventory-movements.service';
+import { moment } from 'src/common/utils/time.util';
 
 @Injectable()
 export class StocksService {
@@ -50,7 +51,7 @@ export class StocksService {
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<StockReceiptResponseDto> {
     const run = async (client: Prisma.TransactionClient) => {
-      // 1. Kiểm tra kì tài chính
+
       const period = await client.financialPeriod.findUnique({
         where: { id: periodId },
       });
@@ -61,7 +62,7 @@ export class StocksService {
         );
       }
 
-      // 2. Kiểm tra danh sách sản phẩm
+
       const productPublicIds = createDto.products.map((p) => p.productPublicId);
       const uniqueProductPublicIds = Array.from(new Set(productPublicIds));
 
@@ -158,8 +159,8 @@ export class StocksService {
           supplierName: createDto.supplierName || null,
           sourceInvoiceNo: createDto.sourceInvoiceNo || null,
           sourceDocumentUrl: createDto.sourceDocumentUrl || null,
-          totalValue,
           status: StockReceiptStatus.APPROVED,
+          totalValue,
           periodId: period.id,
         },
       });
@@ -190,7 +191,7 @@ export class StocksService {
         } else if (createDto.sourceType === StockReceiptSourceType.PRODUCTION) {
           movementType = InventoryMovementType.PRODUCTION_IN;
         } else {
-          movementType = InventoryMovementType.ADJUSTMENT;
+          movementType = InventoryMovementType.ADJUSTMENT_INCREASE;
         }
 
         // Create InventoryMovement via injected service
@@ -267,6 +268,143 @@ export class StocksService {
     }
     return this.prisma.$transaction(run);
   }
+
+  async cancelReceipt(
+    userId: string,
+    periodId: number,
+    receiptCode: string,
+    tx: Prisma.TransactionClient = this.prisma,
+  ) {
+    const run = async (client: Prisma.TransactionClient) => {
+      const current = await client.stockReceipt.findFirst({
+        where: {
+          receiptCode,
+          period: {
+            userId,
+          },
+        },
+        include: { vouchers: true, details: true },
+      });
+      if (!current) {
+        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
+          status: LOG_STATUS.FAILED,
+          userId,
+          reason: 'RECEIPT_NOT_FOUND',
+          receiptCode,
+        });
+        throw new NotFoundException('The warehouse receipt does not exist.');
+      }
+      if (current.vouchers.length !== 0) {
+        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
+          status: LOG_STATUS.FAILED,
+          userId,
+          reason: 'VOUCHER_EXISTING_RELATED',
+          receiptCode,
+        });
+        throw new BadRequestException({
+          message: 'The stock receipt has been payed.',
+          errorCode: 'VOUCHER_EXISTING_RELATED',
+        });
+      }
+      const updateReceipt = await client.stockReceipt.updateMany({
+        where: {
+          receiptCode,
+          periodId,
+          status: { not: StockReceiptStatus.CANCELLED },
+        },
+        data: {
+          status: StockReceiptStatus.CANCELLED,
+        },
+      });
+      if (updateReceipt.count === 0) {
+        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
+          status: LOG_STATUS.FAILED,
+          userId,
+          reason: 'RECEIPT_CANCELED',
+          receiptCode,
+        });
+        throw new BadRequestException('The stock receipt has been canceled.');
+      }
+      const items = current.details;
+      const transactionDate = moment().toDate();
+      for (const item of items) {
+        const itemTotal = item.quantity.mul(item.unitCost);
+        // xử lí liên quan tới inventoryMovement và currentStock
+        const updateProduct = await client.product.updateMany({
+          where: {
+            id: item.productId,
+            userId,
+            currentStock: { gte: Number(item.quantity) },
+          },
+          data: {
+            currentStock: { decrement: Number(item.quantity) },
+          },
+        });
+        if (updateProduct.count === 0) {
+          this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
+            status: LOG_STATUS.FAILED,
+            reason: 'INSUFFICIENT_STOCK',
+            userId,
+            productId: item.productId,
+          });
+          throw new BadRequestException(
+            `Insufficient stock for cancel stock receipt code: ${receiptCode}.`,
+          );
+        }
+
+        const movementType = InventoryMovementType.ADJUSTMENT_DECREASE;
+        const srcType = SourceDocumentType.INBOUND_INVOICE;
+        await this.inventoryMovementsService.createInventoryMovement(
+          {
+            productId: item.productId,
+            periodId,
+            movementType,
+            quantity: Number(item.quantity),
+            unitCost: item.unitCost,
+            totalValue: itemTotal,
+            movementDate: transactionDate,
+            sourceDocumentType: srcType,
+            sourceDocumentId: current.id,
+          },
+          client,
+        );
+      }
+      await this.auditLog.logChange(
+        client,
+        userId,
+        'UPDATE',
+        tableWrite.stockReceipts,
+        current.id,
+        { status: current.status },
+        { status: StockIssueStatus.CANCELLED },
+      );
+
+      this.log.log(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
+        userId,
+        receiptCode,
+        status: LOG_STATUS.SUCCESS,
+      });
+      const resReceipt = await client.stockReceipt.findUnique({
+        where: { id: current.id },
+        include: {
+          period: {
+            select: { periodName: true },
+          },
+          details: {
+            include: {
+              product: {
+                select: { publicId: true, productName: true, skuCode: true },
+              },
+            },
+          },
+        },
+      });
+      return mapToDto(StockReceiptResponseDto, resReceipt);
+    };
+    if (tx !== this.prisma) return run(tx);
+    return this.prisma.$transaction(run);
+  }
+  //----------------------------------------------------------------------
 
   async createStockIssue(
     userId: string,
@@ -397,7 +535,7 @@ export class StocksService {
         } else if (createDto.issueType === StockIssueType.PRODUCTION) {
           movementType = InventoryMovementType.PRODUCTION_OUT;
         } else {
-          movementType = InventoryMovementType.ADJUSTMENT;
+          movementType = InventoryMovementType.ADJUSTMENT_DECREASE;
         }
 
         // Map StockIssueDocument to SourceDocumentType for inventory movements
