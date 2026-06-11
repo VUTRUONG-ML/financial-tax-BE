@@ -3,6 +3,8 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -42,6 +44,26 @@ export class StocksController {
     };
   }
 
+  @Patch('receipts/:receiptCode/cancel')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async cancelStockReceipt(
+    @CurrentUser('id') userId: string,
+    @Param('receiptCode') receiptCode: string,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.cancelReceipt(
+      userId,
+      req.financialPeriodId,
+      receiptCode,
+    );
+    return {
+      message: 'Stock receipt created successfully',
+      data: result,
+    };
+  }
+
   @Post('issues')
   @CheckPeriod()
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
@@ -58,6 +80,26 @@ export class StocksController {
     );
     return {
       message: 'Stock issue created successfully',
+      data: result,
+    };
+  }
+
+  @Patch('issues/:issueCode/cancel')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async cancelStockIssue(
+    @CurrentUser('id') userId: string,
+    @Param('issueCode') issueCode: string,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.cancelIssue(
+      userId,
+      req.financialPeriodId,
+      issueCode,
+    );
+    return {
+      message: 'Stock issue canceled successfully',
       data: result,
     };
   }

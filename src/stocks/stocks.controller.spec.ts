@@ -16,6 +16,7 @@ describe('StocksController', () => {
           useValue: {
             createStockReceipt: jest.fn(),
             createStockIssue: jest.fn(),
+            cancelIssue: jest.fn(),
           },
         },
       ],
@@ -30,5 +31,28 @@ describe('StocksController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  describe('cancelStockIssue', () => {
+    it('should cancel stock issue successfully', async () => {
+      const mockResult = { id: 1, issueCode: 'PXK-0626-0001' } as any;
+      jest.spyOn(service, 'cancelIssue').mockResolvedValue(mockResult);
+
+      const result = await controller.cancelStockIssue(
+        'user-123',
+        'PXK-0626-0001',
+        { financialPeriodId: 10 } as any,
+      );
+
+      expect(service.cancelIssue).toHaveBeenCalledWith(
+        'user-123',
+        10,
+        'PXK-0626-0001',
+      );
+      expect(result).toEqual({
+        message: 'Stock issue canceled successfully',
+        data: mockResult,
+      });
+    });
   });
 });
