@@ -845,6 +845,190 @@ export class AccountingBooksService {
   }
 
   // s2d
+  private async getInventorySummary(
+    productId: number,
+    dateStartYear: Date,
+    startPeriod: Date,
+    endPeriod: Date,
+  ) {
+    const res = await this.prisma.$queryRaw<
+      {
+        stockStartPeriod: number;
+        valueStartPeriod: Decimal;
+        stockToEndPeriod: number;
+        valueToEndPeriod: Decimal;
+        receiptQuantity: number;
+        receiptValue: Decimal;
+        issueQuantity: number;
+        issueValue: Decimal;
+      }[]
+    >`
+          SELECT
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_date >= ${dateStartYear}
+                    AND movement_date < ${startPeriod}
+                  THEN
+                    CASE
+                      WHEN  movement_type IN (
+                        'OPENING',
+                        'PURCHASE_IN',
+                        'PRODUCTION_IN',
+                        'ADJUSTMENT_INCREASE'
+                        )
+                      THEN quantity
+                      ELSE -quantity
+                    END
+                  ELSE 0
+                END
+              ),
+              0
+            ) as stockStartPeriod,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_date >= ${dateStartYear}
+                    AND movement_date < ${startPeriod}
+                  THEN
+                    CASE
+                      WHEN  movement_type IN (
+                        'OPENING',
+                        'PURCHASE_IN',
+                        'PRODUCTION_IN',
+                        'ADJUSTMENT_INCREASE'
+                        )
+                      THEN total_value
+                      ELSE -total_value
+                    END
+                  ELSE 0
+                END
+              ),
+              0
+            ) as valueStartPeriod,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_date >= ${dateStartYear}
+                    AND movement_date <= ${endPeriod}
+                  THEN
+                    CASE
+                      WHEN  movement_type IN (
+                        'OPENING',
+                        'PURCHASE_IN',
+                        'PRODUCTION_IN',
+                        'ADJUSTMENT_INCREASE'
+                        )
+                      THEN quantity
+                      ELSE -quantity
+                    END
+                  ELSE 0
+                END
+              ),
+              0
+            ) as stockToEndPeriod,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_date >= ${dateStartYear}
+                    AND movement_date <= ${endPeriod}
+                  THEN
+                    CASE
+                      WHEN  movement_type IN (
+                        'OPENING',
+                        'PURCHASE_IN',
+                        'PRODUCTION_IN',
+                        'ADJUSTMENT_INCREASE'
+                        )
+                      THEN total_value
+                      ELSE -total_value
+                    END
+                  ELSE 0
+                END
+              ),
+              0
+            ) as valueToEndPeriod,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                      'PURCHASE_IN',
+                      'PRODUCTION_IN',
+                      'ADJUSTMENT_INCREASE'
+                    )
+                    AND movement_date >= ${startPeriod}
+                    AND movement_date <= ${endPeriod}
+                  THEN quantity
+                  ELSE 0
+                END
+              ),
+              0
+            ) as receiptQuantity,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                      'PURCHASE_IN',
+                      'PRODUCTION_IN',
+                      'ADJUSTMENT_INCREASE'
+                    )
+                    AND movement_date >= ${startPeriod}
+                    AND movement_date <= ${endPeriod}
+                  THEN total_value
+                  ELSE 0
+                END
+              ),
+              0
+            ) as receiptValue,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                      'SALE_OUT',
+                      'PRODUCTION_OUT',
+                      'ADJUSTMENT_DECREASE'
+                    )
+                    AND movement_date >= ${startPeriod}
+                    AND movement_date <= ${endPeriod}
+                  THEN quantity
+                  ELSE 0
+                END
+              ),
+              0 
+            ) as issueQuantity,
+             COALESCE(
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                      'SALE_OUT',
+                      'PRODUCTION_OUT',
+                      'ADJUSTMENT_DECREASE'
+                    )
+                    AND movement_date >= ${startPeriod}
+                    AND movement_date <= ${endPeriod}
+                  THEN total_value
+                  ELSE 0
+                END
+              ),
+              0 
+            ) as issueValue
+          FROM inventory_movements
+          WHERE product_id = ${productId}
+            AND movement_date >= ${dateStartYear}
+        `;
+    const row = res[0];
+
+    return {
+      stockStartPeriod: row?.stockStartPeriod ?? 0,
+      valueStartPeriod: row?.valueStartPeriod ?? new Decimal(0),
+      stockToEndPeriod: row?.stockToEndPeriod ?? 0,
+      valueToEndPeriod: row?.valueToEndPeriod ?? new Decimal(0),
+      receiptQuantity: row?.receiptQuantity ?? 0,
+      receiptValue: row?.receiptValue ?? new Decimal(0),
+      issueQuantity: row?.issueQuantity ?? 0,
+      issueValue: row?.issueValue ?? new Decimal(0),
+    };
+  }
   async generateInventorySyncCode(
     userId: string,
     startDate: Date,
@@ -868,307 +1052,75 @@ export class AccountingBooksService {
 
   async getInventoryBookSummary(
     userId: string,
-    timeFrame: string,
-    productPublicIds?: string[],
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
-    periodPublicId: string = 'template',
+    periodPublicId: string,
+    productPublicId: string,
   ) {
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
-
-    const products = await this.prisma.product.findMany({
-      where: {
-        userId,
-        productType: { not: 'SERVICE' },
-        ...(productPublicIds && productPublicIds.length > 0
-          ? { publicId: { in: productPublicIds } }
-          : {}),
-      },
-      select: { id: true },
-    });
-
-    const productIds = products.map((p) => p.id);
-
-    if (productIds.length === 0) {
-      const [bookMetadata, syncCode] = await Promise.all([
-        this.generateBookMetadata('S2D', userId, startDate, endDate),
-        this.generateInventorySyncCode(userId, startDate, endDate),
-      ]);
-      return {
-        activeBookKey: 'S2d-HKD',
-        books: {
-          'S2d-HKD': {
-            bookMetadata,
-            bookKey: 'S2D',
-            timeFrame: { startDate, endDate },
-            summary: {
-              Tong_So_Luong_Ton_Dau_Ky: 0,
-              Tong_So_Luong_Nhap: 0,
-              Tong_Thanh_Tien_Nhap: 0,
-              Tong_So_Luong_Xuat: 0,
-              Tong_Thanh_Tien_Xuat: 0,
-              Tong_So_Luong_Ton_Cuoi_Ky: 0,
-            },
-          },
-        },
-        syncCode,
-      };
-    }
-
-    // Đoạn logic mới.
-    const productId = productIds[0];
     const periodTarget = await this.getPeriodTarget(
       periodPublicId,
       userId,
       LOG_ACTIONS.ACC_BOOK_S2d_SUMMARY,
     );
+    const startDatePeriod = periodTarget.startDate;
+    const endDatePeriod = periodTarget.endDate;
+    const startYear = moment(periodTarget.startDate).startOf('year').toDate();
 
-    if (periodTarget.status === 'CLOSED') {
-      const getInventoryValue = async (productId: number, from: Date, to: Date) => {
-        const res = await this.prisma.$queryRaw<{ valueStock: Decimal }[]>`
-            SELECT
-              SUM(
-                CASE
-                  WHEN movement_type IN (
-                    'OPENING',
-                    'PURCHASE_IN',
-                    'PRODUCTION_IN',
-                    'ADJUSTMENT_INCREASE'
-                  )
-                  THEN total_value
-                  ELSE -total_value
-                END
-              ) as valueStock
-            FROM inventory_movements
-            WHERE product_id = ${productId} 
-              AND movement_date >= ${from}
-              AND movement_date <= ${to}
-        `;
-        const value = res[0]?.valueStock ?? new Decimal(0);
-        return value;
-      };
+    const [bookMetadata, syncCode] = await Promise.all([
+      this.generateBookMetadata('S2D', userId, startDatePeriod, endDatePeriod),
+      this.generateInventorySyncCode(userId, startDatePeriod, endDatePeriod),
+    ]);
 
-      const startDatePeriod = periodTarget.startDate;
-      const endDatePeriod = periodTarget.endDate;
-      const startYear = moment(periodTarget.startDate).startOf('year').toDate();
-      const [valueStartPeriod, valueToEndPeriod, resQtyReceipt, resQtyIssue] =
-        await Promise.all([
-          getInventoryValue(productId, startYear, startDatePeriod),
-          getInventoryValue(productId, startYear, endDatePeriod),
-          this.prisma.$queryRaw<{ quantityReceipt: number }[]>`
-            SELECT
-              SUM(
-                CASE
-                  WHEN movement_type IN (
-                    'PURCHASE_IN',
-                    'PRODUCTION_IN',
-                    'ADJUSTMENT_INCREASE'
-                  )
-                  THEN quantity
-                  ELSE 0
-                END
-              ) as quantityReceipt
-            FROM inventory_movements
-            WHERE product_id = ${productId} 
-              AND movement_date <= ${endDatePeriod}
-              AND movement_date >= ${startDate}
-          `,
-          this.prisma.$queryRaw<{ quantityIssue: number }[]>`
-            SELECT
-              SUM(
-                CASE
-                  WHEN movement_type IN (
-                    'OPENING',
-                    'PURCHASE_IN',
-                    'PRODUCTION_IN',
-                    'ADJUSTMENT_INCREASE'
-                  )
-                  THEN 0
-                  ELSE quantity
-                END
-              ) as quantityIssue
-            FROM inventory_movements
-            WHERE product_id = ${productId} 
-              AND movement_date <= ${endDatePeriod}
-              AND movement_date >= ${startDate}
-          `,
-        ]);
-      const valueStart = valueStartPeriod;
-      const valueToEnd = valueToEndPeriod;
-      const so_luong_nhap = resQtyReceipt[0]
-        ? resQtyReceipt[0].quantityReceipt
-        : 0;
-      const so_luong_suat = resQtyIssue[0] ? resQtyIssue[0].quantityIssue : 0;
-      const gia_tri_ton_dau_ky = valueStart;
-      const gia_tri_ton_cuoi_ky = valueToEnd;
+    const product = await this.prisma.product.findFirst({
+      where: {
+        userId,
+        publicId: productPublicId,
+        productType: {
+          not: 'SERVICE',
+        },
+      },
+      select: {
+        id: true,
+        publicId: true,
+        productName: true,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found.');
     }
-    // ----------------------------------------------
 
-    const [openingBalances, totalsResult, bookMetadata, syncCode] =
-      await Promise.all([
-        this.prisma.$queryRaw<any[]>`
-          WITH historical_inbound AS (
-            SELECT item.product_id, SUM(item.quantity) AS total_qty
-            FROM inbound_invoice_details item
-            JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
-            WHERE inv.user_id = ${userId}
-              AND inv.issue_date < ${startDate}
-              AND inv.status = 'ACTIVE'
-              AND inv.is_synced_to_inventory = true
-              AND item.product_id IN (${Prisma.join(productIds)})
-            GROUP BY item.product_id
-          ),
-          historical_outbound AS (
-            SELECT item.product_id, SUM(item.quantity) AS total_qty
-            FROM invoice_details item
-            JOIN invoices inv ON item.invoice_id = inv.id
-            WHERE inv.user_id = ${userId}
-              AND inv.issue_date < ${startDate}
-              AND inv.status = 'ISSUED'
-              AND item.product_id IN (${Prisma.join(productIds)})
-            GROUP BY item.product_id
-          ),
-          historical_issue_material AS (
-            SELECT pd.product_id, SUM(pd.quantity) AS total_qty
-            FROM production_details pd
-            JOIN internal_production_orders po ON pd.order_id = po.id
-            WHERE po.user_id = ${userId}
-              AND po.transaction_at < ${startDate}
-              AND po.status = 'ACTIVE'
-              AND pd.transaction_type = 'ISSUE_MATERIAL'
-              AND pd.product_id IN (${Prisma.join(productIds)})
-            GROUP BY pd.product_id
-          ),
-          historical_receive_product AS (
-            SELECT pd.product_id, SUM(pd.quantity) AS total_qty
-            FROM production_details pd
-            JOIN internal_production_orders po ON pd.order_id = po.id
-            WHERE po.user_id = ${userId}
-              AND po.transaction_at < ${startDate}
-              AND po.status = 'ACTIVE'
-              AND pd.transaction_type = 'RECEIVE_PRODUCT'
-              AND pd.product_id IN (${Prisma.join(productIds)})
-            GROUP BY pd.product_id
-          ),
-          opening_balances AS (
-            SELECT 
-              p.id AS product_id,
-              (
-                p.opening_stock_quantity 
-                + COALESCE(hi.total_qty, 0)
-                - COALESCE(ho.total_qty, 0)
-                - COALESCE(hm.total_qty, 0)
-                + COALESCE(hr.total_qty, 0)
-              ) AS opening_balance
-            FROM products p
-            LEFT JOIN historical_inbound hi ON p.id = hi.product_id
-            LEFT JOIN historical_outbound ho ON p.id = ho.product_id
-            LEFT JOIN historical_issue_material hm ON p.id = hm.product_id
-            LEFT JOIN historical_receive_product hr ON p.id = hr.product_id
-            WHERE p.id IN (${Prisma.join(productIds)})
-          )
-          SELECT product_id, opening_balance FROM opening_balances;
-        `,
-        this.prisma.$queryRaw<any[]>`
-          WITH period_inbound AS (
-            SELECT 
-              COALESCE(SUM(item.quantity), 0) AS qty,
-              COALESCE(SUM(item.quantity * item.unit_cost), 0) AS val
-            FROM inbound_invoice_details item
-            JOIN inbound_invoices inv ON item.inbound_invoice_id = inv.id
-            WHERE inv.user_id = ${userId}
-              AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
-              AND inv.status = 'ACTIVE'
-              AND inv.is_synced_to_inventory = true
-              AND item.product_id IN (${Prisma.join(productIds)})
-          ),
-          period_outbound AS (
-            SELECT 
-              COALESCE(SUM(item.quantity), 0) AS qty,
-              COALESCE(SUM(item.total_amount), 0) AS val
-            FROM invoice_details item
-            JOIN invoices inv ON item.invoice_id = inv.id
-            WHERE inv.user_id = ${userId}
-              AND inv.issue_date BETWEEN ${startDate} AND ${endDate}
-              AND inv.status = 'ISSUED'
-              AND item.product_id IN (${Prisma.join(productIds)})
-          ),
-          period_issue_material AS (
-            SELECT COALESCE(SUM(pd.quantity), 0) AS qty
-            FROM production_details pd
-            JOIN internal_production_orders po ON pd.order_id = po.id
-            WHERE po.user_id = ${userId}
-              AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
-              AND po.status = 'ACTIVE'
-              AND pd.transaction_type = 'ISSUE_MATERIAL'
-              AND pd.product_id IN (${Prisma.join(productIds)})
-          ),
-          period_receive_product AS (
-            SELECT COALESCE(SUM(pd.quantity), 0) AS qty
-            FROM production_details pd
-            JOIN internal_production_orders po ON pd.order_id = po.id
-            WHERE po.user_id = ${userId}
-              AND po.transaction_at BETWEEN ${startDate} AND ${endDate}
-              AND po.status = 'ACTIVE'
-              AND pd.transaction_type = 'RECEIVE_PRODUCT'
-              AND pd.product_id IN (${Prisma.join(productIds)})
-          )
-          SELECT 
-            pi.qty AS total_qty_nhap_mua,
-            pi.val AS total_val_nhap_mua,
-            po.qty AS total_qty_xuat_ban,
-            po.val AS total_val_xuat_ban,
-            pm.qty AS total_qty_xuat_sx,
-            pr.qty AS total_qty_nhap_sx
-          FROM period_inbound pi
-          CROSS JOIN period_outbound po
-          CROSS JOIN period_issue_material pm
-          CROSS JOIN period_receive_product pr;
-        `,
-        this.generateBookMetadata('S2D', userId, startDate, endDate),
-        this.generateInventorySyncCode(userId, startDate, endDate),
-      ]);
-
-    const tong_so_luong_ton_dau_ky = openingBalances.reduce(
-      (sum, item) => sum + Number(item.opening_balance),
-      0,
+    const {
+      stockStartPeriod,
+      valueStartPeriod,
+      stockToEndPeriod,
+      valueToEndPeriod,
+      receiptQuantity,
+      receiptValue,
+      issueQuantity,
+      issueValue,
+    } = await this.getInventorySummary(
+      product.id,
+      startYear,
+      startDatePeriod,
+      endDatePeriod,
     );
-
-    const totals = totalsResult[0] || {
-      total_qty_nhap_mua: 0,
-      total_val_nhap_mua: 0,
-      total_qty_xuat_ban: 0,
-      total_val_xuat_ban: 0,
-      total_qty_xuat_sx: 0,
-      total_qty_nhap_sx: 0,
-    };
-
-    const tong_so_luong_nhap =
-      Number(totals.total_qty_nhap_mua) + Number(totals.total_qty_nhap_sx);
-    const tong_thanh_tien_nhap = Number(totals.total_val_nhap_mua);
-    const tong_so_luong_xuat =
-      Number(totals.total_qty_xuat_ban) + Number(totals.total_qty_xuat_sx);
-    const tong_thanh_tien_xuat = Number(totals.total_val_xuat_ban);
-    const tong_so_luong_ton_cuoi_ky =
-      tong_so_luong_ton_dau_ky + tong_so_luong_nhap - tong_so_luong_xuat;
-
     return {
       activeBookKey: 'S2d-HKD',
       books: {
         'S2d-HKD': {
           bookMetadata,
           bookKey: 'S2D',
-          timeFrame: { startDate, endDate },
+          timeFrame: { startDatePeriod, endDatePeriod },
           summary: {
-            Tong_So_Luong_Ton_Dau_Ky: tong_so_luong_ton_dau_ky,
-            Tong_So_Luong_Nhap: tong_so_luong_nhap,
-            Tong_Thanh_Tien_Nhap: tong_thanh_tien_nhap,
-            Tong_So_Luong_Xuat: tong_so_luong_xuat,
-            Tong_Thanh_Tien_Xuat: tong_thanh_tien_xuat,
-            Tong_So_Luong_Ton_Cuoi_Ky: tong_so_luong_ton_cuoi_ky,
+            Tong_So_Luong_Ton_Dau_Ky: stockStartPeriod,
+            Tong_Thanh_tien_Dau_Ky: valueStartPeriod,
+            Tong_So_Luong_Nhap: receiptQuantity,
+            Tong_Thanh_Tien_Nhap: receiptValue,
+            Tong_So_Luong_Xuat: issueQuantity,
+            Tong_Thanh_Tien_Xuat: issueValue,
+            Tong_So_Luong_Ton_Cuoi_Ky: stockToEndPeriod,
+            Tong_Thanh_tien_Cuoi_Ky: valueToEndPeriod,
           },
+          isFinalized: periodTarget.status === 'CLOSED',
         },
       },
       syncCode,
@@ -1178,7 +1130,7 @@ export class AccountingBooksService {
   async getInventoryBookRecords(
     userId: string,
     timeFrame: string,
-    productPublicIds?: string[],
+    productPublicIds: string,
     customRange?: {
       year?: number;
       quarter?: number;
@@ -1194,7 +1146,7 @@ export class AccountingBooksService {
         userId,
         productType: { not: 'SERVICE' },
         ...(productPublicIds && productPublicIds.length > 0
-          ? { publicId: { in: productPublicIds } }
+          ? { publicId: productPublicIds }
           : {}),
       },
       select: { id: true },

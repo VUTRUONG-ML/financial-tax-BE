@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { AccountingBooksService } from './accounting-books.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -13,7 +13,7 @@ import { GetInventoryBookDto } from './dto/get-inventory-book.dto';
 export class AccountingBooksController {
   constructor(
     private readonly accountingBooksService: AccountingBooksService,
-  ) {}
+  ) { }
 
   @Get('revenue/summary')
   async getRevenueBookSummary(
@@ -23,9 +23,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getRevenueBookSummary(
@@ -49,9 +49,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getRevenueBookRecords(
@@ -78,9 +78,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getCashFlowBookSummary(
@@ -104,9 +104,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getCashFlowBookRecords(
@@ -134,9 +134,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getExpenseBookSummary(
@@ -160,9 +160,9 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getExpenseBookRecords(
@@ -181,24 +181,15 @@ export class AccountingBooksController {
     };
   }
 
-  @Get('inventory/summary')
+  @Post('inventory/summary')
   async getInventoryBookSummary(
     @CurrentUser() user: RequestUser,
-    @Query() query: GetInventoryBookDto,
+    @Body() dto: GetInventoryBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
-        : undefined;
-
     const data = await this.accountingBooksService.getInventoryBookSummary(
       user.id,
-      query.timeFrame,
-      query.productPublicIds,
-      customRange,
+      dto.periodPublicId,
+      dto.productPublicId,
     );
 
     return {
@@ -216,15 +207,15 @@ export class AccountingBooksController {
     const customRange =
       query.year || query.quarter
         ? {
-            year: query.year,
-            quarter: query.quarter,
-          }
+          year: query.year,
+          quarter: query.quarter,
+        }
         : undefined;
 
     const data = await this.accountingBooksService.getInventoryBookRecords(
       user.id,
       query.timeFrame,
-      query.productPublicIds,
+      query.productPublicId,
       customRange,
       query.page,
       query.limit,
