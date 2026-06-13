@@ -49,23 +49,22 @@ export class FinancialPeriodsService {
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
     const now = moment(issueDate).startOf('day');
 
-    // 1. Xác định startDate/endDate trọn vẹn (Ví dụ: 01/04 - 30/06)
+    // xác định startDate/endDate
     const unit: 'quarter' | 'month' =
       filingPeriod === 'QUARTERLY' ? 'quarter' : 'month';
     const start = now.clone().startOf(unit);
     const end = now.clone().endOf(unit);
 
-    // 2. Tính toán DeadlineDate chuẩn xác (Sửa lỗi tháng 30/31 ngày)
+    // tính toán DeadlineDate
     let deadline: Dayjs;
     if (filingPeriod === 'MONTHLY') {
-      // Ấn định thẳng ngày 20 của tháng sau, không dùng cộng ngày
       deadline = end.clone().add(1, 'month').date(20).startOf('day');
     } else {
       // Ngày cuối cùng của tháng đầu tiên quý sau
       deadline = end.clone().add(1, 'month').endOf('month').startOf('day');
     }
 
-    // 3. Logic dời hạn nộp thuế nếu trùng Thứ 7, Chủ nhật
+    // dời hạn nộp thuế nếu trùng Thứ 7, Chủ nhật
     while (deadline.day() === 6 || deadline.day() === 0) {
       deadline = deadline.add(1, 'day');
     }
@@ -99,12 +98,11 @@ export class FinancialPeriodsService {
     const filingPeriod = taxConfig.vatFilingPeriod;
     const now = new Date();
 
-    // 1. Tính toán các mốc thời gian và tên kì thuế phù hợp
     const { start, end, deadline, periodName } = this.calculatePeriodMetadata(
       now,
       filingPeriod,
     );
-    // 2. Upsert financial period
+
     const period = await tx.financialPeriod.upsert({
       where: {
         userId_periodName_startDate: {
@@ -124,7 +122,6 @@ export class FinancialPeriodsService {
       },
     });
 
-    // 3. Ghi Audit Log với Metadata chi tiết để BA/PM dễ dàng kiểm tra
     await this.auditLog.logChange(
       tx,
       userId,
@@ -141,7 +138,6 @@ export class FinancialPeriodsService {
       'Initial financial period setup',
     );
 
-    // 4. Ghi log server backend
     this.log.debug(LOG_ACTIONS.CREATE_FINANCIAL_PERIOD, {
       status: LOG_STATUS.SUCCESS,
       userId,
@@ -211,7 +207,6 @@ export class FinancialPeriodsService {
   ) {
     const targetDate = moment(date).startOf('day').toDate();
 
-    // 1. Tìm xem đã có kỳ nào bao phủ ngày này chưa
     let period = await tx.financialPeriod.findFirst({
       where: {
         userId,
@@ -220,7 +215,6 @@ export class FinancialPeriodsService {
       },
     });
 
-    // 2. Nếu chưa có, tiến hành tạo mới
     if (!period) {
       const user = await tx.user.findUnique({
         where: { id: userId },

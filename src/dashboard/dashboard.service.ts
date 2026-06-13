@@ -14,7 +14,7 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
-  ) {}
+  ) { }
 
   async getSummary(userId: string): Promise<DashboardSummaryResponseDto> {
     const currentYear = moment().year();
@@ -82,7 +82,7 @@ export class DashboardService {
     if (!targetPeriod) return null;
 
     const deadline = moment(targetPeriod.deadlineDate).startOf('day');
-    const endDate = moment(targetPeriod.endDate).startOf('day');
+    const endDate = moment(targetPeriod.endDate).endOf('day');
 
     const isOverdue = today.isAfter(deadline);
     const daysOverdue = isOverdue ? today.diff(deadline, 'days') : 0;

@@ -18,6 +18,8 @@ import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
 import { ExpenseBookRowDto } from './dto/expense-book-row.dto';
 import { InventoryBookRowDto } from './dto/inventory-book-row.dto';
 import { plainToInstance } from 'class-transformer';
+import { AppLogger } from 'src/common/logger/app-logger.service';
+import { LOG_ACTIONS, LOG_STATUS } from 'src/common/constants/log-events.constant';
 
 export interface ExpenseSummaryRow {
   chi_phi_nguyen_vat_lieu: string | number;
@@ -30,10 +32,31 @@ export interface ExpenseSummaryRow {
 
 @Injectable()
 export class AccountingBooksService {
+  private readonly logger = new AppLogger(AccountingBooksService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
-  ) {}
+  ) { }
+
+  private async getPeriodTarget(
+    publicId: string,
+    userId: string,
+    action: string = LOG_ACTIONS.ACC_BOOK,
+  ) {
+    const periodTarget = await this.prisma.financialPeriod.findUnique({
+      where: { publicId },
+    });
+    if (!periodTarget || periodTarget.userId !== userId) {
+      this.logger.warn(action, {
+        status: LOG_STATUS.FAILED,
+        reason: 'PERIOD_NOT_FOUND',
+        periodId: publicId,
+        userId,
+      });
+      throw new NotFoundException('Financial period not found.');
+    }
+    return periodTarget;
+  }
 
   async generateBookMetadata(
     bookKey: AccountingBookKey,
@@ -821,54 +844,26 @@ export class AccountingBooksService {
     };
   }
 
-  // --------------------------------------------------------------------------
-  // SỔ CHI TIẾT VẬT TƯ, HÀNG HÓA, SẢN PHẨM (S2d-HKD: Nhập - Xuất - Tồn)
-  // --------------------------------------------------------------------------
-
+  // s2d
   async generateInventorySyncCode(
     userId: string,
     startDate: Date,
     endDate: Date,
+    publicIdPeriod: string = 'template',
   ): Promise<string> {
-    const [inboundAgg, outboundAgg, prodAgg] = await Promise.all([
-      this.prisma.inboundInvoice.aggregate({
-        _count: { id: true },
-        _max: { updatedAt: true },
-        where: {
-          userId,
-          status: 'ACTIVE',
-          isSyncedToInventory: true,
-          issueDate: { gte: startDate, lte: endDate },
-        },
-      }),
-      this.prisma.invoice.aggregate({
-        _count: { id: true },
-        _max: { updatedAt: true },
-        where: {
-          userId,
-          status: 'ISSUED',
-          issueDate: { gte: startDate, lte: endDate },
-        },
-      }),
-      this.prisma.internalProductionOrder.aggregate({
-        _count: { id: true },
-        _max: { updatedAt: true },
-        where: {
-          userId,
-          status: 'ACTIVE',
-          transactionAt: { gte: startDate, lte: endDate },
-        },
-      }),
-    ]);
+    const periodTarget = await this.getPeriodTarget(
+      publicIdPeriod,
+      userId,
+      LOG_ACTIONS.ACC_BOOK_S2d_VERSION,
+    );
+    const latestMovement = await this.prisma.inventoryMovement.findFirst({
+      where: { periodId: periodTarget.id },
+      orderBy: { createdAt: 'desc' },
+      select: { publicId: true },
+    });
 
-    const inCount = inboundAgg._count.id || 0;
-    const inMaxTime = inboundAgg._max.updatedAt?.getTime() || 0;
-    const outCount = outboundAgg._count.id || 0;
-    const outMaxTime = outboundAgg._max.updatedAt?.getTime() || 0;
-    const prodCount = prodAgg._count.id || 0;
-    const prodMaxTime = prodAgg._max.updatedAt?.getTime() || 0;
-
-    return `${inCount}-${inMaxTime}-${outCount}-${outMaxTime}-${prodCount}-${prodMaxTime}`;
+    const version = latestMovement ? latestMovement.publicId : 0;
+    return `${version}`;
   }
 
   async getInventoryBookSummary(
@@ -879,6 +874,7 @@ export class AccountingBooksService {
       year?: number;
       quarter?: number;
     },
+    periodPublicId: string = 'template',
   ) {
     const { startDate, endDate } = parseDateRange(timeFrame, customRange);
 
@@ -920,6 +916,95 @@ export class AccountingBooksService {
         syncCode,
       };
     }
+
+    // Đoạn logic mới.
+    const productId = productIds[0];
+    const periodTarget = await this.getPeriodTarget(
+      periodPublicId,
+      userId,
+      LOG_ACTIONS.ACC_BOOK_S2d_SUMMARY,
+    );
+
+    if (periodTarget.status === 'CLOSED') {
+      const getInventoryValue = async (productId: number, from: Date, to: Date) => {
+        const res = await this.prisma.$queryRaw<{ valueStock: Decimal }[]>`
+            SELECT
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                    'OPENING',
+                    'PURCHASE_IN',
+                    'PRODUCTION_IN',
+                    'ADJUSTMENT_INCREASE'
+                  )
+                  THEN total_value
+                  ELSE -total_value
+                END
+              ) as valueStock
+            FROM inventory_movements
+            WHERE product_id = ${productId} 
+              AND movement_date >= ${from}
+              AND movement_date <= ${to}
+        `;
+        const value = res[0]?.valueStock ?? new Decimal(0);
+        return value;
+      };
+
+      const startDatePeriod = periodTarget.startDate;
+      const endDatePeriod = periodTarget.endDate;
+      const startYear = moment(periodTarget.startDate).startOf('year').toDate();
+      const [valueStartPeriod, valueToEndPeriod, resQtyReceipt, resQtyIssue] =
+        await Promise.all([
+          getInventoryValue(productId, startYear, startDatePeriod),
+          getInventoryValue(productId, startYear, endDatePeriod),
+          this.prisma.$queryRaw<{ quantityReceipt: number }[]>`
+            SELECT
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                    'PURCHASE_IN',
+                    'PRODUCTION_IN',
+                    'ADJUSTMENT_INCREASE'
+                  )
+                  THEN quantity
+                  ELSE 0
+                END
+              ) as quantityReceipt
+            FROM inventory_movements
+            WHERE product_id = ${productId} 
+              AND movement_date <= ${endDatePeriod}
+              AND movement_date >= ${startDate}
+          `,
+          this.prisma.$queryRaw<{ quantityIssue: number }[]>`
+            SELECT
+              SUM(
+                CASE
+                  WHEN movement_type IN (
+                    'OPENING',
+                    'PURCHASE_IN',
+                    'PRODUCTION_IN',
+                    'ADJUSTMENT_INCREASE'
+                  )
+                  THEN 0
+                  ELSE quantity
+                END
+              ) as quantityIssue
+            FROM inventory_movements
+            WHERE product_id = ${productId} 
+              AND movement_date <= ${endDatePeriod}
+              AND movement_date >= ${startDate}
+          `,
+        ]);
+      const valueStart = valueStartPeriod;
+      const valueToEnd = valueToEndPeriod;
+      const so_luong_nhap = resQtyReceipt[0]
+        ? resQtyReceipt[0].quantityReceipt
+        : 0;
+      const so_luong_suat = resQtyIssue[0] ? resQtyIssue[0].quantityIssue : 0;
+      const gia_tri_ton_dau_ky = valueStart;
+      const gia_tri_ton_cuoi_ky = valueToEnd;
+    }
+    // ----------------------------------------------
 
     const [openingBalances, totalsResult, bookMetadata, syncCode] =
       await Promise.all([

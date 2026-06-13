@@ -7,6 +7,9 @@ import {
 
 export class StockIssueDetailResponseDto {
   @Expose()
+  id!: number;
+
+  @Expose()
   @Transform(
     ({ obj }) => (obj as { product?: { publicId: string } }).product?.publicId,
   )
@@ -46,9 +49,6 @@ export class StockIssueDetailResponseDto {
 }
 
 export class StockIssueResponseDto {
-  @Expose()
-  id!: number;
-
   @Expose()
   issueCode!: string;
 
