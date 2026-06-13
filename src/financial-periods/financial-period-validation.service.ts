@@ -15,7 +15,7 @@ export class FinancialPeriodValidationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly period: FinancialPeriodsService,
-  ) {}
+  ) { }
 
   /**
    * Hàm này thực hiện kiểm tra xem hành động hiện tại có thuộc một kì nào không mục đích là để kiểm tra trạng thái đã chốt hay còn mở của kì đó.

@@ -204,22 +204,10 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetInventoryBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getInventoryBookRecords(
       user.id,
       query.timeFrame,
       query.productPublicId,
-      customRange,
-      query.page,
-      query.limit,
-      query.syncCode,
     );
 
     return {
