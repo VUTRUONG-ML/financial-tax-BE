@@ -35,6 +35,7 @@ import { Dayjs } from 'dayjs';
 import { Decimal } from '@prisma/client/runtime/client';
 import { ConfirmTaxPaymentDto } from './dto/confirm-financial-period.dto';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
+import { CostEngineService } from '../cost-engine/cost-engine.service';
 
 @Injectable()
 export class FinancialPeriodsService {
@@ -44,6 +45,7 @@ export class FinancialPeriodsService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly taxEngine: TaxEngineService,
+    private readonly costEngine: CostEngineService,
   ) { }
 
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
@@ -479,6 +481,12 @@ export class FinancialPeriodsService {
           'Some invoices are still in draft or sync failed status, please check again.',
         );
       }
+
+      await this.costEngine.calculateAndApplyWeightedAverageCosts(
+        userId,
+        targetFp.id,
+        client,
+      );
 
       let inPeriodRevenue = new Decimal(0);
       let inPeriodExpense = new Decimal(0);
