@@ -125,7 +125,7 @@ export class StocksService {
         data: {},
       });
 
-      const transactionDate = new Date(createDto.receiptDate);
+      const transactionDate = moment(createDto.receiptDate).toDate();
       const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
       const yy = transactionDate.getFullYear().toString().slice(-2);
       const mmyy = `${mm}${yy}`;
@@ -478,7 +478,7 @@ export class StocksService {
       // sort để chống deadlock
       products.sort((a, b) => a.id - b.id);
 
-      const transactionDate = new Date(createDto.issueDate);
+      const transactionDate = moment(createDto.issueDate).toDate();
       const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
       const yy = transactionDate.getFullYear().toString().slice(-2);
       const mmyy = `${mm}${yy}`;

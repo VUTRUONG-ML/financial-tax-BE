@@ -27,7 +27,7 @@ import { CloseFinancialPeriodDto } from './dto/close-financial-period.dto';
 export class FinancialPeriodsController {
   constructor(
     private readonly financialPeriodsService: FinancialPeriodsService,
-  ) {}
+  ) { }
 
   // @Post()
   // @ApiOperation({ summary: 'Tạo mới một kỳ tài chính' })

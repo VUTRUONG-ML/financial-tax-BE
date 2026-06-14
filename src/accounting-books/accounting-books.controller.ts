@@ -199,15 +199,16 @@ export class AccountingBooksController {
     };
   }
 
-  @Get('inventory/records')
+  @Post('inventory/records')
   async getInventoryBookRecords(
     @CurrentUser() user: RequestUser,
-    @Query() query: GetInventoryBookDto,
+    @Body() dto: GetInventoryBookDto,
   ) {
     const data = await this.accountingBooksService.getInventoryBookRecords(
       user.id,
-      query.timeFrame,
-      query.productPublicId,
+      dto.productPublicId,
+      dto.periodPublicId,
+      dto.syncCode,
     );
 
     return {

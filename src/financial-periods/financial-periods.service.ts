@@ -205,8 +205,7 @@ export class FinancialPeriodsService {
     tx: Prisma.TransactionClient = this.prisma,
     date: Date,
   ) {
-    const targetDate = moment(date).startOf('day').toDate();
-
+    const targetDate = moment(date).toDate();
     let period = await tx.financialPeriod.findFirst({
       where: {
         userId,
@@ -251,10 +250,11 @@ export class FinancialPeriodsService {
         );
       }
       const { start, end, deadline, periodName } = this.calculatePeriodMetadata(
-        date,
+        targetDate,
         taxConfig.vatFilingPeriod,
       );
-
+      this.log.debug('START_PERIOD', { start });
+      this.log.debug('END_PERIOD', { end });
       period = await tx.financialPeriod.create({
         data: {
           userId,

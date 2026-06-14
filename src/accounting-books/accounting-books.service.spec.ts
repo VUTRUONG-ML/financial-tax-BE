@@ -145,6 +145,14 @@ describe('AccountingBooksService', () => {
             },
             product: {
               findMany: jest.fn(),
+              findFirst: jest.fn(),
+              findUnique: jest.fn(),
+            },
+            financialPeriod: {
+              findUnique: jest.fn(),
+            },
+            inventoryMovement: {
+              findFirst: jest.fn(),
             },
             inboundInvoice: {
               aggregate: jest.fn(),
@@ -174,8 +182,8 @@ describe('AccountingBooksService', () => {
     }).compile();
 
     service = module.get<AccountingBooksService>(AccountingBooksService);
-    prisma = module.get(PrismaService) as any;
-    taxEngine = module.get(TaxEngineService) as any;
+    prisma = module.get(PrismaService);
+    taxEngine = module.get(TaxEngineService);
   });
 
   it('should be defined', () => {
@@ -493,63 +501,105 @@ describe('AccountingBooksService', () => {
     });
 
     it('should generate inventory summary correctly', async () => {
-      (prisma.$queryRaw as jest.Mock)
-        .mockResolvedValueOnce([
-          { product_id: 101, opening_balance: 10 },
-          { product_id: 102, opening_balance: 5 },
-        ]) // Mock opening balance query
-        .mockResolvedValueOnce([
-          {
-            total_qty_nhap_mua: 20,
-            total_val_nhap_mua: 200000,
-            total_qty_xuat_ban: 15,
-            total_val_xuat_ban: 150000,
-            total_qty_xuat_sx: 2,
-            total_qty_nhap_sx: 5,
-          },
-        ]); // Mock period totals query
+      (prisma.financialPeriod.findUnique as jest.Mock).mockResolvedValue({
+        id: 1,
+        publicId: 'period-123',
+        userId: 'user-001',
+        startDate: new Date('2026-05-01T00:00:00Z'),
+        endDate: new Date('2026-05-31T23:59:59Z'),
+        startYear: new Date('2026-01-01T00:00:00Z'),
+        status: 'OPEN',
+      });
+
+      (prisma.product.findFirst as jest.Mock).mockResolvedValue({
+        id: 101,
+        publicId: 'prod-1',
+        productName: 'Thịt heo',
+        skuCode: 'HEO-01',
+        unit: 'Kg',
+      });
+
+      (prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([
+        {
+          stockStartPeriod: 15,
+          valueStartPeriod: new Decimal(150000),
+          stockToEndPeriod: 23,
+          valueToEndPeriod: new Decimal(230000),
+          receiptQuantity: 25,
+          receiptValue: new Decimal(200000),
+          issueQuantity: 17,
+          issueValue: new Decimal(150000),
+        },
+      ]);
 
       const result = await service.getInventoryBookSummary(
         'user-001',
-        'thang_nay',
-        ['prod-1', 'prod-2'],
+        'period-123',
+        'prod-1',
       );
 
       expect(result.activeBookKey).toBe('S2d-HKD');
       expect(result.books['S2d-HKD']).toBeDefined();
       const s2d = result.books['S2d-HKD'];
       expect(s2d.summary.Tong_So_Luong_Ton_Dau_Ky).toBe(15);
-      expect(s2d.summary.Tong_So_Luong_Nhap).toBe(25); // 20 (mua) + 5 (sản xuất)
-      expect(s2d.summary.Tong_Thanh_Tien_Nhap).toBe(200000);
-      expect(s2d.summary.Tong_So_Luong_Xuat).toBe(17); // 15 (bán) + 2 (sản xuất)
-      expect(s2d.summary.Tong_Thanh_Tien_Xuat).toBe(150000);
-      expect(s2d.summary.Tong_So_Luong_Ton_Cuoi_Ky).toBe(23); // 15 + 25 - 17
+      expect(s2d.summary.Tong_So_Luong_Nhap).toBe(25);
+      expect(s2d.summary.Tong_Thanh_Tien_Nhap).toEqual(new Decimal(200000));
+      expect(s2d.summary.Tong_So_Luong_Xuat).toBe(17);
+      expect(s2d.summary.Tong_Thanh_Tien_Xuat).toEqual(new Decimal(150000));
+      expect(s2d.summary.Tong_So_Luong_Ton_Cuoi_Ky).toBe(23);
     });
 
     it('should retrieve records mapped to InventoryBookRowDto', async () => {
-      (prisma.product.findMany as jest.Mock).mockResolvedValue([
-        { id: 101, openingStockQuantity: 10, openingStockValue: 100000 },
-      ]);
+      (prisma.financialPeriod.findUnique as jest.Mock).mockResolvedValue({
+        id: 1,
+        publicId: 'period-123',
+        userId: 'user-001',
+        startDate: new Date('2026-05-01T00:00:00Z'),
+        endDate: new Date('2026-05-31T23:59:59Z'),
+        startYear: new Date('2026-01-01T00:00:00Z'),
+        status: 'OPEN',
+      });
+
+      (prisma.product.findFirst as jest.Mock).mockResolvedValue({
+        id: 101,
+        publicId: 'prod-1',
+        productName: 'Thịt heo',
+        skuCode: 'HEO-01',
+        unit: 'Kg',
+      });
 
       const mockRecords = [
         {
-          Ngay_Chung_Tu: '2026-05-10T10:00:00.000Z',
-          So_Chung_Tu: 'HD001',
-          flow_type: 'TX_INBOUND',
-          Product_Id: 101,
-          Product_Name: 'Thịt heo',
-          Sku_Code: 'HEO-01',
-          Unit: 'Kg',
-          So_Luong_Nhap: 10,
-          Don_Gia_Nhap: 50000,
-          Thanh_Tien_Nhap: 500000,
-          So_Luong_Xuat: 0,
-          Don_Gia_Xuat: 0,
-          Thanh_Tien_Xuat: 0,
-          running_balance_in_period: 10,
-          opening_balance: 5,
-          So_Luong_Ton: 15,
-          total_count: 1,
+          sort_order: 0,
+          id: null,
+          document_no: null,
+          description: 'Tồn đầu kỳ',
+          movement_date: null,
+          row_type: 'OPENING_BALANCE',
+          movement_type: null,
+          unit_cost: 20000,
+          receipt_quantity: 0,
+          receipt_value: 0,
+          issue_quantity: 0,
+          issue_value: 0,
+          running_stock: 5,
+          running_value: 100000,
+        },
+        {
+          sort_order: 1,
+          id: 12,
+          document_no: 'HD001',
+          description: 'Mua hàng',
+          movement_date: new Date('2026-05-10T10:00:00.000Z'),
+          row_type: 'MOVEMENT',
+          movement_type: 'PURCHASE_IN',
+          unit_cost: 50000,
+          receipt_quantity: 10,
+          receipt_value: 500000,
+          issue_quantity: 0,
+          issue_value: 0,
+          running_stock: 15,
+          running_value: 600000,
         },
       ];
 
@@ -557,17 +607,17 @@ describe('AccountingBooksService', () => {
 
       const result = await service.getInventoryBookRecords(
         'user-001',
-        'thang_nay',
-        ['prod-1'],
+        'prod-1',
+        'period-123',
       );
 
       expect(result.activeBookKey).toBe('S2d-HKD');
       expect(result.rows).toHaveLength(2);
 
-      // Virtual opening balance row
+      // Virtual/Real opening balance row
       const virtualRow = result.rows[0];
       expect(virtualRow.So_Chung_Tu).toBe('');
-      expect(virtualRow.Dien_Giai).toBe('Số dư đầu kỳ');
+      expect(virtualRow.Dien_Giai).toBe('Tồn đầu kỳ');
       expect(virtualRow.Product_Name).toBe('Thịt heo');
       expect(virtualRow.So_Luong_Nhap).toBe(0);
       expect(virtualRow.So_Luong_Ton).toBe(5);

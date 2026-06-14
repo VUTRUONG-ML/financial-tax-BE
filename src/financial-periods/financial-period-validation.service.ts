@@ -27,7 +27,7 @@ export class FinancialPeriodValidationService {
    * @returns FinancialPeriod
    */
   async getOrCreateAndValidatePeriod(userId: string, date: Date) {
-    const issueDate = moment(date).startOf('day').toDate();
+    const issueDate = moment(date).toDate();
 
     return await this.prisma.$transaction(async (tx) => {
       await tx.user.update({

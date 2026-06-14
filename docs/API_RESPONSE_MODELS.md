@@ -3302,19 +3302,20 @@ None
 ### 13.7. Get Inventory Book Summary
 
 - **Route:** `/accounting-books/inventory/summary`
-- **Method:** `GET`
+- **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
-#### Request Query
+#### Request Body (JSON)
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
-- `year`: `number (Optional - Required if timeFrame is "custom")`
-- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
-- `productPublicIds`: `string (Optional - comma-separated list of product public IDs, e.g. prod-1,prod-2)`
-
-#### Request Body
-
-None
+```json
+{
+  "timeFrame": "\"thang_nay\" | \"thang_truoc\" | \"quy_nay\" | \"custom\"",
+  "periodPublicId": "string",
+  "productPublicId": "string",
+  "year": "number (Optional)",
+  "quarter": "number (Optional)"
+}
+```
 
 #### Response Data (JSON)
 
@@ -3325,29 +3326,32 @@ None
   "timestamp": "Date string",
   "message": "Retrieve inventory book summary successfully",
   "data": {
-    "activeBookKey": "S2d-HKD",
+    "activeBookKey": "\"S2d-HKD\"",
     "books": {
       "S2d-HKD": {
         "bookMetadata": {
           "businessName": "string",
           "taxCode": "string",
-          "bookTitle": "Sổ chi tiết vật tư, hàng hóa, sản phẩm",
+          "bookTitle": "string",
           "ownerName": "string",
-          "templateStyle": "S2D_TEMPLATE"
+          "templateStyle": "\"S1a_TEMPLATE_MIEN_THUE\" | \"S2a_TEMPLATE_TONG_HOP_TNCN\" | \"S2b_TEMPLATE_TRACH_NHIEM_GTGT\" | \"S2c_TEMPLATE_PHAN_BO_COT\" | \"S2d_TEMPLATE_NHAP_XUAT_TON\" | \"S2e_TEMPLATE_RUNNING_BALANCE\""
         },
-        "bookKey": "S2D",
+        "bookKey": "\"S2D\"",
         "timeFrame": {
-          "startDate": "Date string",
-          "endDate": "Date string"
+          "startDatePeriod": "Date string",
+          "endDatePeriod": "Date string"
         },
         "summary": {
           "Tong_So_Luong_Ton_Dau_Ky": "number",
+          "Tong_Thanh_tien_Dau_Ky": "number",
           "Tong_So_Luong_Nhap": "number",
           "Tong_Thanh_Tien_Nhap": "number",
           "Tong_So_Luong_Xuat": "number",
           "Tong_Thanh_Tien_Xuat": "number",
-          "Tong_So_Luong_Ton_Cuoi_Ky": "number"
-        }
+          "Tong_So_Luong_Ton_Cuoi_Ky": "number",
+          "Tong_Thanh_tien_Cuoi_Ky": "number"
+        },
+        "isFinalized": "boolean"
       }
     },
     "syncCode": "string"
@@ -3365,11 +3369,10 @@ None
 #### Request Query
 
 - `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
-- `year`: `number (Optional - Required if timeFrame is "custom")`
-- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
-- `productPublicIds`: `string (Optional - comma-separated list of product public IDs, e.g. prod-1,prod-2)`
-- `page`: `number (Optional)`
-- `limit`: `number (Optional)`
+- `productPublicId`: `string`
+- `periodPublicId`: `string`
+- `year`: `number (Optional)`
+- `quarter`: `number (Optional)`
 - `syncCode`: `string (Optional)`
 
 #### Request Body
@@ -3408,7 +3411,7 @@ None
       "page": "number",
       "lastPage": "number"
     },
-    "activeBookKey": "S2d-HKD",
+    "activeBookKey": "\"S2d-HKD\"",
     "syncCode": "string",
     "isSummaryOutdated": "boolean"
   },

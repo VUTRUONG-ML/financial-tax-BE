@@ -19,7 +19,11 @@ import { ExpenseBookRowDto } from './dto/expense-book-row.dto';
 import { InventoryBookRowDto } from './dto/inventory-book-row.dto';
 import { plainToInstance } from 'class-transformer';
 import { AppLogger } from 'src/common/logger/app-logger.service';
-import { LOG_ACTIONS, LOG_STATUS } from 'src/common/constants/log-events.constant';
+import {
+  LOG_ACTIONS,
+  LOG_STATUS,
+} from 'src/common/constants/log-events.constant';
+import { InventoryBookRowRaw } from './interfaces/inventory.interface';
 
 export interface ExpenseSummaryRow {
   chi_phi_nguyen_vat_lieu: string | number;
@@ -55,7 +59,11 @@ export class AccountingBooksService {
       });
       throw new NotFoundException('Financial period not found.');
     }
-    const startYear = moment(periodTarget.startDate).startOf('year').toDate();
+    this.logger.debug('START_PERIOD', { startPeriod: periodTarget.startDate });
+    const startYear = moment(periodTarget.startDate)
+      .startOf('day')
+      .startOf('year')
+      .toDate();
     this.logger.debug('START_YEAR', { startYear });
     return { ...periodTarget, startYear };
   }
@@ -886,7 +894,7 @@ export class AccountingBooksService {
           END
         ),
         0
-      ) as stockStartPeriod,
+      ) as "stockStartPeriod",
       COALESCE(
         SUM(
           CASE
@@ -907,7 +915,7 @@ export class AccountingBooksService {
           END
         ),
         0
-      ) as valueStartPeriod,
+      ) as "valueStartPeriod",
       COALESCE(
         SUM(
           CASE
@@ -928,7 +936,7 @@ export class AccountingBooksService {
           END
         ),
         0
-      ) as stockToEndPeriod,
+      ) as "stockToEndPeriod",
       COALESCE(
         SUM(
           CASE
@@ -949,7 +957,7 @@ export class AccountingBooksService {
           END
         ),
         0
-      ) as valueToEndPeriod,
+      ) as "valueToEndPeriod",
       COALESCE(
         SUM(
           CASE
@@ -965,7 +973,7 @@ export class AccountingBooksService {
           END
         ),
         0
-      ) as receiptQuantity,
+      ) as "receiptQuantity",
       COALESCE(
         SUM(
           CASE
@@ -981,7 +989,7 @@ export class AccountingBooksService {
           END
         ),
         0
-      ) as receiptValue,
+      ) as "receiptValue",
       COALESCE(
         SUM(
           CASE
@@ -997,7 +1005,7 @@ export class AccountingBooksService {
           END
         ),
         0 
-      ) as issueQuantity,
+      ) as "issueQuantity",
         COALESCE(
         SUM(
           CASE
@@ -1013,29 +1021,32 @@ export class AccountingBooksService {
           END
         ),
         0 
-      ) as issueValue
+      ) as "issueValue"
     FROM inventory_movements
     WHERE product_id = ${productId}
       AND movement_date >= ${dateStartYear}
   `;
     const row = res[0];
-
+    console.log("INVENTORY_SUNMMARY", row);
     return {
-      stockStartPeriod: row?.stockStartPeriod ?? 0,
-      valueStartPeriod: row?.valueStartPeriod ?? new Decimal(0),
-      stockToEndPeriod: row?.stockToEndPeriod ?? 0,
-      valueToEndPeriod: row?.valueToEndPeriod ?? new Decimal(0),
-      receiptQuantity: row?.receiptQuantity ?? 0,
-      receiptValue: row?.receiptValue ?? new Decimal(0),
-      issueQuantity: row?.issueQuantity ?? 0,
-      issueValue: row?.issueValue ?? new Decimal(0),
+      stockStartPeriod: Number(row?.stockStartPeriod ?? 0),
+      valueStartPeriod: new Decimal(row?.valueStartPeriod ?? 0),
+
+      stockToEndPeriod: Number(row?.stockToEndPeriod ?? 0),
+      valueToEndPeriod: new Decimal(row?.valueToEndPeriod ?? 0),
+
+      receiptQuantity: Number(row?.receiptQuantity ?? 0),
+      receiptValue: new Decimal(row?.receiptValue ?? 0),
+
+      issueQuantity: Number(row?.issueQuantity ?? 0),
+      issueValue: new Decimal(row?.issueValue ?? 0),
     };
   }
   async generateInventorySyncCode(
     userId: string,
     startDate: Date,
     endDate: Date,
-    publicIdPeriod: string = 'template',
+    publicIdPeriod: string,
   ): Promise<string> {
     const periodTarget = await this.getPeriodTarget(
       publicIdPeriod,
@@ -1070,7 +1081,12 @@ export class AccountingBooksService {
 
     const [bookMetadata, syncCode] = await Promise.all([
       this.generateBookMetadata('S2D', userId, startDatePeriod, endDatePeriod),
-      this.generateInventorySyncCode(userId, startDatePeriod, endDatePeriod),
+      this.generateInventorySyncCode(
+        userId,
+        startDatePeriod,
+        endDatePeriod,
+        periodPublicId,
+      ),
     ]);
 
     const product = await this.prisma.product.findFirst({
@@ -1148,10 +1164,12 @@ export class AccountingBooksService {
       startYear,
     } = periodTarget;
 
-    const [bookMetadata, syncCode] = await Promise.all([
-      this.generateBookMetadata('S2D', userId, startDatePeriod, endDatePeriod),
-      this.generateInventorySyncCode(userId, startDatePeriod, endDatePeriod),
-    ]);
+    const syncCode = await this.generateInventorySyncCode(
+      userId,
+      startDatePeriod,
+      endDatePeriod,
+      periodPublicId,
+    );
 
     const product = await this.prisma.product.findFirst({
       where: {
@@ -1165,108 +1183,22 @@ export class AccountingBooksService {
         id: true,
         publicId: true,
         productName: true,
+        skuCode: true,
+        unit: true,
       },
     });
 
     if (!product) {
       throw new NotFoundException('Product not found.');
     }
-    // let rawRows = records.map((r) => ({
-    //   ...r,
-    //   Dien_Giai: TRANSLATION_MAP[r.flow_type] || r.flow_type,
-    //   So_Luong_Nhap: Number(r.So_Luong_Nhap || 0),
-    //   Don_Gia_Nhap: Number(r.Don_Gia_Nhap || 0),
-    //   Thanh_Tien_Nhap: Number(r.Thanh_Tien_Nhap || 0),
-    //   So_Luong_Xuat: Number(r.So_Luong_Xuat || 0),
-    //   Don_Gia_Xuat: Number(r.Don_Gia_Xuat || 0),
-    //   Thanh_Tien_Xuat: Number(r.Thanh_Tien_Xuat || 0),
-    //   So_Luong_Ton: Number(r.So_Luong_Ton || 0),
-    // }));
 
-    // // TỐI ƯU CƠ CHẾ INJECT VIRTUAL ROW
-    // if (productIds.length === 1) {
-    //   const previousBalance = await this.getVirtualRowBalance(
-    //     userId,
-    //     productIds[0],
-    //     startDate,
-    //     endDate,
-    //     page,
-    //     rawRows[0],
-    //   );
-
-    //   let productName = '';
-    //   let skuCode = '';
-    //   let unit = '';
-
-    //   if (rawRows.length > 0) {
-    //     productName = rawRows[0].Product_Name;
-    //     skuCode = rawRows[0].Sku_Code;
-    //     unit = rawRows[0].Unit;
-    //   } else {
-    //     const prod = await this.prisma.product.findUnique({
-    //       where: { id: productIds[0] },
-    //       select: { productName: true, skuCode: true, unit: true },
-    //     });
-    //     if (prod) {
-    //       productName = prod.productName;
-    //       skuCode = prod.skuCode || '';
-    //       unit = prod.unit;
-    //     }
-    //   }
-
-    //   if (page === 1 || rawRows.length > 0 || totalTransactions > 0) {
-    //     const virtualRow = {
-    //       Ngay_Chung_Tu:
-    //         page === 1
-    //           ? startDate.toISOString()
-    //           : rawRows.length > 0 && rawRows[0].Ngay_Chung_Tu instanceof Date
-    //             ? rawRows[0].Ngay_Chung_Tu.toISOString()
-    //             : rawRows.length > 0
-    //               ? new Date(rawRows[0].Ngay_Chung_Tu).toISOString()
-    //               : startDate.toISOString(),
-    //       So_Chung_Tu: '',
-    //       Dien_Giai:
-    //         page === 1 ? 'Số dư đầu kỳ' : 'Số dư mang sang từ trang trước',
-    //       flow_type: 'VIRTUAL',
-    //       Product_Id: Number(productIds[0]),
-    //       Product_Name: productName,
-    //       Sku_Code: skuCode,
-    //       Unit: unit,
-    //       So_Luong_Nhap: 0,
-    //       Don_Gia_Nhap: 0,
-    //       Thanh_Tien_Nhap: 0,
-    //       So_Luong_Xuat: 0,
-    //       Don_Gia_Xuat: 0,
-    //       Thanh_Tien_Xuat: 0,
-    //       So_Luong_Ton: previousBalance,
-    //     };
-
-    //     rawRows = [virtualRow, ...rawRows];
-    //   }
-    // }
-
-    // const rows = plainToInstance(InventoryBookRowDto, rawRows, {
-    //   excludeExtraneousValues: true,
-    // });
-
-    // return {
-    //   rows,
-    //   meta: {
-    //     total: totalTransactions,
-    //     page,
-    //     lastPage: Math.ceil(totalTransactions / limit) || 1,
-    //   },
-    //   activeBookKey: 'S2d-HKD',
-    //   syncCode,
-    //   isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
-    // };
-
-    const result = await this.prisma.$queryRaw`
+    const result = await this.prisma.$queryRaw<InventoryBookRowRaw[]>`
       WITH fluctuations AS (
         SELECT
           im.id,
           im.movement_date,
           im.movement_type,
+          im.unit_cost,
           CASE
             WHEN im.movement_type IN (
               'PURCHASE_IN',
@@ -1283,7 +1215,7 @@ export class AccountingBooksService {
               'PRODUCTION_IN',
               'ADJUSTMENT_INCREASE'
             )
-            THEN total_value
+            THEN im.total_value
             ELSE 0
           END AS receipt_value,
 
@@ -1303,7 +1235,7 @@ export class AccountingBooksService {
               'PRODUCTION_OUT',
               'ADJUSTMENT_DECREASE'
             )
-            THEN total_value
+            THEN im.total_value
             ELSE 0
           END AS issue_value,
 
@@ -1420,6 +1352,12 @@ export class AccountingBooksService {
         'OPENING_BALANCE' as row_type,
         NULL::text as movement_type,
 
+        CASE
+          WHEN so_luong_ton_dau_ky > 0
+          THEN gia_tri_ton_dau_ky / so_luong_ton_dau_ky
+          ELSE 0
+        END as unit_cost,
+
         0 as receipt_quantity,
         0::numeric as receipt_value,
         0 as issue_quantity,
@@ -1440,6 +1378,7 @@ export class AccountingBooksService {
         f.movement_date,
         'MOVEMENT' as row_type,
         f.movement_type::text,
+        f.unit_cost,
 
         f.receipt_quantity,
         f.receipt_value,
@@ -1462,5 +1401,36 @@ export class AccountingBooksService {
         movement_date,
         id
     `;
+
+    const rawRows = result.map((r) => {
+
+      return {
+        Ngay_Chung_Tu: r.movement_date ?? startDatePeriod,
+        So_Chung_Tu: r.document_no || '',
+        Dien_Giai: r.description,
+        Product_Name: product.productName,
+        Public_id: product.publicId,
+        Sku_Code: product.skuCode || '',
+        Unit: product.unit || '',
+        Don_Gia: Number(r.unit_cost || 0),
+        So_Luong_Nhap: Number(r.receipt_quantity || 0),
+        Thanh_Tien_Nhap: Number(r.receipt_value || 0),
+        So_Luong_Xuat: Number(r.issue_quantity || 0),
+        Thanh_Tien_Xuat: Number(r.issue_value || 0),
+        So_Luong_Ton: Number(r.running_stock || 0),
+        Thanh_Tien_Ton: Number(r.running_value || 0),
+      };
+    });
+
+    const rows = plainToInstance(InventoryBookRowDto, rawRows, {
+      excludeExtraneousValues: true,
+    });
+
+    return {
+      rows,
+      activeBookKey: 'S2d-HKD',
+      syncCode,
+      isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
+    };
   }
 }

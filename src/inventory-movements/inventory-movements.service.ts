@@ -9,7 +9,7 @@ import { Decimal } from '@prisma/client/runtime/client';
 
 @Injectable()
 export class InventoryMovementsService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async createInventoryMovement(
     data: {

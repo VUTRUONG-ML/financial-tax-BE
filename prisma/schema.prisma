@@ -120,8 +120,8 @@ model TaxConfiguration {
   taxGroupId Int    @map("tax_group_id")
 
   chosenPitMethod PitMethod? @map("chosen_pit_method")
-  applyFromDate   DateTime   @map("apply_from_date")
-  applyToDate     DateTime?  @map("apply_to_date")
+  applyFromDate   DateTime   @map("apply_from_date") @db.Timestamptz(3)
+  applyToDate     DateTime?  @map("apply_to_date") @db.Timestamptz(3)
 
   vatRateSnapShot Decimal      @map("vat_rate_snapshot") @db.Decimal(5, 4)
   pitRateSnapShot Decimal      @map("pit_rate_snapshot") @db.Decimal(5, 4)
@@ -490,9 +490,9 @@ model FinancialPeriod {
   userId            String       @map("user_id")
   periodName        String       @map("period_name")
   vatFilingPeriod   FilingPeriod @default(QUARTERLY) @map("vat_filing_period")
-  startDate         DateTime     @map("start_date") @db.Date
-  endDate           DateTime     @map("end_date") @db.Date
-  deadlineDate      DateTime     @map("deadline_date") @db.Date
+  startDate         DateTime     @map("start_date") @db.Timestamptz(3)
+  endDate           DateTime     @map("end_date") @db.Timestamptz(3)
+  deadlineDate      DateTime     @map("deadline_date") @db.Timestamptz(3)
   status            PeriodStatus @default(OPEN)
   vatRateSnapShot   Decimal?     @map("vat_rate_snapshot") @db.Decimal(5, 4)
   pitRateSnapShot   Decimal?     @map("pit_rate_snapshot") @db.Decimal(5, 4)

@@ -16,7 +16,7 @@ export class InventoryBookRowDto {
   Dien_Giai!: string;
 
   @Expose()
-  Product_Id!: number;
+  Public_id!: string;
 
   @Expose()
   Product_Name!: string;
@@ -29,11 +29,11 @@ export class InventoryBookRowDto {
 
   @Expose()
   @Transform(({ value }) => Number(value || 0))
-  So_Luong_Nhap!: number;
+  Don_Gia!: number;
 
   @Expose()
   @Transform(({ value }) => Number(value || 0))
-  Don_Gia_Nhap!: number;
+  So_Luong_Nhap!: number;
 
   @Expose()
   @Transform(({ value }) => Number(value || 0))
@@ -45,13 +45,13 @@ export class InventoryBookRowDto {
 
   @Expose()
   @Transform(({ value }) => Number(value || 0))
-  Don_Gia_Xuat!: number;
-
-  @Expose()
-  @Transform(({ value }) => Number(value || 0))
   Thanh_Tien_Xuat!: number;
 
   @Expose()
   @Transform(({ value }) => Number(value || 0))
   So_Luong_Ton!: number;
+
+  @Expose()
+  @Transform(({ value }) => Number(value || 0))
+  Thanh_Tien_Ton!: number;
 }

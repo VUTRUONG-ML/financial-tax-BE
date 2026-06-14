@@ -30,7 +30,7 @@ describe('AccountingBooksController', () => {
     controller = module.get<AccountingBooksController>(
       AccountingBooksController,
     );
-    service = module.get(AccountingBooksService) as any;
+    service = module.get(AccountingBooksService);
   });
 
   it('should be defined', () => {
@@ -103,7 +103,7 @@ describe('AccountingBooksController', () => {
     });
   });
 
-  describe('GET inventory/summary', () => {
+  describe('POST inventory/summary', () => {
     it('should call service.getInventoryBookSummary and return standard response', async () => {
       const mockResult = {
         activeBookKey: 'S2d-HKD',
@@ -113,18 +113,20 @@ describe('AccountingBooksController', () => {
       service.getInventoryBookSummary.mockResolvedValue(mockResult as any);
 
       const user = { id: 'user-123' } as any;
-      const query = {
-        timeFrame: TimeFrame.THANG_NAY,
-        productPublicIds: ['prod-1', 'prod-2'],
+      const dto = {
+        periodPublicId: 'period-123',
+        productPublicId: 'prod-123',
       };
 
-      const response = await controller.getInventoryBookSummary(user, query);
+      const response = await controller.getInventoryBookSummary(
+        user,
+        dto as any,
+      );
 
       expect(service.getInventoryBookSummary).toHaveBeenCalledWith(
         'user-123',
-        TimeFrame.THANG_NAY,
-        ['prod-1', 'prod-2'],
-        undefined,
+        'period-123',
+        'prod-123',
       );
       expect(response).toEqual({
         success: true,
@@ -148,21 +150,22 @@ describe('AccountingBooksController', () => {
       const user = { id: 'user-123' } as any;
       const query = {
         timeFrame: TimeFrame.THANG_NAY,
-        productPublicIds: ['prod-1'],
+        productPublicId: 'prod-123',
+        periodPublicId: 'period-123',
         page: 1,
         limit: 20,
         syncCode: 'old-sync-code',
       };
 
-      const response = await controller.getInventoryBookRecords(user, query);
+      const response = await controller.getInventoryBookRecords(
+        user,
+        query as any,
+      );
 
       expect(service.getInventoryBookRecords).toHaveBeenCalledWith(
         'user-123',
-        TimeFrame.THANG_NAY,
-        ['prod-1'],
-        undefined,
-        1,
-        20,
+        'prod-123',
+        'period-123',
         'old-sync-code',
       );
       expect(response).toEqual({

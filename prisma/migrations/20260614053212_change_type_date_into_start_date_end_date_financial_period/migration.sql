@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "financial_periods" ALTER COLUMN "start_date" SET DATA TYPE TIMESTAMPTZ(3),
+ALTER COLUMN "end_date" SET DATA TYPE TIMESTAMPTZ(3);

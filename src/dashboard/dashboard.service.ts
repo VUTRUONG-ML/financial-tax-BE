@@ -14,7 +14,7 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
-  ) { }
+  ) {}
 
   async getSummary(userId: string): Promise<DashboardSummaryResponseDto> {
     const currentYear = moment().year();
