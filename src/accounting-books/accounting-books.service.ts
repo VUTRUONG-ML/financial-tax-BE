@@ -855,12 +855,7 @@ export class AccountingBooksService {
   }
 
   // s2d
-  private async getInventorySummary(
-    productId: number,
-    dateStartYear: Date,
-    startPeriod: Date,
-    endPeriod: Date,
-  ) {
+  private async getInventorySummary(productId: number, periodId: number) {
     const res = await this.prisma.$queryRaw<
       {
         stockStartPeriod: number;
@@ -877,19 +872,8 @@ export class AccountingBooksService {
       COALESCE(
         SUM(
           CASE
-            WHEN movement_date >= ${dateStartYear}
-              AND movement_date < ${startPeriod}
-            THEN
-              CASE
-                WHEN  movement_type IN (
-                  'OPENING',
-                  'PURCHASE_IN',
-                  'PRODUCTION_IN',
-                  'ADJUSTMENT_INCREASE'
-                  )
-                THEN quantity
-                ELSE -quantity
-              END
+            WHEN movement_type = 'OPENING'
+            THEN quantity
             ELSE 0
           END
         ),
@@ -898,19 +882,8 @@ export class AccountingBooksService {
       COALESCE(
         SUM(
           CASE
-            WHEN movement_date >= ${dateStartYear}
-              AND movement_date < ${startPeriod}
-            THEN
-              CASE
-                WHEN  movement_type IN (
-                  'OPENING',
-                  'PURCHASE_IN',
-                  'PRODUCTION_IN',
-                  'ADJUSTMENT_INCREASE'
-                  )
-                THEN total_value
-                ELSE -total_value
-              END
+            WHEN movement_type = 'OPENING'
+            THEN total_value
             ELSE 0
           END
         ),
@@ -919,20 +892,14 @@ export class AccountingBooksService {
       COALESCE(
         SUM(
           CASE
-            WHEN movement_date >= ${dateStartYear}
-              AND movement_date <= ${endPeriod}
-            THEN
-              CASE
-                WHEN  movement_type IN (
-                  'OPENING',
-                  'PURCHASE_IN',
-                  'PRODUCTION_IN',
-                  'ADJUSTMENT_INCREASE'
-                  )
-                THEN quantity
-                ELSE -quantity
-              END
-            ELSE 0
+            WHEN movement_type IN (
+              'OPENING',
+              'PURCHASE_IN',
+              'PRODUCTION_IN',
+              'ADJUST_IN'
+              )
+            THEN quantity
+            ELSE -quantity
           END
         ),
         0
@@ -940,20 +907,14 @@ export class AccountingBooksService {
       COALESCE(
         SUM(
           CASE
-            WHEN movement_date >= ${dateStartYear}
-              AND movement_date <= ${endPeriod}
-            THEN
-              CASE
-                WHEN  movement_type IN (
-                  'OPENING',
-                  'PURCHASE_IN',
-                  'PRODUCTION_IN',
-                  'ADJUSTMENT_INCREASE'
-                  )
-                THEN total_value
-                ELSE -total_value
-              END
-            ELSE 0
+            WHEN movement_type IN (
+              'OPENING',
+              'PURCHASE_IN',
+              'PRODUCTION_IN',
+              'ADJUST_IN'
+              )
+            THEN total_value
+            ELSE -total_value
           END
         ),
         0
@@ -964,10 +925,8 @@ export class AccountingBooksService {
             WHEN movement_type IN (
                 'PURCHASE_IN',
                 'PRODUCTION_IN',
-                'ADJUSTMENT_INCREASE'
+                'ADJUST_IN'
               )
-              AND movement_date >= ${startPeriod}
-              AND movement_date <= ${endPeriod}
             THEN quantity
             ELSE 0
           END
@@ -980,10 +939,8 @@ export class AccountingBooksService {
             WHEN movement_type IN (
                 'PURCHASE_IN',
                 'PRODUCTION_IN',
-                'ADJUSTMENT_INCREASE'
+                'ADJUST_IN'
               )
-              AND movement_date >= ${startPeriod}
-              AND movement_date <= ${endPeriod}
             THEN total_value
             ELSE 0
           END
@@ -996,38 +953,33 @@ export class AccountingBooksService {
             WHEN movement_type IN (
                 'SALE_OUT',
                 'PRODUCTION_OUT',
-                'ADJUSTMENT_DECREASE'
+                'ADJUST_OUT'
               )
-              AND movement_date >= ${startPeriod}
-              AND movement_date <= ${endPeriod}
             THEN quantity
             ELSE 0
           END
         ),
-        0 
+        0
       ) as "issueQuantity",
-        COALESCE(
+      COALESCE(
         SUM(
           CASE
             WHEN movement_type IN (
                 'SALE_OUT',
                 'PRODUCTION_OUT',
-                'ADJUSTMENT_DECREASE'
+                'ADJUST_OUT'
               )
-              AND movement_date >= ${startPeriod}
-              AND movement_date <= ${endPeriod}
             THEN total_value
             ELSE 0
           END
         ),
-        0 
+        0
       ) as "issueValue"
     FROM inventory_movements
     WHERE product_id = ${productId}
-      AND movement_date >= ${dateStartYear}
+      AND period_id = ${periodId}
   `;
     const row = res[0];
-    console.log("INVENTORY_SUNMMARY", row);
     return {
       stockStartPeriod: Number(row?.stockStartPeriod ?? 0),
       valueStartPeriod: new Decimal(row?.valueStartPeriod ?? 0),
@@ -1073,11 +1025,7 @@ export class AccountingBooksService {
       userId,
       LOG_ACTIONS.ACC_BOOK_S2d_SUMMARY,
     );
-    const {
-      startDate: startDatePeriod,
-      endDate: endDatePeriod,
-      startYear,
-    } = periodTarget;
+    const { startDate: startDatePeriod, endDate: endDatePeriod } = periodTarget;
 
     const [bookMetadata, syncCode] = await Promise.all([
       this.generateBookMetadata('S2D', userId, startDatePeriod, endDatePeriod),
@@ -1117,12 +1065,7 @@ export class AccountingBooksService {
       receiptValue,
       issueQuantity,
       issueValue,
-    } = await this.getInventorySummary(
-      product.id,
-      startYear,
-      startDatePeriod,
-      endDatePeriod,
-    );
+    } = await this.getInventorySummary(product.id, periodTarget.id);
     return {
       activeBookKey: 'S2d-HKD',
       books: {
@@ -1158,11 +1101,7 @@ export class AccountingBooksService {
       userId,
       LOG_ACTIONS.ACC_BOOK_S2d_SUMMARY,
     );
-    const {
-      startDate: startDatePeriod,
-      endDate: endDatePeriod,
-      startYear,
-    } = periodTarget;
+    const { startDate: startDatePeriod, endDate: endDatePeriod } = periodTarget;
 
     const syncCode = await this.generateInventorySyncCode(
       userId,
@@ -1203,7 +1142,7 @@ export class AccountingBooksService {
             WHEN im.movement_type IN (
               'PURCHASE_IN',
               'PRODUCTION_IN',
-              'ADJUSTMENT_INCREASE'
+              'ADJUST_IN'
             )
             THEN quantity
             ELSE 0
@@ -1213,7 +1152,7 @@ export class AccountingBooksService {
             WHEN im.movement_type IN (
               'PURCHASE_IN',
               'PRODUCTION_IN',
-              'ADJUSTMENT_INCREASE'
+              'ADJUST_IN'
             )
             THEN im.total_value
             ELSE 0
@@ -1223,7 +1162,7 @@ export class AccountingBooksService {
             WHEN im.movement_type IN (
               'SALE_OUT',
               'PRODUCTION_OUT',
-              'ADJUSTMENT_DECREASE'
+              'ADJUST_OUT'
             )
             THEN quantity
             ELSE 0
@@ -1233,7 +1172,7 @@ export class AccountingBooksService {
             WHEN im.movement_type IN (
               'SALE_OUT',
               'PRODUCTION_OUT',
-              'ADJUSTMENT_DECREASE'
+              'ADJUST_OUT'
             )
             THEN im.total_value
             ELSE 0
@@ -1245,8 +1184,6 @@ export class AccountingBooksService {
           ) AS document_no,
 
           CASE
-            WHEN movement_type = 'OPENING'
-              THEN 'Tồn đầu kì'
             WHEN movement_type = 'PURCHASE_IN'
               THEN 'Nhập kho mua hàng'
             WHEN movement_type = 'SALE_OUT'
@@ -1255,19 +1192,18 @@ export class AccountingBooksService {
               THEN 'Nhập kho thành phẩm sản xuất'
             WHEN movement_type = 'PRODUCTION_OUT'
               THEN 'Xuất nguyên vật liệu cho sản xuất'
-            WHEN movement_type = 'ADJUSTMENT_INCREASE'
+            WHEN movement_type = 'ADJUST_IN'
               THEN 'Điều chỉnh tăng tồn kho'
-            WHEN movement_type = 'ADJUSTMENT_DECREASE'
+            WHEN movement_type = 'ADJUST_OUT'
               THEN 'Điều chỉnh giảm tồn kho'
             ELSE ''
           END AS description,
 
           CASE
             WHEN im.movement_type IN (
-              'OPENING',
               'PURCHASE_IN',
               'PRODUCTION_IN',
-              'ADJUSTMENT_INCREASE'
+              'ADJUST_IN'
             )
             THEN im.quantity
             ELSE -im.quantity
@@ -1275,10 +1211,9 @@ export class AccountingBooksService {
 
           CASE
             WHEN im.movement_type IN (
-              'OPENING',
               'PURCHASE_IN',
               'PRODUCTION_IN',
-              'ADJUSTMENT_INCREASE'
+              'ADJUST_IN'
             )
             THEN im.total_value
             ELSE -im.total_value
@@ -1292,55 +1227,23 @@ export class AccountingBooksService {
           ON im.source_document_type = 'OUTBOUND_INVOICE'
           AND im.source_document_id = si.id
         WHERE im.product_id = ${product.id}
-          AND im.movement_date BETWEEN ${startDatePeriod} AND ${endDatePeriod}
+          AND im.period_id = ${periodTarget.id}
+          AND im.movement_type <> 'OPENING'
       ),
       opening_balances AS (
         SELECT 
           COALESCE(
-            SUM(
-              CASE 
-                WHEN movement_date >= ${startYear}
-                  AND movement_date < ${startDatePeriod}
-                THEN 
-                  CASE
-                    WHEN movement_type IN (
-                          'OPENING',
-                          'PURCHASE_IN',
-                          'PRODUCTION_IN',
-                          'ADJUSTMENT_INCREASE'
-                        )
-                    THEN quantity
-                    ELSE -quantity
-                  END
-                ELSE 0
-              END
-            ),
+            SUM(quantity),
             0
           ) as so_luong_ton_dau_ky,
           COALESCE(
-            SUM(
-              CASE
-                WHEN movement_date >= ${startYear}
-                  AND movement_date < ${startDatePeriod}
-                THEN 
-                  CASE
-                    WHEN movement_type IN (
-                          'OPENING',
-                          'PURCHASE_IN',
-                          'PRODUCTION_IN',
-                          'ADJUSTMENT_INCREASE'
-                        )
-                    THEN total_value
-                    ELSE -total_value
-                  END
-                ELSE 0
-              END
-            ),
+            SUM(total_value),
             0
           ) as gia_tri_ton_dau_ky
         FROM inventory_movements
         WHERE product_id = ${product.id}
-          AND movement_date >= ${startYear}
+          AND period_id = ${periodTarget.id}
+          AND movement_type = 'OPENING'
       )
 
       SELECT
@@ -1403,7 +1306,6 @@ export class AccountingBooksService {
     `;
 
     const rawRows = result.map((r) => {
-
       return {
         Ngay_Chung_Tu: r.movement_date ?? startDatePeriod,
         So_Chung_Tu: r.document_no || '',

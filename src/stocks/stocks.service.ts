@@ -189,7 +189,7 @@ export class StocksService {
         } else if (createDto.sourceType === StockReceiptSourceType.PRODUCTION) {
           movementType = InventoryMovementType.PRODUCTION_IN;
         } else {
-          movementType = InventoryMovementType.ADJUSTMENT_INCREASE;
+          movementType = InventoryMovementType.ADJUST_IN;
         }
 
         // Create InventoryMovement via injected service
@@ -350,7 +350,7 @@ export class StocksService {
           );
         }
 
-        const movementType = InventoryMovementType.ADJUSTMENT_DECREASE;
+        const movementType = InventoryMovementType.ADJUST_OUT;
         let srcType: SourceDocumentType | undefined;
         if (current.sourceType === 'PURCHASE') {
           srcType = SourceDocumentType.INBOUND_INVOICE;
@@ -538,7 +538,7 @@ export class StocksService {
         } else if (createDto.issueType === StockIssueType.PRODUCTION) {
           movementType = InventoryMovementType.PRODUCTION_OUT;
         } else {
-          movementType = InventoryMovementType.ADJUSTMENT_DECREASE;
+          movementType = InventoryMovementType.ADJUST_OUT;
         }
 
         // Map StockIssueDocument to SourceDocumentType for inventory movements
@@ -746,7 +746,7 @@ export class StocksService {
           srcType = SourceDocumentType.PRODUCTION_ORDER;
         }
 
-        const movementType = InventoryMovementType.ADJUSTMENT_INCREASE;
+        const movementType = InventoryMovementType.ADJUST_IN;
         await this.inventoryMovementsService.createInventoryMovement(
           {
             productId: item.productId,

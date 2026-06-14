@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant';
@@ -8,12 +8,17 @@ import {
   StockIssueStatus,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 
 @Injectable()
 export class CostEngineService {
   private readonly log = new AppLogger(CostEngineService.name);
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => FinancialPeriodsService))
+    private readonly financialPeriodsService: FinancialPeriodsService,
+  ) { }
 
   async calculateAndApplyWeightedAverageCosts(
     userId: string,
@@ -35,11 +40,17 @@ export class CostEngineService {
         throw new Error(`Financial period with id ${periodId} not found.`);
       }
 
-      const periodYear = period.startDate.getFullYear();
+      const nextPeriodStartDate = new Date(period.endDate.getTime() + 1000); // hơi lỗi
+      const nextPeriod = await this.financialPeriodsService.ensurePeriodExists(
+        userId,
+        tx,
+        nextPeriodStartDate,
+      );
 
-      const openingBalances = await tx.openingInventoryBalance.findMany({
+      const openingMovements = await tx.inventoryMovement.findMany({
         where: {
-          periodYear,
+          periodId,
+          movementType: InventoryMovementType.OPENING,
           product: { userId },
         },
         select: { productId: true },
@@ -53,15 +64,14 @@ export class CostEngineService {
         select: { productId: true },
       });
 
-      // 4. Hợp nhất danh sách productId duy nhất
       const uniqueProductIds = Array.from(
         new Set([
-          ...openingBalances.map((ob) => ob.productId),
+          ...openingMovements.map((om) => om.productId),
           ...movements.map((m) => m.productId),
         ]),
       );
 
-      this.log.log(LOG_ACTIONS.RUN_COST_ENGINE, {
+      this.log.debug(LOG_ACTIONS.RUN_COST_ENGINE, {
         message: `Found ${uniqueProductIds.length} products to process cost calculation.`,
         userId,
         periodId,
@@ -69,18 +79,20 @@ export class CostEngineService {
       });
 
       for (const productId of uniqueProductIds) {
-        // Lấy số lượng và giá trị tồn đầu kỳ
-        const openingBalance = await tx.openingInventoryBalance.findUnique({
+        const openingMovementsForProduct = await tx.inventoryMovement.findMany({
           where: {
-            productId_periodYear: {
-              productId,
-              periodYear,
-            },
+            productId,
+            periodId,
+            movementType: InventoryMovementType.OPENING,
           },
         });
 
-        const openingQty = openingBalance ? openingBalance.openingQuantity : 0;
-        const openingVal = openingBalance ? openingBalance.openingValue : new Decimal(0);
+        let openingQty = 0;
+        let openingVal = new Decimal(0);
+        for (const om of openingMovementsForProduct) {
+          openingQty += om.quantity;
+          openingVal = openingVal.add(om.totalValue);
+        }
 
         // Lấy toàn bộ giao dịch nhập kho phát sinh trong kỳ
         const inboundMovements = await tx.inventoryMovement.findMany({
@@ -91,7 +103,7 @@ export class CostEngineService {
               in: [
                 InventoryMovementType.PURCHASE_IN,
                 InventoryMovementType.PRODUCTION_IN,
-                InventoryMovementType.ADJUSTMENT_INCREASE,
+                InventoryMovementType.ADJUST_IN,
               ],
             },
           },
@@ -125,7 +137,9 @@ export class CostEngineService {
         });
 
         for (const detail of issueDetails) {
-          const finalCogsValue = new Decimal(detail.quantity).mul(weightedAverageUnitCost);
+          const finalCogsValue = new Decimal(detail.quantity).mul(
+            weightedAverageUnitCost,
+          );
           await tx.stockIssueDetail.update({
             where: { id: detail.id },
             data: {
@@ -144,14 +158,18 @@ export class CostEngineService {
               in: [
                 InventoryMovementType.SALE_OUT,
                 InventoryMovementType.PRODUCTION_OUT,
-                InventoryMovementType.ADJUSTMENT_DECREASE,
+                InventoryMovementType.ADJUST_OUT,
               ],
             },
           },
         });
 
+        let outboundQty = 0;
         for (const m of outboundMovements) {
-          const totalValue = new Decimal(m.quantity).mul(weightedAverageUnitCost);
+          const totalValue = new Decimal(m.quantity).mul(
+            weightedAverageUnitCost,
+          );
+          outboundQty += m.quantity;
           await tx.inventoryMovement.update({
             where: { id: m.id },
             data: {
@@ -159,6 +177,37 @@ export class CostEngineService {
               totalValue,
             },
           });
+        }
+
+        const endingQty = totalQty - outboundQty;
+        const endingValue =
+          endingQty > 0
+            ? new Decimal(endingQty).mul(weightedAverageUnitCost)
+            : new Decimal(0);
+
+        if (nextPeriod) {
+          await tx.inventoryMovement.deleteMany({
+            where: {
+              productId,
+              periodId: nextPeriod.id,
+              movementType: InventoryMovementType.OPENING,
+            },
+          });
+
+          // Nếu số lượng tồn cuối kỳ > 0, tạo bản ghi OPENING ở kỳ tiếp theo
+          if (endingQty > 0) {
+            await tx.inventoryMovement.create({
+              data: {
+                productId,
+                periodId: nextPeriod.id,
+                movementType: InventoryMovementType.OPENING,
+                quantity: endingQty,
+                unitCost: weightedAverageUnitCost,
+                totalValue: endingValue,
+                movementDate: nextPeriod.startDate,
+              },
+            });
+          }
         }
       }
 

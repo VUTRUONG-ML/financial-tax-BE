@@ -189,7 +189,7 @@ describe('StocksService', () => {
         expect.objectContaining({
           productId: 201,
           periodId: mockPeriodId,
-          movementType: 'ADJUSTMENT_INCREASE',
+          movementType: 'ADJUST_IN',
           quantity: 5,
           unitCost: new Decimal(1000),
           sourceDocumentType: 'PRODUCTION_ORDER',
@@ -279,7 +279,7 @@ describe('StocksService', () => {
         expect.objectContaining({
           productId: 201,
           periodId: mockPeriodId,
-          movementType: 'ADJUSTMENT_INCREASE',
+          movementType: 'ADJUST_IN',
           quantity: 5,
           unitCost: new Decimal(1000),
           sourceDocumentType: 'OUTBOUND_INVOICE',

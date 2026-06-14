@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { moment } from '../common/utils/time.util';
 import { PrismaService } from '../core/prisma/prisma.service';
@@ -45,6 +47,7 @@ export class FinancialPeriodsService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly taxEngine: TaxEngineService,
+    @Inject(forwardRef(() => CostEngineService))
     private readonly costEngine: CostEngineService,
   ) { }
 
@@ -255,8 +258,6 @@ export class FinancialPeriodsService {
         targetDate,
         taxConfig.vatFilingPeriod,
       );
-      this.log.debug('START_PERIOD', { start });
-      this.log.debug('END_PERIOD', { end });
       period = await tx.financialPeriod.create({
         data: {
           userId,
@@ -617,7 +618,6 @@ export class FinancialPeriodsService {
       };
     };
 
-    // Nếu caller đã truyền tx thực sự (không phải prisma), chạy trực tiếp không tạo transaction mới
     if (tx !== (this.prisma as unknown as Prisma.TransactionClient)) {
       return run(tx);
     }
