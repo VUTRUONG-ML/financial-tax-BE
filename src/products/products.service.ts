@@ -19,6 +19,7 @@ import {
 import { ProductResponseDto } from './dto/reponse-product.dto';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { Decimal } from '@prisma/client/runtime/client';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 
 @Injectable()
 export class ProductsService {
@@ -28,7 +29,8 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly auditLog: AuditLogService,
-  ) {}
+    private readonly financialPeriodsService: FinancialPeriodsService,
+  ) { }
 
   private safeDeleteImage(publicId: string) {
     this.cloudinaryService.deleteFile(publicId).catch((error: Error) => {
@@ -63,16 +65,57 @@ export class ProductsService {
   }
 
   // ─── CREATE ───────────────────────────────────────────────────────────────
+  private async hasTransactions(
+    userId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const hasMovements = await tx.inventoryMovement.findFirst({
+      where: {
+        product: { userId },
+        movementType: { not: 'OPENING' },
+      },
+    });
+    if (hasMovements) return true;
+
+    const hasInvoices = await tx.invoice.findFirst({
+      where: { userId },
+    });
+    if (hasInvoices) return true;
+
+    const hasReceipts = await tx.stockReceipt.findFirst({
+      where: { period: { userId } },
+    });
+    if (hasReceipts) return true;
+
+    const hasIssues = await tx.stockIssue.findFirst({
+      where: { period: { userId } },
+    });
+    if (hasIssues) return true;
+
+    return false;
+  }
+
+  // ─── CREATE ───────────────────────────────────────────────────────────────
   async create(
     userId: string,
     dto: CreateProductDto,
     file?: Express.Multer.File,
   ) {
+    const qty = dto.openingStockQuantity ?? 0;
+    const unitCost = dto.openingStockUnitCost ?? 0;
+
+    const hasTx = await this.hasTransactions(userId, this.prisma);
+    if (hasTx && (qty > 0 || unitCost > 0)) {
+      throw new BadRequestException({
+        message:
+          'Transactions have occurred in the account. Please enter the quantity and cost price from the stock receipt instead of entering them directly.',
+        errorCode: 'HAS_TRANSACTION',
+      });
+    }
+
     const fileToUpload = file || (dto.file as Express.Multer.File | undefined);
     const imageData = await this.handleImageUpload(userId, fileToUpload);
 
-    const qty = dto.openingStockQuantity ?? 0;
-    const unitCost = dto.openingStockUnitCost ?? 0;
     const openingStockValue = qty * unitCost;
 
     if (dto.taxCategoryId) {
@@ -80,6 +123,9 @@ export class ProductsService {
         where: { id: dto.taxCategoryId },
       });
       if (!taxCategoryExists) {
+        if (imageData.publicId) {
+          this.safeDeleteImage(imageData.publicId);
+        }
         throw new BadRequestException(
           'Invalid taxCategoryId. Tax category does not exist.',
         );
@@ -87,28 +133,51 @@ export class ProductsService {
     }
 
     try {
-      const product = await this.prisma.product.create({
-        data: {
-          userId,
-          productName: dto.productName,
-          productType: dto.productType,
-          skuCode: dto.skuCode,
-          unit: dto.unit,
-          imageUrl: imageData.url,
-          imagePublicId: imageData.publicId,
-          sellingPrice: dto.sellingPrice,
-          openingStockQuantity: qty,
-          openingStockUnitCost: unitCost,
-          openingStockValue,
-          // Khởi tạo cache tồn kho = số lượng đầu kỳ
-          currentStock: qty,
-          taxCategoryId: dto.taxCategoryId,
-          isInventoryTracked: dto.productType === 'SERVICE' ? false : true,
-        },
-        omit: { id: true },
+      const product = await this.prisma.$transaction(async (tx) => {
+        const prod = await tx.product.create({
+          data: {
+            userId,
+            productName: dto.productName,
+            productType: dto.productType,
+            skuCode: dto.skuCode,
+            unit: dto.unit,
+            imageUrl: imageData.url,
+            imagePublicId: imageData.publicId,
+            sellingPrice: dto.sellingPrice,
+            openingStockQuantity: qty,
+            openingStockUnitCost: unitCost,
+            openingStockValue,
+            currentStock: qty,
+            taxCategoryId: dto.taxCategoryId,
+            isInventoryTracked: dto.productType === 'SERVICE' ? false : true,
+          },
+        });
+
+        if (dto.productType !== 'SERVICE') {
+          const period = await this.financialPeriodsService.ensurePeriodExists(
+            userId,
+            tx,
+            new Date(),
+          );
+
+          await tx.inventoryMovement.create({
+            data: {
+              productId: prod.id,
+              periodId: period.id,
+              movementType: 'OPENING',
+              quantity: qty,
+              unitCost: new Decimal(unitCost),
+              totalValue: new Decimal(openingStockValue),
+              movementDate: period.startDate,
+            },
+          });
+        }
+
+        return prod;
       });
+
       this.log.log('Product created', { userId, publicId: product.publicId });
-      // chèn vào bảng Sổ kho (S05-HKD) với diễn giải là "Kết chuyển số dư đầu kỳ".
+      delete (product as any).id;
       return product;
     } catch (dbError) {
       if (imageData.publicId) {
