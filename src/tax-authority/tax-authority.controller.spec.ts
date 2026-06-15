@@ -8,7 +8,14 @@ describe('TaxAuthorityController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TaxAuthorityController],
-      providers: [TaxAuthorityService],
+      providers: [
+        {
+          provide: TaxAuthorityService,
+          useValue: {
+            requestTaxCode: jest.fn(),
+          },
+        },
+      ],
     }).compile();
 
     controller = module.get<TaxAuthorityController>(TaxAuthorityController);

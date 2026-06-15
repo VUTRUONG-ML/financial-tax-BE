@@ -472,8 +472,24 @@ export class InvoicesService {
       });
     });
 
+    // Fetch the user's taxCode to pass it as C5_C9 (or default 'ABCDE')
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { taxCode: true },
+    });
+
+    let c5_c9 = 'ABCDE';
+    if (user && user.taxCode) {
+      const cleanTaxCode = user.taxCode.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      if (cleanTaxCode.length >= 5) {
+        c5_c9 = cleanTaxCode.substring(0, 5);
+      } else {
+        c5_c9 = cleanTaxCode.padEnd(5, 'X');
+      }
+    }
+
     // Gọi Mock API
-    const result = await this.taxAuthorityService.requestTaxCode(publicId);
+    const result = await this.taxAuthorityService.requestTaxCode(publicId, c5_c9);
 
     if (result.success) {
       // Nếu thành công -> Chạy hàm lockInvoice

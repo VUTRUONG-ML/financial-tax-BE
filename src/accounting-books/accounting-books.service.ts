@@ -461,10 +461,7 @@ export class AccountingBooksService {
     };
   }
 
-  // --------------------------------------------------------------------------
-  // SỔ CHI TIẾT TIỀN (S2e-HKD: S03 Tiền Mặt & S04 Tiền Gửi)
-  // --------------------------------------------------------------------------
-
+  // s2e
   async generateCashFlowSyncCode(
     userId: string,
     startDate: Date,
@@ -690,6 +687,7 @@ export class AccountingBooksService {
     };
   }
 
+  // s2c
   async generateExpenseSyncCode(
     userId: string,
     startDate: Date,
