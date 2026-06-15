@@ -23,7 +23,11 @@ export class TaxAuthorityConnectionsController {
   @Get()
   @HttpCode(HttpStatus.OK)
   async getConnection(@CurrentUser('id') userId: string) {
-    return await this.connectionsService.getConnection(userId);
+    const res = await this.connectionsService.getConnection(userId);
+    return {
+      message: 'Get tax connection initiated successfully.',
+      data: res,
+    };
   }
 
   @Put()
@@ -32,15 +36,20 @@ export class TaxAuthorityConnectionsController {
     @CurrentUser('id') userId: string,
     @Body() dto: CreateConnectionDto,
   ) {
-    return await this.connectionsService.upsertConnection(userId, dto);
+    const res = await this.connectionsService.upsertConnection(userId, dto);
+    return {
+      message: 'Tax connection initiated successfully.',
+      data: res,
+    };
   }
 
   @Post('verify')
   @HttpCode(HttpStatus.OK)
-  verifyConnection(@CurrentUser('id') userId: string) {
+  async verifyConnection(@CurrentUser('id') userId: string) {
+    const res = await this.connectionsService.verifyConnection(userId);
     return {
       message: 'Verification process initiated successfully.',
-      status: 'PENDING_VERIFY',
+      data: res,
     };
   }
 }

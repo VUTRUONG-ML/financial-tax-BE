@@ -783,3 +783,15 @@ enum TaxAuthorityConnectionStatus {
   VERIFIED
   FAILED
 }
+
+model MockTaxAccount {
+  id                   String   @id @default(cuid())
+  taxCode              String   @unique
+  username             String
+  password             String
+  cashRegisterCode     String
+  businessName         String
+  isEinvoiceRegistered Boolean
+  createdAt            DateTime @default(now())
+}
+

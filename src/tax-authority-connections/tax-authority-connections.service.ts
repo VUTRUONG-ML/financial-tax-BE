@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { CreateConnectionDto } from './dto/create-connection.dto';
 import { encrypt } from '../common/utils/crypto.util';
@@ -6,6 +6,7 @@ import { AuditLogService, tableWrite } from '../core/audit-log/audit-log.service
 import { AppLogger } from '../common/logger/app-logger.service';
 import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant';
 import { moment } from '../common/utils/time.util';
+import { TaxAuthorityConnectionStatus } from '@prisma/client';
 
 @Injectable()
 export class TaxAuthorityConnectionsService {
@@ -14,7 +15,7 @@ export class TaxAuthorityConnectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) {}
+  ) { }
 
   async getConnection(userId: string) {
     const connection = await this.prisma.taxAuthorityConnection.findUnique({
@@ -64,9 +65,14 @@ export class TaxAuthorityConnectionsService {
         tx,
         userId,
         existing ? 'UPDATE' : 'CREATE',
-        tableWrite.taxAuthorityConnection as any,
+        tableWrite.taxAuthorityConnection,
         connection.id,
-        existing ? { taxCode: existing.taxCode, status: existing.connectionStatus } : null,
+        existing
+          ? {
+            taxCode: existing.taxCode,
+            status: existing.connectionStatus,
+          }
+          : null,
         { taxCode: connection.taxCode, status: connection.connectionStatus },
       );
 
@@ -85,5 +91,37 @@ export class TaxAuthorityConnectionsService {
           : null,
       };
     });
+  }
+
+  async verifyConnection(userId: string) {
+    const connection = await this.prisma.taxAuthorityConnection.findUnique({
+      where: { userId },
+    });
+    if (!connection) {
+      this.logger.warn('ENSURE_TAX_CONNECTION', {
+        status: LOG_STATUS.FAILED,
+        reason: 'NOT_CONFIGURED',
+        userId,
+      });
+      throw new NotFoundException({
+        message: 'Tax connection not found.',
+        errorCode: 'NOT_CONFIGURED',
+      });
+    }
+    if (connection.connectionStatus !== TaxAuthorityConnectionStatus.VERIFIED) {
+      this.logger.warn('ENSURE_TAX_CONNECTION', {
+        status: LOG_STATUS.FAILED,
+        reason: 'NOT_VERIFIED',
+        userId,
+      });
+      throw new BadRequestException({
+        message: 'Tax connection not verified',
+        errorCode: 'NOT_VERIFIED',
+      });
+    }
+    return {
+      connectionStatus: connection.connectionStatus,
+      verifiedAt: connection.lastVerifiedAt,
+    };
   }
 }

@@ -1,10 +1,60 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { LOG_STATUS } from '../common/constants/log-events.constant';
+import { PrismaService } from 'src/core/prisma/prisma.service';
+import { VerifyMockTaxAccountDto } from './dto/verify-mock-tax-account.dto';
 
 @Injectable()
 export class TaxAuthorityService {
   private readonly logger = new AppLogger(TaxAuthorityService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async verifyAccount(dto: VerifyMockTaxAccountDto) {
+    const account = await this.prisma.mockTaxAccount.findUnique({
+      where: { taxCode: dto.taxCode },
+    });
+
+    if (!account) {
+      throw new NotFoundException({
+        message: 'Tax code not found.',
+        errorCode: 'TAX_CODE_NOT_FOUND',
+      });
+    }
+
+    if (account.username !== dto.username) {
+      throw new BadRequestException({
+        message: 'Invalid credentials.',
+        errorCode: 'INVALID_CREDENTIAL',
+      });
+    }
+
+    if (account.password !== dto.password) {
+      throw new BadRequestException({
+        message: 'Invalid credentials.',
+        errorCode: 'INVALID_CREDENTIAL',
+      });
+    }
+
+    if (account.cashRegisterCode !== dto.cashRegisterCode) {
+      throw new BadRequestException({
+        message: 'Invalid cash register code.',
+        errorCode: 'INVALID_CASH_REGISTER',
+      });
+    }
+
+    if (!account.isEinvoiceRegistered) {
+      throw new BadRequestException({
+        message: 'E-invoice is not registered.',
+        errorCode: 'NOT_REGISTERED',
+      });
+    }
+
+    return {
+      success: true,
+      businessName: account.businessName,
+    };
+  }
 
   async requestTaxCode(
     invoicePublicId: string,

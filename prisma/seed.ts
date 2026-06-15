@@ -472,6 +472,22 @@ async function main() {
     console.log('✅ Seed dữ liệu mẫu cho Cash Flow thành công!');
   }
 
+  // Seed MockTaxAccount
+  const mockAccount = {
+    taxCode: '0123456789',
+    username: 'demo',
+    password: '123456',
+    cashRegisterCode: 'ABCDE',
+    businessName: 'Công ty Demo',
+    isEinvoiceRegistered: true,
+  };
+  await prisma.mockTaxAccount.upsert({
+    where: { taxCode: mockAccount.taxCode },
+    update: mockAccount,
+    create: mockAccount,
+  });
+  console.log('✅ Seed MockTaxAccount thành công!');
+
   console.log('✅ Seed Master Data thành công!');
 }
 
