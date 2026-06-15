@@ -29,14 +29,15 @@ model User {
   provinceCity String  @map("province_city")
   isActive     Boolean @default(true)
 
-  taxConfigs        TaxConfiguration[]
-  refreshTokens     RefreshToken[]
-  auditLogs         AuditLog[]
-  products          Product[]
-  invoices          Invoice[]
-  inboundInvoices   InboundInvoice[]
-  voucherCategories VoucherCategory[]
-  vouchers          Voucher[]
+  taxConfigs             TaxConfiguration[]
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]
+  products               Product[]
+  invoices               Invoice[]
+  inboundInvoices        InboundInvoice[]
+  voucherCategories      VoucherCategory[]
+  vouchers               Voucher[]
+  taxAuthorityConnection TaxAuthorityConnection?
 
   setUpCompletedAt DateTime? @map("setup_completed_at")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -195,14 +196,14 @@ model Product {
   taxCategoryId      Int?    @map("tax_category_id")
   isInventoryTracked Boolean @default(true) @map("is_inventory_tracked")
 
-  user                     User                      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  taxCategory              TaxCategory?              @relation(fields: [taxCategoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  invoiceDetails           InvoiceDetail[]
-  inboundInvoiceDetails    InboundInvoiceDetail[]
-  productionDetails        ProductionDetail[]
-  inventoryMovements       InventoryMovement[]
-  stockReceiptDetails      StockReceiptDetail[]
-  stockIssueDetails        StockIssueDetail[]
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  taxCategory           TaxCategory?           @relation(fields: [taxCategoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoiceDetails        InvoiceDetail[]
+  inboundInvoiceDetails InboundInvoiceDetail[]
+  productionDetails     ProductionDetail[]
+  inventoryMovements    InventoryMovement[]
+  stockReceiptDetails   StockReceiptDetail[]
+  stockIssueDetails     StockIssueDetail[]
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -685,8 +686,8 @@ model StockReceipt {
   status            StockReceiptStatus     @default(DRAFT)
   periodId          Int                    @map("period_id")
 
-  isPaid            Boolean                @default(false) @map("is_paid")
-  paidAmount        Decimal                @default(0.00) @map("paid_amount") @db.Decimal(15, 2)
+  isPaid     Boolean @default(false) @map("is_paid")
+  paidAmount Decimal @default(0.00) @map("paid_amount") @db.Decimal(15, 2)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -752,4 +753,33 @@ model StockIssueDetail {
   @@index([issueId])
   @@index([productId])
   @@map("stock_issue_details")
+}
+
+model TaxAuthorityConnection {
+  id     String @id @default(cuid())
+  userId String @unique @map("user_id")
+
+  taxCode String @map("tax_code")
+
+  encryptedUsername String @map("encrypted_username")
+  encryptedPassword String @map("encrypted_password")
+
+  cashRegisterCode String @map("cash_register_code")
+
+  connectionStatus TaxAuthorityConnectionStatus @default(PENDING_VERIFY) @map("connection_status")
+
+  lastVerifiedAt DateTime? @map("last_verified_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("tax_authority_connections")
+}
+
+enum TaxAuthorityConnectionStatus {
+  PENDING_VERIFY
+  VERIFIED
+  FAILED
 }

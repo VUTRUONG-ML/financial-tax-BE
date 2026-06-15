@@ -23,6 +23,7 @@ export enum tableWrite {
   stockReceiptDetails = 'stock_receipt_details',
   stockIssues = 'stock_issues',
   stockIssueDetails = 'stock_issue_details',
+  taxAuthorityConnection = 'tax_authority_connections',
 }
 @Injectable()
 export class AuditLogService {

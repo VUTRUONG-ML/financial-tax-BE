@@ -30,6 +30,7 @@ import { AccountingBooksModule } from './accounting-books/accounting-books.modul
 import { StocksModule } from './stocks/stocks.module';
 import { InventoryMovementsModule } from './inventory-movements/inventory-movements.module';
 import { CostEngineModule } from './cost-engine/cost-engine.module';
+import { TaxAuthorityConnectionsModule } from './tax-authority-connections/tax-authority-connections.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { CostEngineModule } from './cost-engine/cost-engine.module';
     StocksModule,
     InventoryMovementsModule,
     CostEngineModule,
+    TaxAuthorityConnectionsModule,
   ],
   controllers: [AppController],
   providers: [
