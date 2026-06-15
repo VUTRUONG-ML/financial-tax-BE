@@ -3,9 +3,10 @@ import { StocksController } from './stocks.controller';
 import { StocksService } from './stocks.service';
 import { FinancialPeriodsModule } from '../financial-periods/financial-periods.module';
 import { InventoryMovementsModule } from '../inventory-movements/inventory-movements.module';
+import { VouchersModule } from '../vouchers/vouchers.module';
 
 @Module({
-  imports: [FinancialPeriodsModule, InventoryMovementsModule],
+  imports: [FinancialPeriodsModule, InventoryMovementsModule, VouchersModule],
   controllers: [StocksController],
   providers: [StocksService],
   exports: [StocksService],

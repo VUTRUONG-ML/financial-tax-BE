@@ -685,6 +685,9 @@ model StockReceipt {
   status            StockReceiptStatus     @default(DRAFT)
   periodId          Int                    @map("period_id")
 
+  isPaid            Boolean                @default(false) @map("is_paid")
+  paidAmount        Decimal                @default(0.00) @map("paid_amount") @db.Decimal(15, 2)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

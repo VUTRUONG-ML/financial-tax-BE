@@ -17,6 +17,7 @@ import {
   InvoiceStatus,
   PaymentMethod,
   Prisma,
+  StockReceiptStatus,
   Voucher,
   VoucherStatus,
   VoucherType,
@@ -38,7 +39,7 @@ export class VouchersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) {}
+  ) { }
 
   private calculateNewPaymentState(
     currentPaid: Decimal,
@@ -68,15 +69,22 @@ export class VouchersService {
     isDeductibleExpense?: boolean,
     inInvoicePublicId?: string,
     outInvoicePublicId?: string,
+    stockReceiptCode?: string,
   ) {
-    if (inInvoicePublicId && outInvoicePublicId) {
+    const linksCount = [
+      inInvoicePublicId,
+      outInvoicePublicId,
+      stockReceiptCode,
+    ].filter(Boolean).length;
+    if (linksCount > 1) {
       throw new BadRequestException(
-        'A single voucher cannot be used to issue two different invoices.',
+        'A single voucher cannot be linked to multiple documents.',
       );
     }
     if (
       (outInvoicePublicId && voucherType === VoucherType.PAYMENT) ||
-      (inInvoicePublicId && voucherType === VoucherType.RECEIPT)
+      (inInvoicePublicId && voucherType === VoucherType.RECEIPT) ||
+      (stockReceiptCode && voucherType === VoucherType.RECEIPT)
     )
       throw new ConflictException('Invalid voucher type.');
 
@@ -213,6 +221,73 @@ export class VouchersService {
 
       return { id: currentInboundInvoice.id, type: 'INBOUND' };
     }
+
+    // ------------Trường hợp là phiếu nhập kho---------------------------------------
+    if (stockReceiptCode && voucherType === VoucherType.PAYMENT) {
+      const currentStockReceipt = await tx.stockReceipt.findFirst({
+        where: {
+          receiptCode: stockReceiptCode,
+          period: {
+            userId,
+          },
+        },
+      });
+      if (!currentStockReceipt)
+        throw new NotFoundException('Stock receipt not found.');
+      if (currentStockReceipt.status === StockReceiptStatus.CANCELLED)
+        throw new BadRequestException('Stock receipt canceled.');
+      if (currentStockReceipt.isPaid)
+        throw new BadRequestException('The stock receipt has been paid in full.');
+
+      const { newTotalPaid, isPaid } = this.calculateNewPaymentState(
+        currentStockReceipt.paidAmount,
+        currentStockReceipt.totalValue,
+        amount,
+      );
+      const result = await tx.stockReceipt.updateMany({
+        where: {
+          receiptCode: stockReceiptCode,
+          period: { userId },
+          isPaid: false,
+        },
+        data: {
+          paidAmount: newTotalPaid,
+          isPaid,
+        },
+      });
+      if (result.count === 0) {
+        this.log.debug('UPDATE_PAYMENT_STATUS_STOCK_RECEIPT', {
+          status: LOG_STATUS.FAILED,
+          userId,
+          receiptCode: stockReceiptCode,
+        });
+        throw new ConflictException(
+          'Error updating payment status for stock receipt.',
+        );
+      }
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.stockReceipts,
+        currentStockReceipt.id,
+        {
+          isPaid: false,
+          paidAmount: currentStockReceipt.paidAmount,
+        },
+        {
+          isPaid,
+          paidAmount: newTotalPaid,
+        },
+      );
+      this.log.debug('UPDATE_PAYMENT_STATUS_STOCK_RECEIPT', {
+        status: LOG_STATUS.SUCCESS,
+        userId,
+        receiptCode: stockReceiptCode,
+      });
+
+      return { id: currentStockReceipt.id, type: 'STOCK_RECEIPT' };
+    }
   }
 
   private async revertInvoicePayment(
@@ -299,6 +374,46 @@ export class VouchersService {
         userId: voucher.userId,
       });
     }
+    if (
+      voucher.voucherType === VoucherType.PAYMENT &&
+      voucher.stockReceiptId &&
+      voucher.amount.gt(0)
+    ) {
+      const { amount } = voucher;
+      const receipt = await tx.stockReceipt.findUnique({
+        where: { id: voucher.stockReceiptId },
+      });
+      if (!receipt)
+        throw new NotFoundException(
+          'Stock receipt not found for this voucher.',
+        );
+
+      if (receipt.paidAmount.lessThan(amount))
+        throw new ConflictException('Amount of voucher invalid.');
+
+      const updatedReceipt = await tx.stockReceipt.update({
+        where: { id: voucher.stockReceiptId },
+        data: { paidAmount: { decrement: amount }, isPaid: false },
+      });
+      await this.auditLog.logChange(
+        tx,
+        voucher.userId,
+        'UPDATE',
+        tableWrite.stockReceipts,
+        updatedReceipt.id,
+        { paidAmount: receipt.paidAmount, isPaid: receipt.isPaid },
+        {
+          paidAmount: updatedReceipt.paidAmount,
+          isPaid: updatedReceipt.isPaid,
+        },
+      );
+      this.log.debug('REFUND_AMOUNT_STOCK_RECEIPT', {
+        status: LOG_STATUS.SUCCESS,
+        receiptId: voucher.stockReceiptId,
+        voucherCode: voucher.voucherCode,
+        userId: voucher.userId,
+      });
+    }
   }
 
   async create(userId: string, createVoucherDto: CreateVoucherDto) {
@@ -333,6 +448,7 @@ export class VouchersService {
           createVoucherDto.isDeductibleExpense,
           createVoucherDto.inboundInvoicePublicId,
           createVoucherDto.outboundInvoicePublicId,
+          createVoucherDto.stockReceiptCode,
         );
 
         // Generate Voucher Code: PT/PC-MMYY-0001
@@ -380,6 +496,8 @@ export class VouchersService {
             isDeductibleExpense: createVoucherDto.isDeductibleExpense ?? false,
             inboundInvoiceId: invoice?.type === 'INBOUND' ? invoice.id : null,
             outboundInvoiceId: invoice?.type === 'OUTBOUND' ? invoice.id : null,
+            stockReceiptId:
+              invoice?.type === 'STOCK_RECEIPT' ? invoice.id : null,
           },
           include: {
             category: true,
@@ -388,6 +506,9 @@ export class VouchersService {
             },
             outBoundInvoice: {
               select: { publicId: true, invoiceSymbol: true },
+            },
+            stockReceipt: {
+              select: { receiptCode: true },
             },
           },
         });
@@ -405,8 +526,8 @@ export class VouchersService {
         return voucher;
       },
       {
-        maxWait: 5000, // Thời gian tối đa chờ để lấy được connection
-        timeout: 15000, // Thời gian tối đa để thực hiện xong toàn bộ Transaction (15 giây)
+        maxWait: 5000,
+        timeout: 15000,
       },
     );
 
@@ -468,6 +589,9 @@ export class VouchersService {
         outBoundInvoice: {
           select: { publicId: true, invoiceSymbol: true },
         },
+        stockReceipt: {
+          select: { receiptCode: true },
+        },
       },
     });
 
@@ -489,6 +613,7 @@ export class VouchersService {
         include: {
           inboundInvoice: true,
           outBoundInvoice: true,
+          stockReceipt: true,
         },
       });
 
@@ -502,8 +627,10 @@ export class VouchersService {
 
       const isLinked =
         existing.inboundInvoiceId !== null ||
-        existing.outboundInvoiceId !== null;
+        existing.outboundInvoiceId !== null ||
+        existing.stockReceiptId !== null;
 
+      // nếu đã có link tới một transaction nào thì không được update các trường dưới đây
       if (isLinked) {
         // Locked fields check: voucherType, amount, inboundInvoicePublicId, outboundInvoicePublicId, isDeductibleExpense
         const hasVoucherTypeChange =
@@ -517,12 +644,17 @@ export class VouchersService {
         const hasInboundLinkChange =
           updateVoucherDto.inboundInvoicePublicId !== undefined &&
           updateVoucherDto.inboundInvoicePublicId !==
-            existing.inboundInvoice?.publicId;
+          existing.inboundInvoice?.publicId;
 
         const hasOutboundLinkChange =
           updateVoucherDto.outboundInvoicePublicId !== undefined &&
           updateVoucherDto.outboundInvoicePublicId !==
-            existing.outBoundInvoice?.publicId;
+          existing.outBoundInvoice?.publicId;
+
+        const hasStockReceiptLinkChange =
+          updateVoucherDto.stockReceiptCode !== undefined &&
+          updateVoucherDto.stockReceiptCode !==
+          existing.stockReceipt?.receiptCode;
 
         const hasIsDeductibleChange =
           updateVoucherDto.isDeductibleExpense !== undefined &&
@@ -533,10 +665,11 @@ export class VouchersService {
           hasAmountChange ||
           hasInboundLinkChange ||
           hasOutboundLinkChange ||
+          hasStockReceiptLinkChange ||
           hasIsDeductibleChange
         ) {
           throw new BadRequestException(
-            'Cannot update voucherType, amount, invoice links, or deductible status when the voucher is linked to an invoice.',
+            'Cannot update voucherType, amount, document links, or deductible status when the voucher is linked to a document.',
           );
         }
       }
@@ -583,9 +716,14 @@ export class VouchersService {
       const newInboundInvoicePublicId = updateVoucherDto.inboundInvoicePublicId;
       const newOutboundInvoicePublicId =
         updateVoucherDto.outboundInvoicePublicId;
+      const newStockReceiptCode = updateVoucherDto.stockReceiptCode;
 
       let invoice: { id: number; type: string } | undefined = undefined;
-      if (newInboundInvoicePublicId || newOutboundInvoicePublicId) {
+      if (
+        newInboundInvoicePublicId ||
+        newOutboundInvoicePublicId ||
+        newStockReceiptCode
+      ) {
         invoice = await this.resolveVoucherType(
           tx,
           userId,
@@ -595,6 +733,7 @@ export class VouchersService {
           newIsDeductibleExpense,
           newInboundInvoicePublicId || undefined,
           newOutboundInvoicePublicId || undefined,
+          newStockReceiptCode || undefined,
         );
       }
 
@@ -606,9 +745,12 @@ export class VouchersService {
           invoice.type === 'INBOUND' ? invoice.id : null;
         updateData.outboundInvoiceId =
           invoice.type === 'OUTBOUND' ? invoice.id : null;
+        updateData.stockReceiptId =
+          invoice.type === 'STOCK_RECEIPT' ? invoice.id : null;
       }
       delete updateData.inboundInvoicePublicId;
       delete updateData.outboundInvoicePublicId;
+      delete updateData.stockReceiptCode;
 
       const updated = await tx.voucher.update({
         where: { userId_voucherCode: { userId, voucherCode } },
@@ -619,6 +761,9 @@ export class VouchersService {
           },
           outBoundInvoice: {
             select: { publicId: true, invoiceSymbol: true },
+          },
+          stockReceipt: {
+            select: { receiptCode: true },
           },
           category: true,
         },
@@ -734,10 +879,11 @@ export class VouchersService {
 
       if (
         existing.inboundInvoiceId !== null ||
-        existing.outboundInvoiceId !== null
+        existing.outboundInvoiceId !== null ||
+        existing.stockReceiptId !== null
       ) {
         throw new BadRequestException(
-          'Voucher is linked to an invoice and cannot be deleted.',
+          'Voucher is linked to a document and cannot be deleted.',
         );
       }
 
@@ -967,5 +1113,37 @@ export class VouchersService {
       tien_mat,
       tien_chuyen_khoan,
     };
+  }
+
+  async bulkCancelByStockReceipt(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    stockReceiptId: number,
+  ) {
+    const result = await tx.voucher.updateMany({
+      where: {
+        stockReceiptId,
+        userId,
+        status: VoucherStatus.ACTIVE,
+      },
+      data: {
+        status: VoucherStatus.CANCELED,
+      },
+    });
+
+    await this.auditLog.logChange(
+      tx,
+      userId,
+      'UPDATE',
+      tableWrite.vouchers,
+      `VOUCHERS_RELATED_stockReceiptId_${stockReceiptId}`,
+      { status: 'ACTIVE' },
+      { status: 'CANCELED' },
+    );
+    this.log.debug(
+      `Bulk canceled ${result.count} vouchers for stock receipt: ${stockReceiptId}`,
+    );
+
+    return result.count;
   }
 }

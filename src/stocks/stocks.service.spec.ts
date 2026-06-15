@@ -6,6 +6,7 @@ import { InventoryMovementsService } from '../inventory-movements/inventory-move
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/client';
 import { StockIssueType } from '@prisma/client';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 describe('StocksService', () => {
   let service: StocksService;
@@ -48,6 +49,12 @@ describe('StocksService', () => {
         {
           provide: InventoryMovementsService,
           useValue: movementsMock,
+        },
+        {
+          provide: VouchersService,
+          useValue: {
+            bulkCancelByStockReceipt: jest.fn(),
+          },
         },
       ],
     }).compile();

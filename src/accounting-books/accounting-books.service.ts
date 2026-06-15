@@ -820,6 +820,7 @@ export class AccountingBooksService {
         include: {
           category: true,
           inboundInvoice: true,
+          stockReceipt: true,
         },
         orderBy: { transactionAt: 'asc' },
         skip,

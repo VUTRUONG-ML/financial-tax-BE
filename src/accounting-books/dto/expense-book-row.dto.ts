@@ -22,7 +22,10 @@ export class ExpenseBookRowDto {
   So_Tien!: number;
 
   @Expose({ name: 'Hoa_Don_Chung_Tu_Kem_Theo' })
-  @Transform(({ obj }) => obj.inboundInvoice?.invoiceNo || '')
+  @Transform(
+    ({ obj }) =>
+      obj.inboundInvoice?.invoiceNo || obj.stockReceipt?.receiptCode || '',
+  )
   Hoa_Don_Chung_Tu_Kem_Theo!: string;
 
   @Expose({ name: 's2cExpenseMapping' })

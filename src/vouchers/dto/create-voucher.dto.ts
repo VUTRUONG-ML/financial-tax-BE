@@ -53,4 +53,8 @@ export class CreateVoucherDto {
   @IsString()
   @IsOptional()
   outboundInvoicePublicId?: string;
+
+  @IsString()
+  @IsOptional()
+  stockReceiptCode?: string;
 }

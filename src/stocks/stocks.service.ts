@@ -33,6 +33,7 @@ import { Decimal } from '@prisma/client/runtime/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { InventoryMovementsService } from '../inventory-movements/inventory-movements.service';
 import { moment } from 'src/common/utils/time.util';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 @Injectable()
 export class StocksService {
@@ -42,6 +43,7 @@ export class StocksService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly inventoryMovementsService: InventoryMovementsService,
+    private readonly voucherService: VouchersService,
   ) { }
 
   async createStockReceipt(
@@ -292,18 +294,12 @@ export class StocksService {
         });
         throw new NotFoundException('The warehouse receipt does not exist.');
       }
-      if (current.vouchers.length !== 0) {
-        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
-          status: LOG_STATUS.FAILED,
-          userId,
-          reason: 'VOUCHER_EXISTING_RELATED',
-          receiptCode,
-        });
-        throw new BadRequestException({
-          message: 'The stock receipt has been payed.',
-          errorCode: 'VOUCHER_EXISTING_RELATED',
-        });
-      }
+      // Hủy các phiếu chi liên quan
+      await this.voucherService.bulkCancelByStockReceipt(
+        client,
+        userId,
+        current.id,
+      );
       const updateReceipt = await client.stockReceipt.updateMany({
         where: {
           receiptCode,

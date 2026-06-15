@@ -40,4 +40,9 @@ export class VoucherResponseDto {
   @Expose()
   @Transform(({ obj }) => obj.outBoundInvoice?.invoiceSymbol)
   outboundInvoiceSymbol!: string;
+
+  // Liên kết Stock Receipt (Phiếu nhập kho)
+  @Expose()
+  @Transform(({ obj }) => obj.stockReceipt?.receiptCode)
+  stockReceiptCode!: string;
 }
