@@ -7,6 +7,7 @@ import { AppLogger } from '../common/logger/app-logger.service';
 import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant';
 import { moment } from '../common/utils/time.util';
 import { TaxAuthorityConnectionStatus } from '@prisma/client';
+import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 
 @Injectable()
 export class TaxAuthorityConnectionsService {
@@ -15,6 +16,7 @@ export class TaxAuthorityConnectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly taxAuthorityService: TaxAuthorityService,
   ) { }
 
   async getConnection(userId: string) {
@@ -34,9 +36,19 @@ export class TaxAuthorityConnectionsService {
   }
 
   async upsertConnection(userId: string, dto: CreateConnectionDto) {
+    // 1. Call mock verify
+    await this.taxAuthorityService.verifyAccount({
+      taxCode: dto.taxCode,
+      username: dto.username,
+      password: dto.password,
+      cashRegisterCode: dto.cashRegisterCode,
+    });
+
+    // 2. Encrypt credentials
     const encryptedUsername = encrypt(dto.username);
     const encryptedPassword = encrypt(dto.password);
 
+    // 3. Upsert to DB with VERIFIED status
     return await this.prisma.$transaction(async (tx) => {
       const existing = await tx.taxAuthorityConnection.findUnique({
         where: { userId },
@@ -49,7 +61,8 @@ export class TaxAuthorityConnectionsService {
           encryptedUsername,
           encryptedPassword,
           cashRegisterCode: dto.cashRegisterCode,
-          connectionStatus: 'PENDING_VERIFY',
+          connectionStatus: 'VERIFIED',
+          lastVerifiedAt: new Date(),
         },
         create: {
           userId,
@@ -57,7 +70,8 @@ export class TaxAuthorityConnectionsService {
           encryptedUsername,
           encryptedPassword,
           cashRegisterCode: dto.cashRegisterCode,
-          connectionStatus: 'PENDING_VERIFY',
+          connectionStatus: 'VERIFIED',
+          lastVerifiedAt: new Date(),
         },
       });
 

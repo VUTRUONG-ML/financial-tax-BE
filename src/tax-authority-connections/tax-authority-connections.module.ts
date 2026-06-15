@@ -3,9 +3,10 @@ import { TaxAuthorityConnectionsService } from './tax-authority-connections.serv
 import { TaxAuthorityConnectionsController } from './tax-authority-connections.controller';
 import { PrismaModule } from '../core/prisma/prisma.module';
 import { AuditLogModule } from '../core/audit-log/audit-log.module';
+import { TaxAuthorityModule } from '../tax-authority/tax-authority.module';
 
 @Module({
-  imports: [PrismaModule, AuditLogModule],
+  imports: [PrismaModule, AuditLogModule, TaxAuthorityModule],
   controllers: [TaxAuthorityConnectionsController],
   providers: [TaxAuthorityConnectionsService],
   exports: [TaxAuthorityConnectionsService],
