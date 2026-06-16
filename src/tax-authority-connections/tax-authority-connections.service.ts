@@ -8,16 +8,35 @@ import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant
 import { moment } from '../common/utils/time.util';
 import { TaxAuthorityConnectionStatus } from '@prisma/client';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class TaxAuthorityConnectionsService {
   private readonly logger = new AppLogger(TaxAuthorityConnectionsService.name);
 
   constructor(
+    private readonly httpService: HttpService,
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-    private readonly taxAuthorityService: TaxAuthorityService,
+    private readonly configService: ConfigService,
   ) { }
+
+  private async verifyTaxAuthorityAccount(dto: CreateConnectionDto) {
+    const baseUrl = this.configService.get<string>('MOCK_TAX_AUTHORITY_URL');
+
+    const response = await firstValueFrom(
+      this.httpService.post(`${baseUrl}/mock-tax-authority/verify`, {
+        taxCode: dto.taxCode,
+        username: dto.username,
+        password: dto.password,
+        cashRegisterCode: dto.cashRegisterCode
+      }),
+    );
+
+    return response.data;
+  }
 
   async getConnection(userId: string) {
     const connection = await this.prisma.taxAuthorityConnection.findUnique({
@@ -36,13 +55,14 @@ export class TaxAuthorityConnectionsService {
   }
 
   async upsertConnection(userId: string, dto: CreateConnectionDto) {
-    // 1. Call mock verify
-    await this.taxAuthorityService.verifyAccount({
-      taxCode: dto.taxCode,
-      username: dto.username,
-      password: dto.password,
-      cashRegisterCode: dto.cashRegisterCode,
-    });
+    try {
+      await this.verifyTaxAuthorityAccount(dto);
+    } catch (error) {
+      throw new BadRequestException({
+        message: error.response?.data ?? 'Tax authority verification failed.',
+        errorCode: 'INVALID_CREDENTIAL',
+      });
+    }
 
     // 2. Encrypt credentials
     const encryptedUsername = encrypt(dto.username);

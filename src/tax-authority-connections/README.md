@@ -4,71 +4,173 @@ Module này quản lý và xác thực kết nối giữa hệ thống thuế c�
 
 ---
 
-## Luồng nghiệp vụ Phát hành & Cấp mã Hóa đơn điện tử
+# Luồng nghiệp vụ Phát hành & Cấp mã Hóa đơn điện tử
 
-Dưới đây là sơ đồ quy trình từ bước người dùng nhấn **Phát hành & Cấp mã** trên Frontend cho đến khi nhận được mã Cơ quan Thuế (`cqtCode`):
+Dưới đây là quy trình từ thời điểm người dùng nhấn **Phát hành & Cấp mã** cho đến khi hóa đơn được cấp mã Cơ quan Thuế.
 
 ```mermaid
 graph TD
-    A[User nhấn Phát hành & Cấp mã] --> B{Hộ KD thuộc diện phải cấp mã?}
-    
-    B -- Không --> C[Phát hành theo luồng hóa đơn thường]
-    
-    B -- Có --> D[Gọi POST /tax-authority-connections/verify]
-    
-    D --> E{Kết nối hợp lệ?<br>connectionStatus == VERIFIED}
-    
-    E -- Có --> F[Gửi yêu cầu cấp mã Mock CQT<br>requestTaxCode]
-    F --> G[Nhận cqtCode & cập nhật trạng thái ISSUED]
-    G --> H[Hoàn tất quy trình]
-    
-    E -- Không --> I[Trả về lỗi NOT_CONFIGURED hoặc NOT_VERIFIED]
-    I --> J[Frontend hiển thị Popup Đăng ký kết nối HĐĐT]
-    J --> K[User nhập: MST, Username, Password, Mã MTT]
-    K --> L[Gọi PUT /tax-authority-connections]
-    
-    L --> M[Backend gọi Mock API verifyAccount]
-    M --> N{Xác thực thành công?}
-    
-    N -- Không --> O[Trả về lỗi tương ứng<br>TAX_CODE_NOT_FOUND, INVALID_CREDENTIAL, ...<br>Yêu cầu chỉnh sửa]
-    O --> K
-    
-    N -- Có --> P[Mã hóa credentials & Lưu DB<br>Status = VERIFIED, Cập nhật lastVerifiedAt]
-    P --> Q[Frontend tiếp tục gọi lại API phát hành hóa đơn]
-    Q --> F
+
+A[User nhấn Phát hành & Cấp mã]
+--> B["POST /invoices/:invoiceId/issue"]
+
+B --> C{Cần cấp mã CQT?}
+
+C -- Không --> D[Phát hành hóa đơn]
+D --> E[ISSUED]
+
+C -- Có --> F[Kiểm tra TaxAuthorityConnection]
+
+F --> G{connectionStatus = VERIFIED?}
+
+G -- Có --> H[Gọi Mock CQT Issue Invoice]
+H --> I[Nhận cqtCode]
+I --> J[Cập nhật hóa đơn ISSUED]
+J --> K[Hoàn tất]
+
+G -- Không --> L[Trả lỗi NOT_CONFIGURED hoặc NOT_VERIFIED]
+
+L --> M[Frontend hiển thị Popup cấu hình HĐĐT]
+
+M --> N[User nhập MST Username Password Mã MTT]
+
+N --> O["PUT /tax-authority-connections"]
+
+O --> P[Backend gọi Mock Tax Authority Verify]
+
+P --> Q{Thông tin hợp lệ?}
+
+Q -- Không --> R[Trả lỗi TAX_CODE_NOT_FOUND INVALID_CREDENTIAL INVALID_CASH_REGISTER NOT_REGISTERED]
+
+R --> N
+
+Q -- Có --> S[Mã hóa thông tin đăng nhập]
+
+S --> T[Lưu TaxAuthorityConnection]
+
+T --> U[connectionStatus = VERIFIED]
+
+U --> V["POST /invoices/:invoiceId/issue"]
+
+V --> H
 ```
 
 ---
 
-## Các API liên quan
+# Các API liên quan
 
-### 1. Kiểm tra trạng thái kết nối
-* **Endpoint**: `POST /v1/tax-authority-connections/verify`
-* **Mô tả**: Kiểm tra trạng thái cấu hình tài khoản thuế của HKD hiện tại.
-* **Mã lỗi trả về nếu chưa hợp lệ**:
-  * `NOT_CONFIGURED` (404): Chưa cấu hình thông tin tài khoản thuế.
-  * `NOT_VERIFIED` (400): Tài khoản cấu hình tồn tại nhưng chưa ở trạng thái `VERIFIED`.
+## 1. Thiết lập / Cập nhật cấu hình kết nối
 
-### 2. Thiết lập / Cập nhật cấu hình kết nối
-* **Endpoint**: `PUT /v1/tax-authority-connections`
-* **Body**:
-  ```json
-  {
-    "taxCode": "0123456789",
-    "username": "demo",
-    "password": "123456",
-    "cashRegisterCode": "ABCDE"
-  }
-  ```
-* **Mô tả**:
-  1. Gọi Mock API của CQT để kiểm tra tính hợp lệ của thông tin đăng nhập.
-  2. Nếu xác thực không thành công, ném ra các lỗi nghiệp vụ:
-     * `TAX_CODE_NOT_FOUND` (404): Mã số thuế không tồn tại.
-     * `INVALID_CREDENTIAL` (400): Tên đăng nhập hoặc mật khẩu sai.
-     * `INVALID_CASH_REGISTER` (400): Mã máy tính tiền không khớp.
-     * `NOT_REGISTERED` (400): Hộ kinh doanh chưa đăng ký sử dụng hóa đơn điện tử.
-  3. Nếu xác thực thành công, mã hóa `username` và `password`, lưu bản ghi `TaxAuthorityConnection` với trạng thái `VERIFIED` và thời gian xác thực `lastVerifiedAt`.
+### Endpoint
 
-### 3. API Xác thực tài khoản của Mock Cơ quan Thuế
-* **Endpoint**: `POST /v1/mock-tax-authority/verify`
-* **Mô tả**: Endpoint mô phỏng hệ thống Cơ quan Thuế dùng để kiểm tra thông tin tài khoản của hộ kinh doanh.
+```http
+PUT /v1/tax-authority-connections
+```
+
+### Request
+
+```json
+{
+  "taxCode": "0123456789",
+  "username": "demo",
+  "password": "123456",
+  "cashRegisterCode": "ABCDE"
+}
+```
+
+### Luồng xử lý
+
+1. Backend gọi Mock API xác thực tài khoản CQT.
+2. Nếu xác thực thất bại, trả về lỗi nghiệp vụ.
+3. Nếu xác thực thành công:
+
+   * Mã hóa username/password.
+   * Upsert bản ghi TaxAuthorityConnection.
+   * Cập nhật trạng thái VERIFIED.
+   * Cập nhật lastVerifiedAt.
+
+### Các mã lỗi
+
+| Error Code            | Ý nghĩa                              |
+| --------------------- | ------------------------------------ |
+| TAX_CODE_NOT_FOUND    | Mã số thuế không tồn tại             |
+| INVALID_CREDENTIAL    | Sai username hoặc password           |
+| INVALID_CASH_REGISTER | Sai mã máy tính tiền                 |
+| NOT_REGISTERED        | Chưa đăng ký sử dụng hóa đơn điện tử |
+
+---
+
+## 2. Phát hành & Cấp mã hóa đơn
+
+### Endpoint
+
+```http
+POST /v1/invoices/{invoiceId}/issue
+```
+
+### Luồng xử lý
+
+1. Kiểm tra hóa đơn có thuộc diện cấp mã CQT hay không.
+2. Nếu không thuộc diện cấp mã:
+
+   * Phát hành hóa đơn theo luồng thông thường.
+3. Nếu thuộc diện cấp mã:
+
+   * Kiểm tra TaxAuthorityConnection của người dùng.
+   * Nếu chưa cấu hình hoặc chưa xác thực:
+
+     * Trả lỗi tương ứng để frontend hiển thị popup cấu hình.
+   * Nếu đã xác thực:
+
+     * Gọi Mock API cấp mã CQT.
+     * Nhận mã CQT.
+     * Cập nhật hóa đơn.
+     * Chuyển trạng thái ISSUED.
+
+### Các mã lỗi
+
+| Error Code     | Ý nghĩa                           |
+| -------------- | --------------------------------- |
+| NOT_CONFIGURED | Chưa cấu hình tài khoản HĐĐT      |
+| NOT_VERIFIED   | Tài khoản HĐĐT chưa được xác thực |
+
+---
+
+## 3. API Mock xác thực tài khoản Cơ quan Thuế
+
+### Endpoint
+
+```http
+POST /v1/mock-tax-authority/verify
+```
+
+### Mục đích
+
+API giả lập hệ thống T-VAN/Cơ quan Thuế dùng để kiểm tra tính hợp lệ của:
+
+* Mã số thuế.
+* Username.
+* Password.
+* Mã máy tính tiền.
+
+API này chỉ được sử dụng nội bộ bởi backend khi xử lý `PUT /tax-authority-connections`.
+
+---
+
+## 4. API Mock cấp mã Cơ quan Thuế
+
+### Endpoint
+
+```http
+POST /v1/mock-tax-authority/issue
+```
+
+### Mục đích
+
+API giả lập hệ thống T-VAN/Cơ quan Thuế dùng để:
+
+* Tiếp nhận dữ liệu hóa đơn.
+* Sinh mã Cơ quan Thuế (cqtCode).
+* Trả kết quả cấp mã cho hệ thống HKD.
+
+API này chỉ được sử dụng nội bộ bởi backend khi xử lý `POST /invoices/{invoiceId}/issue`.

@@ -5,12 +5,15 @@ import { VerifyMockTaxAccountDto } from './dto/verify-mock-tax-account.dto';
 
 @Controller('mock-tax-authority')
 export class TaxAuthorityController {
-  constructor(private readonly taxAuthorityService: TaxAuthorityService) {}
+  constructor(private readonly taxAuthorityService: TaxAuthorityService) { }
 
   @Public()
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   async verify(@Body() dto: VerifyMockTaxAccountDto) {
-    return this.taxAuthorityService.verifyAccount(dto);
+    const data = await this.taxAuthorityService.verifyAccount(dto);
+    return {
+      data,
+    };
   }
 }
