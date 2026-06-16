@@ -4,10 +4,9 @@ import { CreateConnectionDto } from './dto/create-connection.dto';
 import { encrypt } from '../common/utils/crypto.util';
 import { AuditLogService, tableWrite } from '../core/audit-log/audit-log.service';
 import { AppLogger } from '../common/logger/app-logger.service';
-import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant';
+import { LOG_STATUS } from '../common/constants/log-events.constant';
 import { moment } from '../common/utils/time.util';
 import { TaxAuthorityConnectionStatus } from '@prisma/client';
-import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
@@ -154,6 +153,7 @@ export class TaxAuthorityConnectionsService {
       });
     }
     return {
+      cashRegisterCode: connection.cashRegisterCode,
       connectionStatus: connection.connectionStatus,
       verifiedAt: connection.lastVerifiedAt,
     };

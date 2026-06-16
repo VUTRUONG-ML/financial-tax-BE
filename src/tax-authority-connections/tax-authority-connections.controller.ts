@@ -42,14 +42,4 @@ export class TaxAuthorityConnectionsController {
       data: res,
     };
   }
-
-  @Post('verify')
-  @HttpCode(HttpStatus.OK)
-  async verifyConnection(@CurrentUser('id') userId: string) {
-    const res = await this.connectionsService.verifyConnection(userId);
-    return {
-      message: 'Verification process initiated successfully.',
-      data: res,
-    };
-  }
 }

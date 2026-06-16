@@ -18,7 +18,7 @@ import {
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
-import { InvoiceStatus, Prisma, Product, StockIssueType, StockIssueDocument } from '@prisma/client';
+import { InvoiceStatus, Prisma, Product, StockIssueType, StockIssueDocument, TaxAuthorityConnection } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
 import { mapToDto } from '../common/utils/mapper.util';
@@ -29,6 +29,7 @@ import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { moment } from 'src/common/utils/time.util';
 import { StocksService } from '../stocks/stocks.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
+import { TaxAuthorityConnectionsService } from 'src/tax-authority-connections/tax-authority-connections.service';
 
 @Injectable()
 export class InvoicesService {
@@ -37,6 +38,7 @@ export class InvoicesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly taxConnection: TaxAuthorityConnectionsService,
     private readonly taxAuthorityService: TaxAuthorityService,
     private readonly voucherService: VouchersService,
     private readonly productService: ProductsService,
@@ -233,22 +235,6 @@ export class InvoicesService {
         },
       });
 
-      // GHI VAO SỔ (doanh thu)
-      const year = invoice.issueDate.getFullYear();
-      await tx.revenueTracker.upsert({
-        where: {
-          userId_year: { userId, year },
-        },
-        update: {
-          revenueYtd: { increment: invoice.totalPayment },
-        },
-        create: {
-          userId,
-          year,
-          revenueYtd: invoice.totalPayment,
-        },
-      });
-
       await this.auditLog.logChange(
         tx,
         userId,
@@ -264,8 +250,6 @@ export class InvoicesService {
         userId,
         invoicePublicId: publicId,
       });
-
-      // Trừ kho (Sổ S05): Ghi nhận việc hàng đã rời kho
       return { ...invoice, status: 'ISSUED', cqtCode };
     };
 
@@ -463,31 +447,6 @@ export class InvoicesService {
         { status: currentInvoice.status },
         { status: resPending.status },
       );
-      // Trừ tồn kho
-      for (const { product, quantity } of resolvedItems) {
-        if (product.productType === 'SERVICE') continue;
-        const updateResult = await tx.product.updateMany({
-          where: {
-            id: product.id,
-            // ĐIỀU KIỆN SỐNG CÒN: chỉ trừ nếu stock vẫn đủ
-            currentStock: { gte: quantity },
-          },
-          data: { currentStock: { decrement: quantity } },
-        });
-
-        if (updateResult.count === 0) {
-          this.log.warn(LOG_ACTIONS.CREATE_INVOICE, {
-            status: LOG_STATUS.FAILED,
-            reason: 'STOCK_CHANGED_CONCURRENTLY',
-            userId,
-            productId: product.id,
-            invoiceSymbol: currentInvoice.invoiceSymbol,
-          });
-          throw new ConflictException(
-            `Stock for "${product.productName}" changed during processing. Please retry.`,
-          );
-        }
-      }
 
       this.log.log(LOG_ACTIONS.INVOICE_CQT_ISSUED + '_PHASE1', {
         status: LOG_STATUS.SUCCESS,
@@ -497,23 +456,14 @@ export class InvoicesService {
     });
 
     // Fetch the user's taxCode to pass it as C5_C9 (or default 'ABCDE')
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { taxCode: true },
-    });
 
-    let c5_c9 = 'ABCDE';
-    if (user && user.taxCode) {
-      const cleanTaxCode = user.taxCode.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-      if (cleanTaxCode.length >= 5) {
-        c5_c9 = cleanTaxCode.substring(0, 5);
-      } else {
-        c5_c9 = cleanTaxCode.padEnd(5, 'X');
-      }
-    }
+    const infoVerified = await this.taxConnection.verifyConnection(userId);
 
     // Gọi Mock API
-    const result = await this.taxAuthorityService.requestTaxCode(publicId, c5_c9);
+    const result = await this.taxAuthorityService.requestTaxCode(
+      publicId,
+      infoVerified.cashRegisterCode,
+    );
 
     if (result.success) {
       // Nếu thành công -> Chạy hàm lockInvoice
@@ -524,7 +474,6 @@ export class InvoicesService {
       );
       return mapToDto(InvoiceResponseDto, phaseSecond);
     } else if (result.success === false) {
-      // Nếu thất bại -> Cập nhật trạng thái SYNC_FAILED, hoàn trả hàng vào kho để người dùng bấm 'Retry'
       const phaseFinally = await this.prisma.$transaction(async (tx) => {
         const currentInvoice = await tx.invoice.findUnique({
           where: { publicId },
@@ -545,14 +494,6 @@ export class InvoicesService {
           data: { status: 'SYNC_FAILED' },
           include: { details: true },
         });
-        const details = rollbackInvoice.details;
-        // Hoàn trả tồn kho
-        for (const item of details) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { currentStock: { increment: item.quantity } },
-          });
-        }
         return rollbackInvoice;
       });
       return mapToDto(InvoiceResponseDto, phaseFinally);
