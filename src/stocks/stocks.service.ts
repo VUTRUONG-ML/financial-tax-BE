@@ -588,6 +588,31 @@ export class StocksService {
         }
       }
 
+      // Calculate and update cumulative revenue in RevenueTracker
+      if (createDto.issueType === StockIssueType.SALE) {
+        let totalRevenue = new Decimal(0);
+        for (const productEntity of products) {
+          const quantity = qtyDetailMap.get(productEntity.publicId) ?? 0;
+          const sellingPrice = new Decimal(productEntity.sellingPrice);
+          totalRevenue = totalRevenue.add(sellingPrice.mul(quantity));
+        }
+
+        const year = transactionDate.getFullYear();
+        await client.revenueTracker.upsert({
+          where: {
+            userId_year: { userId, year },
+          },
+          update: {
+            revenueYtd: { increment: totalRevenue },
+          },
+          create: {
+            userId,
+            year,
+            revenueYtd: totalRevenue,
+          },
+        });
+      }
+
       // Fetch the full issue with details and products for mapping DTO
       const finalIssue = await client.stockIssue.findUnique({
         where: { id: issue.id },
@@ -757,6 +782,35 @@ export class StocksService {
           },
           client,
         );
+      }
+
+      // Decrement cumulative revenue in RevenueTracker for SALE issue type
+      if (current.issueType === StockIssueType.SALE) {
+        const productIds = current.details.map((d) => d.productId);
+        const products = await client.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, sellingPrice: true },
+        });
+        const productPriceMap = new Map<number, Decimal>();
+        for (const p of products) {
+          productPriceMap.set(p.id, new Decimal(p.sellingPrice));
+        }
+
+        let totalRevenue = new Decimal(0);
+        for (const detail of current.details) {
+          const sellingPrice = productPriceMap.get(detail.productId) ?? new Decimal(0);
+          totalRevenue = totalRevenue.add(sellingPrice.mul(detail.quantity));
+        }
+
+        const year = current.issueDate.getFullYear();
+        await client.revenueTracker.update({
+          where: {
+            userId_year: { userId, year },
+          },
+          data: {
+            revenueYtd: { decrement: totalRevenue },
+          },
+        });
       }
 
       await this.auditLog.logChange(

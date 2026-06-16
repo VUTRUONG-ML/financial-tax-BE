@@ -38,7 +38,7 @@ export class InvoicesService {
     private readonly taxAuthorityService: TaxAuthorityService,
     private readonly voucherService: VouchersService,
     private readonly productService: ProductsService,
-  ) {}
+  ) { }
 
   private async validateStockAvailability(
     userId: string,
@@ -86,7 +86,7 @@ export class InvoicesService {
         });
         throw new BadRequestException(
           `Insufficient stock for product: ${product.productName}. ` +
-            `Available: ${product.currentStock}, Requested: ${quantity}`,
+          `Available: ${product.currentStock}, Requested: ${quantity}`,
         );
       }
       const lineTotal = product.sellingPrice.mul(quantity);
@@ -188,14 +188,6 @@ export class InvoicesService {
     return invoice;
   }
 
-  /**
-   * Hàm cập nhật trạng thái invoice thành ISSUED
-   * @param publicId
-   * @param userId
-   * @param cqtCode
-   * @param tx
-   * @returns Invoice
-   */
   async lockInvoice(
     publicId: string,
     userId: string,
@@ -300,12 +292,10 @@ export class InvoicesService {
     const { totalPayment, resolvedItems } =
       await this.validateStockAvailability(userId, dto.details);
 
-    // ─── TRANSACTION — 3 bước ACID ────────────────────────────────────────────
     return this.prisma.$transaction(async (tx) => {
-      // 1. Tạo Invoice header
       const invoiceSymbol = generateInvoiceSymbol();
 
-      const targetDate = moment(dto.issueDate).startOf('day').toDate();
+      const targetDate = moment(dto.issueDate).toDate();
       const activeTaxConfig = await tx.taxConfiguration.findFirst({
         where: {
           userId,

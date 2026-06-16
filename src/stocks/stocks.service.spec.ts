@@ -23,6 +23,11 @@ describe('StocksService', () => {
       },
       product: {
         updateMany: jest.fn(),
+        findMany: jest.fn(),
+      },
+      revenueTracker: {
+        update: jest.fn(),
+        upsert: jest.fn(),
       },
       $transaction: jest.fn((cb) => cb(prismaMock)),
     };
@@ -215,6 +220,7 @@ describe('StocksService', () => {
         id: 2,
         issueCode: mockIssueCode,
         issueType: StockIssueType.SALE,
+        issueDate: new Date(),
         sourceDocumentType: 'INVOICE',
         sourceDocumentId: 100,
         status: 'APPROVED',
@@ -231,6 +237,10 @@ describe('StocksService', () => {
       prismaMock.stockIssue.findFirst.mockResolvedValue(mockIssue);
       prismaMock.stockIssue.updateMany.mockResolvedValue({ count: 1 });
       prismaMock.product.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.product.findMany.mockResolvedValue([
+        { id: 201, sellingPrice: new Decimal(1500) },
+      ]);
+      prismaMock.revenueTracker.update.mockResolvedValue({});
       movementsMock.createInventoryMovement.mockResolvedValue({});
       auditLogMock.logChange.mockResolvedValue({});
 
