@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +25,60 @@ import { Request } from 'express';
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class StocksController {
   constructor(private readonly stocksService: StocksService) {}
+
+  @Get('summary')
+  @HttpCode(HttpStatus.OK)
+  async getSummary(@CurrentUser('id') userId: string) {
+    const data = await this.stocksService.getSummary(userId);
+    return {
+      message: 'Stock summary retrieved successfully',
+      data,
+    };
+  }
+
+  @Get('receipts')
+  @HttpCode(HttpStatus.OK)
+  async findAllReceipts(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sourceType') sourceType?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.stocksService.findAllReceipts(
+      userId,
+      pageNumber,
+      limitNumber,
+      sourceType,
+    );
+    return {
+      message: 'Stock receipts retrieved successfully',
+      ...result,
+    };
+  }
+
+  @Get('issues')
+  @HttpCode(HttpStatus.OK)
+  async findAllIssues(
+    @CurrentUser('id') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sourceType') sourceType?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const result = await this.stocksService.findAllIssues(
+      userId,
+      pageNumber,
+      limitNumber,
+      sourceType,
+    );
+    return {
+      message: 'Stock issues retrieved successfully',
+      ...result,
+    };
+  }
 
   @Post('receipts')
   @CheckPeriod()

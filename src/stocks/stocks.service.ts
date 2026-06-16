@@ -13,6 +13,9 @@ import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { StockReceiptResponseDto } from './dto/stock-receipt-response.dto';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { StockIssueResponseDto } from './dto/stock-issue-response.dto';
+import { StockSummaryResponseDto } from './dto/stock-summary-response.dto';
+import { StockReceiptListItemResponseDto } from './dto/stock-receipt-list-item-response.dto';
+import { StockIssueListItemResponseDto } from './dto/stock-issue-list-item-response.dto';
 import { generateMonthlySequenceCode } from '../common/utils/code-generator.util';
 import {
   LOG_ACTIONS,
@@ -850,5 +853,226 @@ export class StocksService {
 
     if (tx !== this.prisma) return run(tx);
     return this.prisma.$transaction(run);
+  }
+
+  async getSummary(userId: string) {
+    const LOW_STOCK_THRESHOLD = 15;
+
+    // Find the currently applied financial period (OPEN first, otherwise latest)
+    let currentPeriod = await this.prisma.financialPeriod.findFirst({
+      where: { userId, status: 'OPEN' },
+      orderBy: { startDate: 'desc' },
+    });
+
+    if (!currentPeriod) {
+      currentPeriod = await this.prisma.financialPeriod.findFirst({
+        where: { userId },
+        orderBy: { startDate: 'desc' },
+      });
+    }
+
+    if (!currentPeriod) {
+      return mapToDto(StockSummaryResponseDto, {
+        endingInventoryValue: 0,
+        trackedItemsCount: 0,
+        lowStockItemsCount: 0,
+      });
+    }
+
+    const [totalTrackedProducts, lowStockProducts, sqlResult] =
+      await Promise.all([
+        this.prisma.product.count({
+          where: { userId, isInventoryTracked: true },
+        }),
+        this.prisma.product.count({
+          where: {
+            userId,
+            isInventoryTracked: true,
+            productType: { not: 'SERVICE' },
+            currentStock: { lt: LOW_STOCK_THRESHOLD },
+          },
+        }),
+        this.prisma.$queryRaw<[{ ending_inventory_value: number | null }]>`
+          SELECT 
+            SUM(
+              CASE 
+                WHEN im.movement_type IN ('OPENING', 'PURCHASE_IN', 'PRODUCTION_IN', 'ADJUST_IN') THEN im.total_value 
+                ELSE -im.total_value 
+              END
+            ) as ending_inventory_value
+          FROM inventory_movements im
+          JOIN products p ON im.product_id = p.id
+          WHERE p.user_id = ${userId} AND p.product_type != 'SERVICE' AND im.period_id = ${currentPeriod.id}
+        `,
+      ]);
+
+    const endingInventoryValue = Number(sqlResult[0]?.ending_inventory_value || 0);
+
+    const summaryData = {
+      endingInventoryValue: endingInventoryValue,
+      trackedItemsCount: totalTrackedProducts,
+      lowStockItemsCount: lowStockProducts,
+    };
+
+    return mapToDto(StockSummaryResponseDto, summaryData);
+  }
+
+  async findAllReceipts(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    sourceType?: string,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.StockReceiptWhereInput = {
+      period: { userId },
+    };
+
+    if (sourceType) {
+      const upperSourceType = sourceType.trim().toUpperCase();
+      if (['PURCHASE', 'PRODUCTION', 'ADJUSTMENT'].includes(upperSourceType)) {
+        where.sourceType = upperSourceType as StockReceiptSourceType;
+      }
+    }
+
+    const [total, receipts] = await Promise.all([
+      this.prisma.stockReceipt.count({ where }),
+      this.prisma.stockReceipt.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          vouchers: {
+            where: { status: 'ACTIVE' },
+            select: { paymentMethod: true },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      data: mapToDto(StockReceiptListItemResponseDto, receipts),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async findAllIssues(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    sourceType?: string,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.StockIssueWhereInput = {
+      period: { userId },
+    };
+
+    if (sourceType) {
+      const upperSourceType = sourceType.trim().toUpperCase();
+      if (['INVOICE', 'PRODUCTION_ORDER'].includes(upperSourceType)) {
+        where.sourceDocumentType = upperSourceType as StockIssueDocument;
+      } else if (['SALE', 'PRODUCTION', 'ADJUSTMENT'].includes(upperSourceType)) {
+        where.issueType = upperSourceType as StockIssueType;
+      }
+    }
+
+    const [total, issues] = await Promise.all([
+      this.prisma.stockIssue.count({ where }),
+      this.prisma.stockIssue.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          details: {
+            select: {
+              quantity: true,
+              provisionalUnitCost: true,
+              finalWeightedUnitCost: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    // Fetch related invoice symbols
+    const invoiceIds = issues
+      .filter((i) => i.sourceDocumentType === 'INVOICE' && i.sourceDocumentId !== null)
+      .map((i) => i.sourceDocumentId as number);
+
+    const invoices =
+      invoiceIds.length > 0
+        ? await this.prisma.invoice.findMany({
+          where: { id: { in: invoiceIds } },
+          select: { id: true, invoiceSymbol: true },
+        })
+        : [];
+    const invoiceMap = new Map(invoices.map((inv) => [inv.id, inv.invoiceSymbol]));
+
+    // Fetch related internal production orders
+    const orderIds = issues
+      .filter((i) => i.sourceDocumentType === 'PRODUCTION_ORDER' && i.sourceDocumentId !== null)
+      .map((i) => i.sourceDocumentId as number);
+
+    const productionOrders = orderIds.length > 0
+      ? await this.prisma.internalProductionOrder.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, orderCode: true },
+      })
+      : [];
+    const orderMap = new Map(productionOrders.map((ord) => [ord.id, ord.orderCode]));
+
+    const mappedRaw = issues.map((i) => {
+      let description = 'Phiếu xuất kho khác';
+      let sourceDocumentCode = '';
+
+      if (i.sourceDocumentType === 'INVOICE' && i.sourceDocumentId) {
+        const symbol = invoiceMap.get(i.sourceDocumentId) || '';
+        description = `Phiếu xuất kho cho hóa đơn${symbol ? ` ${symbol}` : ''}`;
+        sourceDocumentCode = symbol;
+      } else if (i.sourceDocumentType === 'PRODUCTION_ORDER' && i.sourceDocumentId) {
+        const code = orderMap.get(i.sourceDocumentId) || '';
+        description = `Phiếu xuất kho cho lệnh sản xuất${code ? ` ${code}` : ''}`;
+        sourceDocumentCode = code;
+      } else if (i.issueType === 'SALE') {
+        description = 'Phiếu xuất kho bán hàng';
+      } else if (i.issueType === 'PRODUCTION') {
+        description = 'Phiếu xuất kho sản xuất';
+      } else if (i.issueType === 'ADJUSTMENT') {
+        description = 'Phiếu xuất kho hiệu chỉnh';
+      }
+
+      const totalValue = i.details.reduce((sum, d) => {
+        const qty = Number(d.quantity || 0);
+        const cost = Number(d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? 0);
+        return sum + qty * cost;
+      }, 0);
+
+      const isAutomatic = i.sourceDocumentType !== null;
+
+      return {
+        ...i,
+        description,
+        totalValue,
+        isAutomatic,
+        sourceDocumentCode,
+      };
+    });
+
+    return {
+      data: mapToDto(StockIssueListItemResponseDto, mappedRaw),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
   }
 }

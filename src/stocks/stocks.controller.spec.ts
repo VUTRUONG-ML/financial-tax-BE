@@ -17,6 +17,9 @@ describe('StocksController', () => {
             createStockReceipt: jest.fn(),
             createStockIssue: jest.fn(),
             cancelIssue: jest.fn(),
+            getSummary: jest.fn(),
+            findAllReceipts: jest.fn(),
+            findAllIssues: jest.fn(),
           },
         },
       ],
@@ -52,6 +55,51 @@ describe('StocksController', () => {
       expect(result).toEqual({
         message: 'Stock issue canceled successfully',
         data: mockResult,
+      });
+    });
+  });
+
+  describe('getSummary', () => {
+    it('should return stock summary', async () => {
+      const mockSummary = { endingInventoryValue: 1000 } as any;
+      jest.spyOn(service, 'getSummary').mockResolvedValue(mockSummary);
+
+      const result = await controller.getSummary('user-123');
+
+      expect(service.getSummary).toHaveBeenCalledWith('user-123');
+      expect(result).toEqual({
+        message: 'Stock summary retrieved successfully',
+        data: mockSummary,
+      });
+    });
+  });
+
+  describe('findAllReceipts', () => {
+    it('should return all stock receipts', async () => {
+      const mockResult = { data: [], meta: { total: 0, page: 1, lastPage: 0 } };
+      jest.spyOn(service, 'findAllReceipts').mockResolvedValue(mockResult);
+
+      const result = await controller.findAllReceipts('user-123', '1', '20', 'PURCHASE');
+
+      expect(service.findAllReceipts).toHaveBeenCalledWith('user-123', 1, 20, 'PURCHASE');
+      expect(result).toEqual({
+        message: 'Stock receipts retrieved successfully',
+        ...mockResult,
+      });
+    });
+  });
+
+  describe('findAllIssues', () => {
+    it('should return all stock issues', async () => {
+      const mockResult = { data: [], meta: { total: 0, page: 1, lastPage: 0 } };
+      jest.spyOn(service, 'findAllIssues').mockResolvedValue(mockResult);
+
+      const result = await controller.findAllIssues('user-123', '1', '20', 'SALE');
+
+      expect(service.findAllIssues).toHaveBeenCalledWith('user-123', 1, 20, 'SALE');
+      expect(result).toEqual({
+        message: 'Stock issues retrieved successfully',
+        ...mockResult,
       });
     });
   });
