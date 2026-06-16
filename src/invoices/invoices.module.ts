@@ -5,6 +5,7 @@ import { TaxAuthorityModule } from 'src/tax-authority/tax-authority.module';
 import { VouchersModule } from '../vouchers/vouchers.module';
 import { ProductsModule } from '../products/products.module';
 import { FinancialPeriodsModule } from '../financial-periods/financial-periods.module';
+import { StocksModule } from '../stocks/stocks.module';
 
 @Module({
   controllers: [InvoicesController],
@@ -14,6 +15,7 @@ import { FinancialPeriodsModule } from '../financial-periods/financial-periods.m
     VouchersModule,
     ProductsModule,
     FinancialPeriodsModule,
+    StocksModule,
   ],
 })
 export class InvoicesModule {}

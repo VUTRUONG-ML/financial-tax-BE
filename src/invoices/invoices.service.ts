@@ -18,7 +18,7 @@ import {
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
-import { InvoiceStatus, Prisma, Product } from '@prisma/client';
+import { InvoiceStatus, Prisma, Product, StockIssueType, StockIssueDocument } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
 import { mapToDto } from '../common/utils/mapper.util';
@@ -27,6 +27,8 @@ import { CreateInvoiceDetailDto } from './dto/create-invoice-detail.dto';
 import { Decimal } from '@prisma/client/runtime/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { moment } from 'src/common/utils/time.util';
+import { StocksService } from '../stocks/stocks.service';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 
 @Injectable()
 export class InvoicesService {
@@ -38,6 +40,8 @@ export class InvoicesService {
     private readonly taxAuthorityService: TaxAuthorityService,
     private readonly voucherService: VouchersService,
     private readonly productService: ProductsService,
+    private readonly stocksService: StocksService,
+    private readonly financialPeriodsService: FinancialPeriodsService,
   ) { }
 
   private async validateStockAvailability(
@@ -342,6 +346,36 @@ export class InvoicesService {
           totalAmount: lineTotal,
         })),
       });
+
+      // 3. Tạo StockIssue (Phiếu xuất kho) cho các sản phẩm vật lý / theo dõi kho
+      const stockItems = resolvedItems.filter(
+        ({ product }) =>
+          product.productType !== 'SERVICE' && product.isInventoryTracked,
+      );
+
+      if (stockItems.length > 0) {
+        const period = await this.financialPeriodsService.ensurePeriodExists(
+          userId,
+          tx,
+          new Date(dto.issueDate),
+        );
+
+        await this.stocksService.createStockIssue(
+          userId,
+          {
+            issueType: StockIssueType.SALE,
+            issueDate: dto.issueDate,
+            sourceDocumentType: StockIssueDocument.INVOICE,
+            sourceDocumentId: invoice.id,
+            products: stockItems.map(({ product, quantity }) => ({
+              productPublicId: product.publicId,
+              quantity,
+            })),
+          },
+          period.id,
+          tx,
+        );
+      }
 
       // 4. Ghi AuditLog trong cùng Transaction
       await this.auditLog.logChange(
