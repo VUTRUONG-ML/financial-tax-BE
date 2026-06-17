@@ -4,6 +4,7 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { AuditLogService } from '../core/audit-log/audit-log.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ProductionStatus } from '@prisma/client';
+import { StocksService } from '../stocks/stocks.service';
 
 describe('InternalProductionOrdersService', () => {
   let service: InternalProductionOrdersService;
@@ -70,6 +71,15 @@ describe('InternalProductionOrdersService', () => {
             logChange: jest.fn(),
           },
         },
+        {
+          provide: StocksService,
+          useValue: {
+            createStockIssue: jest.fn(),
+            createStockReceipt: jest.fn(),
+            cancelIssue: jest.fn(),
+            cancelReceipt: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -122,7 +132,7 @@ describe('InternalProductionOrdersService', () => {
         products: [{ productPublicId: 'fin-1', quantity: 2 }],
       };
 
-      await expect(service.create('user-1', payload)).rejects.toThrow(
+      await expect(service.create('user-1', payload, 10)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -151,7 +161,7 @@ describe('InternalProductionOrdersService', () => {
         products: [{ productPublicId: 'fin-1', quantity: 2 }],
       };
 
-      await expect(service.create('user-1', payload)).rejects.toThrow(
+      await expect(service.create('user-1', payload, 10)).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -182,7 +192,7 @@ describe('InternalProductionOrdersService', () => {
         products: [{ productPublicId: 'fin-1', quantity: 2 }],
       };
 
-      await expect(service.create('user-1', payload)).rejects.toThrow(
+      await expect(service.create('user-1', payload, 10)).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -199,7 +209,7 @@ describe('InternalProductionOrdersService', () => {
         .spyOn(prisma, '$transaction')
         .mockImplementation(async (cb: any) => cb(mockTx));
 
-      await expect(service.cancel('user-1', 'LSX-0001')).rejects.toThrow(
+      await expect(service.cancel('user-1', 'LSX-0001', 10)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -220,7 +230,7 @@ describe('InternalProductionOrdersService', () => {
         .spyOn(prisma, '$transaction')
         .mockImplementation(async (cb: any) => cb(mockTx));
 
-      await expect(service.cancel('user-1', 'LSX-0001')).rejects.toThrow(
+      await expect(service.cancel('user-1', 'LSX-0001', 10)).rejects.toThrow(
         BadRequestException,
       );
     });

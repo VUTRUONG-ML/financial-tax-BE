@@ -3,9 +3,10 @@ import { InternalProductionOrdersController } from './internal-production-orders
 import { InternalProductionOrdersService } from './internal-production-orders.service';
 
 import { FinancialPeriodsModule } from '../financial-periods/financial-periods.module';
+import { StocksModule } from '../stocks/stocks.module';
 
 @Module({
-  imports: [FinancialPeriodsModule],
+  imports: [FinancialPeriodsModule, StocksModule],
   controllers: [InternalProductionOrdersController],
   providers: [InternalProductionOrdersService],
 })

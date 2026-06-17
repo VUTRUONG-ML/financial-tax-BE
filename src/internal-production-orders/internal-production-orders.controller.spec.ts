@@ -93,16 +93,19 @@ describe('InternalProductionOrdersController', () => {
       };
       jest.spyOn(service, 'update').mockResolvedValue(mockResult as any);
 
+      const mockReq = { financialPeriodId: 10 } as any;
       const result = await controller.update(
         'user-1',
         'LSX-0526-0001',
         mockDto,
+        mockReq,
       );
 
       expect(service.update).toHaveBeenCalledWith(
         'user-1',
         'LSX-0526-0001',
         mockDto,
+        10,
       );
       expect(result).toEqual({
         message: 'Internal production order updated successfully',

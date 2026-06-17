@@ -8,8 +8,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { InternalProductionOrdersService } from './internal-production-orders.service';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
@@ -34,10 +36,12 @@ export class InternalProductionOrdersController {
   async create(
     @CurrentUser('id') userId: string,
     @Body() createDto: CreateProductionOrderDto,
+    @Req() req: Request & { financialPeriodId: number },
   ) {
     const result = await this.internalProductionOrdersService.create(
       userId,
       createDto,
+      req.financialPeriodId,
     );
     return {
       message: 'Internal production order created successfully',
@@ -52,10 +56,12 @@ export class InternalProductionOrdersController {
   async cancel(
     @CurrentUser('id') userId: string,
     @Param('orderCode') orderCode: string,
+    @Req() req: Request & { financialPeriodId: number },
   ) {
     const result = await this.internalProductionOrdersService.cancel(
       userId,
       orderCode,
+      req.financialPeriodId,
     );
     return {
       message: 'Production order canceled.',
@@ -96,11 +102,13 @@ export class InternalProductionOrdersController {
     @CurrentUser('id') userId: string,
     @Param('orderCode') orderCode: string,
     @Body() updateDto: UpdateProductionOrderDto,
+    @Req() req: Request & { financialPeriodId: number },
   ) {
     const result = await this.internalProductionOrdersService.update(
       userId,
       orderCode,
       updateDto,
+      req.financialPeriodId,
     );
     return {
       message: 'Internal production order updated successfully',

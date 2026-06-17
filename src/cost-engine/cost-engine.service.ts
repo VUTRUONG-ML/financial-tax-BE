@@ -40,7 +40,7 @@ export class CostEngineService {
         throw new Error(`Financial period with id ${periodId} not found.`);
       }
 
-      const nextPeriodStartDate = new Date(period.endDate.getTime() + 1000); // hơi lỗi
+      const nextPeriodStartDate = new Date(period.endDate.getTime() + 1000);
       const nextPeriod = await this.financialPeriodsService.ensurePeriodExists(
         userId,
         tx,

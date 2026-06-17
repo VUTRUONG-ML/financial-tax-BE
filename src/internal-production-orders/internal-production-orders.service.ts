@@ -23,9 +23,15 @@ import {
   ProductType,
   ProductionTransactionType,
   Prisma,
+  StockIssueType,
+  StockIssueDocument,
+  StockReceiptSourceType,
+  StockIssueStatus,
+  StockReceiptStatus,
 } from '@prisma/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { ProductionOrderResponseDto } from './dto/response-production.dto';
+import { StocksService } from '../stocks/stocks.service';
 
 @Injectable()
 export class InternalProductionOrdersService {
@@ -34,9 +40,14 @@ export class InternalProductionOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) {}
+    private readonly stocksService: StocksService,
+  ) { }
 
-  async create(userId: string, createDto: CreateProductionOrderDto) {
+  async create(
+    userId: string,
+    createDto: CreateProductionOrderDto,
+    periodId: number,
+  ) {
     const materialPublicIds = createDto.materials.map((m) => m.productPublicId);
     const productPublicIds = createDto.products.map((p) => p.productPublicId);
     const allPublicIds = Array.from(
@@ -129,71 +140,6 @@ export class InternalProductionOrdersService {
           lastCode,
         );
 
-        // Auto-Costing: Calculate total raw material value
-        let totalRawMaterialValue = 0;
-        for (const detail of details) {
-          if (
-            detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL
-          ) {
-            const product = productsMap.get(detail.productPublicId)!;
-            const unitCost = Number(product.openingStockUnitCost || 0);
-            totalRawMaterialValue += detail.quantity * unitCost;
-          }
-        }
-
-        let totalFinishedQty = 0;
-        for (const detail of details) {
-          if (
-            detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
-          ) {
-            totalFinishedQty += detail.quantity;
-          }
-        }
-
-        const unitCostOfFinishedProducts =
-          totalFinishedQty > 0 ? totalRawMaterialValue / totalFinishedQty : 0;
-
-        // Deduct/Increment stocks and update costing
-        for (const detail of details) {
-          const product = productsMap.get(detail.productPublicId)!;
-
-          if (
-            detail.transactionType === ProductionTransactionType.ISSUE_MATERIAL
-          ) {
-            const updated = await tx.product.updateMany({
-              where: { id: product.id, currentStock: { gte: detail.quantity } },
-              data: { currentStock: { decrement: detail.quantity } },
-            });
-            if (updated.count === 0) {
-              throw new BadRequestException(
-                `Insufficient stock for product: ${product.productName}.`,
-              );
-            }
-          } else if (
-            detail.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
-          ) {
-            const oldStock = product.currentStock;
-            const oldUnitCost = Number(product.openingStockUnitCost || 0);
-            const newStock = oldStock + detail.quantity;
-
-            let newUnitCost = oldUnitCost;
-            if (newStock > 0) {
-              newUnitCost =
-                (oldStock * oldUnitCost +
-                  detail.quantity * unitCostOfFinishedProducts) /
-                newStock;
-            }
-
-            await tx.product.update({
-              where: { id: product.id },
-              data: {
-                currentStock: newStock,
-                openingStockUnitCost: newUnitCost,
-              },
-            });
-          }
-        }
-
         // Create Order and Details
         const order = await tx.internalProductionOrder.create({
           data: {
@@ -225,6 +171,48 @@ export class InternalProductionOrdersService {
           },
         });
 
+        // Create StockIssue (xuất nguyên liệu) via StocksService
+        const materials = createDto.materials;
+        if (materials && materials.length > 0) {
+          await this.stocksService.createStockIssue(
+            userId,
+            {
+              issueType: StockIssueType.PRODUCTION,
+              issueDate: order.transactionAt.toISOString(),
+              sourceDocumentType: StockIssueDocument.PRODUCTION_ORDER,
+              sourceDocumentId: order.id,
+              products: materials.map((m) => ({
+                productPublicId: m.productPublicId,
+                quantity: m.quantity,
+              })),
+            },
+            periodId,
+            tx,
+          );
+        }
+
+        // Create StockReceipt (nhập thành phẩm) via StocksService
+        const producedGoods = createDto.products;
+        if (producedGoods && producedGoods.length > 0) {
+          await this.stocksService.createStockReceipt(
+            userId,
+            {
+              sourceType: StockReceiptSourceType.PRODUCTION,
+              receiptDate: order.transactionAt.toISOString(),
+              sourceInvoiceNo: orderCode,
+              products: producedGoods.map((p) => ({
+                productPublicId: p.productPublicId,
+                quantity: p.quantity,
+                unitCost: Number(
+                  productsMap.get(p.productPublicId)?.openingStockUnitCost ?? 0,
+                ),
+              })),
+            },
+            periodId,
+            tx,
+          );
+        }
+
         await this.auditLog.logChange(
           tx,
           userId,
@@ -253,7 +241,7 @@ export class InternalProductionOrdersService {
     return mapToDto(ProductionOrderResponseDto, result);
   }
 
-  async cancel(userId: string, orderCode: string) {
+  async cancel(userId: string, orderCode: string, periodId: number) {
     return await this.prisma.$transaction(async (tx) => {
       const current = await tx.internalProductionOrder.findUnique({
         where: { userId_orderCode: { userId, orderCode } },
@@ -284,86 +272,43 @@ export class InternalProductionOrdersService {
         throw new BadRequestException('Product order cancelled.');
       }
 
-      // Compute raw material value and finished product quantity from current details
-      let oldRawMaterialValue = 0;
-      let oldFinishedQty = 0;
+      // Find associated StockIssue and StockReceipt
+      const stockIssue = await tx.stockIssue.findFirst({
+        where: {
+          sourceDocumentType: StockIssueDocument.PRODUCTION_ORDER,
+          sourceDocumentId: current.id,
+          status: { not: StockIssueStatus.CANCELLED },
+        },
+      });
 
-      for (const d of current.details) {
-        if (d.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
-          const unitCost = Number(d.product.openingStockUnitCost || 0);
-          oldRawMaterialValue += d.quantity * unitCost;
-        } else if (
-          d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
-        ) {
-          oldFinishedQty += d.quantity;
-        }
+      const stockReceipt = await tx.stockReceipt.findFirst({
+        where: {
+          sourceInvoiceNo: current.orderCode,
+          sourceType: StockReceiptSourceType.PRODUCTION,
+          status: { not: StockReceiptStatus.CANCELLED },
+        },
+      });
+
+      if (stockReceipt) {
+        await this.stocksService.cancelReceipt(
+          userId,
+          periodId,
+          stockReceipt.receiptCode,
+          tx,
+        );
       }
 
-      const oldFinishedUnitCost =
-        oldFinishedQty > 0 ? oldRawMaterialValue / oldFinishedQty : 0;
-
-      // 1. Revert finished goods (deduct stock and revert average cost)
-      for (const d of current.details) {
-        if (d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT) {
-          const product = await tx.product.findUnique({
-            where: { id: d.productId },
-          });
-          if (!product)
-            throw new NotFoundException(`Product ${d.productId} not found.`);
-
-          // Check if sufficient stock to deduct
-          if (product.currentStock < d.quantity) {
-            this.log.warn(LOG_ACTIONS.CANCEL_PRODUCTION_ORDER, {
-              status: LOG_STATUS.FAILED,
-              reason: 'PRODUCT_OUT_OF_STOCK',
-              userId,
-              productId: d.productId,
-            });
-            throw new BadRequestException(
-              `Cannot cancel order because product ${product.productName} has insufficient stock to revert the finished goods. Current stock is ${product.currentStock}.`,
-            );
-          }
-
-          const revertedStock = product.currentStock - d.quantity;
-          let revertedCost = Number(product.openingStockUnitCost || 0);
-
-          if (revertedStock > 0) {
-            revertedCost =
-              (product.currentStock *
-                Number(product.openingStockUnitCost || 0) -
-                d.quantity * oldFinishedUnitCost) /
-              revertedStock;
-          }
-
-          await tx.product.update({
-            where: { id: product.id },
-            data: {
-              currentStock: revertedStock,
-              openingStockUnitCost: revertedCost,
-            },
-          });
-        }
+      if (stockIssue) {
+        await this.stocksService.cancelIssue(
+          userId,
+          periodId,
+          stockIssue.issueCode,
+          true, // system action
+          tx,
+        );
       }
 
-      // 2. Revert raw materials (refund stock)
-      for (const d of current.details) {
-        if (d.transactionType === ProductionTransactionType.ISSUE_MATERIAL) {
-          const product = await tx.product.findUnique({
-            where: { id: d.productId },
-          });
-          if (!product)
-            throw new NotFoundException(`Product ${d.productId} not found.`);
-
-          await tx.product.update({
-            where: { id: product.id },
-            data: {
-              currentStock: product.currentStock + d.quantity,
-            },
-          });
-        }
-      }
-
-      // 3. Mark the production order as canceled
+      // Mark the production order as canceled
       const updatedOrder = await tx.internalProductionOrder.update({
         where: { id: current.id },
         data: { status: ProductionStatus.CANCELED },
@@ -378,7 +323,7 @@ export class InternalProductionOrdersService {
         },
       });
 
-      // 4. Audit Log the change
+      // Audit Log the change
       await this.auditLog.logChange(
         tx,
         userId,
@@ -438,6 +383,7 @@ export class InternalProductionOrdersService {
     userId: string,
     orderCode: string,
     updateDto: UpdateProductionOrderDto,
+    periodId: number,
   ) {
     return await this.prisma.$transaction(
       async (tx) => {
@@ -488,90 +434,40 @@ export class InternalProductionOrdersService {
             })),
           ];
 
-          // 1. REVERT: Revert old details' stock and costing changes
-          const oldDetails = existing.details;
+          // 1. REVERT: Find and cancel old stock receipt and stock issue
+          const stockIssue = await tx.stockIssue.findFirst({
+            where: {
+              sourceDocumentType: StockIssueDocument.PRODUCTION_ORDER,
+              sourceDocumentId: existing.id,
+              status: { not: StockIssueStatus.CANCELLED },
+            },
+          });
 
-          // 1.1 Compute raw material values in the old details
-          let oldRawMaterialValue = 0;
-          let oldFinishedQty = 0;
+          const stockReceipt = await tx.stockReceipt.findFirst({
+            where: {
+              sourceInvoiceNo: existing.orderCode,
+              sourceType: StockReceiptSourceType.PRODUCTION,
+              status: { not: StockReceiptStatus.CANCELLED },
+            },
+          });
 
-          for (const d of oldDetails) {
-            if (
-              d.transactionType === ProductionTransactionType.ISSUE_MATERIAL
-            ) {
-              const unitCost = Number(d.product.openingStockUnitCost || 0);
-              oldRawMaterialValue += d.quantity * unitCost;
-            } else if (
-              d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
-            ) {
-              oldFinishedQty += d.quantity;
-            }
+          if (stockReceipt) {
+            await this.stocksService.cancelReceipt(
+              userId,
+              periodId,
+              stockReceipt.receiptCode,
+              tx,
+            );
           }
 
-          const oldFinishedUnitCost =
-            oldFinishedQty > 0 ? oldRawMaterialValue / oldFinishedQty : 0;
-
-          // 1.2 Revert finished goods
-          for (const d of oldDetails) {
-            if (
-              d.transactionType === ProductionTransactionType.RECEIVE_PRODUCT
-            ) {
-              const product = await tx.product.findUnique({
-                where: { id: d.productId },
-              });
-              if (!product)
-                throw new NotFoundException(
-                  `Product ${d.productId} not found.`,
-                );
-
-              // Check if sufficient stock to deduct
-              if (product.currentStock < d.quantity) {
-                throw new BadRequestException(
-                  `Cannot update order because product ${product.productName} has insufficient stock to revert the old finished goods. Current stock is ${product.currentStock}.`,
-                );
-              }
-
-              const revertedStock = product.currentStock - d.quantity;
-              let revertedCost = Number(product.openingStockUnitCost || 0);
-
-              if (revertedStock > 0) {
-                revertedCost =
-                  (product.currentStock *
-                    Number(product.openingStockUnitCost || 0) -
-                    d.quantity * oldFinishedUnitCost) /
-                  revertedStock;
-              }
-
-              await tx.product.update({
-                where: { id: product.id },
-                data: {
-                  currentStock: revertedStock,
-                  openingStockUnitCost: revertedCost,
-                },
-              });
-            }
-          }
-
-          // 1.3 Revert raw materials
-          for (const d of oldDetails) {
-            if (
-              d.transactionType === ProductionTransactionType.ISSUE_MATERIAL
-            ) {
-              const product = await tx.product.findUnique({
-                where: { id: d.productId },
-              });
-              if (!product)
-                throw new NotFoundException(
-                  `Product ${d.productId} not found.`,
-                );
-
-              await tx.product.update({
-                where: { id: product.id },
-                data: {
-                  currentStock: product.currentStock + d.quantity,
-                },
-              });
-            }
+          if (stockIssue) {
+            await this.stocksService.cancelIssue(
+              userId,
+              periodId,
+              stockIssue.issueCode,
+              true, // system action
+              tx,
+            );
           }
 
           // 2. APPLY: Validate and apply new details
@@ -591,7 +487,7 @@ export class InternalProductionOrdersService {
             );
           }
 
-          // Check if user owns all new products and validate types/stocks
+          // Check if user owns all new products and validate types
           for (const detail of updateDetails) {
             const product = newProductsMap.get(detail.productPublicId)!;
 
@@ -605,94 +501,6 @@ export class InternalProductionOrdersService {
               throw new BadRequestException(
                 `Product ${product.productName} is a SERVICE and cannot be used in a production order.`,
               );
-            }
-
-            if (
-              detail.transactionType ===
-              ProductionTransactionType.ISSUE_MATERIAL
-            ) {
-              if (product.currentStock < detail.quantity) {
-                throw new BadRequestException(
-                  `Insufficient stock for product: ${product.productName}. Current stock is ${product.currentStock}.`,
-                );
-              }
-            }
-          }
-
-          // Calculate new raw material values
-          let newRawMaterialValue = 0;
-          for (const detail of updateDetails) {
-            if (
-              detail.transactionType ===
-              ProductionTransactionType.ISSUE_MATERIAL
-            ) {
-              const product = newProductsMap.get(detail.productPublicId)!;
-              const unitCost = Number(product.openingStockUnitCost || 0);
-              newRawMaterialValue += detail.quantity * unitCost;
-            }
-          }
-
-          let newFinishedQty = 0;
-          for (const detail of updateDetails) {
-            if (
-              detail.transactionType ===
-              ProductionTransactionType.RECEIVE_PRODUCT
-            ) {
-              newFinishedQty += detail.quantity;
-            }
-          }
-
-          const newFinishedUnitCost =
-            newFinishedQty > 0 ? newRawMaterialValue / newFinishedQty : 0;
-
-          // Apply raw material stock deductions
-          for (const detail of updateDetails) {
-            const product = newProductsMap.get(detail.productPublicId)!;
-            if (
-              detail.transactionType ===
-              ProductionTransactionType.ISSUE_MATERIAL
-            ) {
-              const updated = await tx.product.updateMany({
-                where: {
-                  id: product.id,
-                  currentStock: { gte: detail.quantity },
-                },
-                data: { currentStock: { decrement: detail.quantity } },
-              });
-              if (updated.count === 0) {
-                throw new BadRequestException(
-                  `Insufficient stock for product: ${product.productName}.`,
-                );
-              }
-            }
-          }
-
-          // Apply finished goods stock and cost additions
-          for (const detail of updateDetails) {
-            const product = newProductsMap.get(detail.productPublicId)!;
-            if (
-              detail.transactionType ===
-              ProductionTransactionType.RECEIVE_PRODUCT
-            ) {
-              const oldStock = product.currentStock;
-              const oldUnitCost = Number(product.openingStockUnitCost || 0);
-              const newStock = oldStock + detail.quantity;
-
-              let newUnitCost = oldUnitCost;
-              if (newStock > 0) {
-                newUnitCost =
-                  (oldStock * oldUnitCost +
-                    detail.quantity * newFinishedUnitCost) /
-                  newStock;
-              }
-
-              await tx.product.update({
-                where: { id: product.id },
-                data: {
-                  currentStock: newStock,
-                  openingStockUnitCost: newUnitCost,
-                },
-              });
             }
           }
 
@@ -712,6 +520,49 @@ export class InternalProductionOrdersService {
               };
             }),
           });
+
+          // Create new StockIssue and StockReceipt via StocksService
+          const transactionAt = updateDto.transactionAt
+            ? new Date(updateDto.transactionAt)
+            : existing.transactionAt;
+
+          if (updateDto.materials.length > 0) {
+            await this.stocksService.createStockIssue(
+              userId,
+              {
+                issueType: StockIssueType.PRODUCTION,
+                issueDate: transactionAt.toISOString(),
+                sourceDocumentType: StockIssueDocument.PRODUCTION_ORDER,
+                sourceDocumentId: existing.id,
+                products: updateDto.materials.map((m) => ({
+                  productPublicId: m.productPublicId,
+                  quantity: m.quantity,
+                })),
+              },
+              periodId,
+              tx,
+            );
+          }
+
+          if (updateDto.products.length > 0) {
+            await this.stocksService.createStockReceipt(
+              userId,
+              {
+                sourceType: StockReceiptSourceType.PRODUCTION,
+                receiptDate: transactionAt.toISOString(),
+                sourceInvoiceNo: existing.orderCode,
+                products: updateDto.products.map((p) => ({
+                  productPublicId: p.productPublicId,
+                  quantity: p.quantity,
+                  unitCost: Number(
+                    newProductsMap.get(p.productPublicId)?.openingStockUnitCost ?? 0,
+                  ),
+                })),
+              },
+              periodId,
+              tx,
+            );
+          }
         }
 
         // Update the order itself (notes, transactionAt)
