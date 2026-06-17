@@ -203,9 +203,7 @@ export class InternalProductionOrdersService {
               products: producedGoods.map((p) => ({
                 productPublicId: p.productPublicId,
                 quantity: p.quantity,
-                unitCost: Number(
-                  productsMap.get(p.productPublicId)?.openingStockUnitCost ?? 0,
-                ),
+                unitCost: 0,
               })),
             },
             periodId,
@@ -554,9 +552,7 @@ export class InternalProductionOrdersService {
                 products: updateDto.products.map((p) => ({
                   productPublicId: p.productPublicId,
                   quantity: p.quantity,
-                  unitCost: Number(
-                    newProductsMap.get(p.productPublicId)?.openingStockUnitCost ?? 0,
-                  ),
+                  unitCost: 0,
                 })),
               },
               periodId,

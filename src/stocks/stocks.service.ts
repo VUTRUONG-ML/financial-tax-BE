@@ -557,7 +557,7 @@ export class StocksService {
             periodId: period.id,
             movementType,
             quantity: Math.round(quantity),
-            unitCost: provUnitCost,
+            unitCost: new Decimal(0),
             totalValue: itemTotal,
             movementDate: transactionDate,
             sourceDocumentType: sourceDocType,
