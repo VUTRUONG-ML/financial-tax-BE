@@ -20,6 +20,7 @@ import { ProductResponseDto } from './dto/reponse-product.dto';
 import { mapToDto } from 'src/common/utils/mapper.util';
 import { Decimal } from '@prisma/client/runtime/client';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
+import { StocksService } from '../stocks/stocks.service';
 
 @Injectable()
 export class ProductsService {
@@ -30,6 +31,7 @@ export class ProductsService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly auditLog: AuditLogService,
     private readonly financialPeriodsService: FinancialPeriodsService,
+    private readonly stocksService: StocksService,
   ) { }
 
   private safeDeleteImage(publicId: string) {
@@ -147,7 +149,7 @@ export class ProductsService {
             openingStockQuantity: qty,
             openingStockUnitCost: unitCost,
             openingStockValue,
-            currentStock: qty,
+            currentStock: 0,
             taxCategoryId: dto.taxCategoryId,
             isInventoryTracked: dto.productType === 'SERVICE' ? false : true,
           },
@@ -160,17 +162,22 @@ export class ProductsService {
             new Date(),
           );
 
-          await tx.inventoryMovement.create({
-            data: {
-              productId: prod.id,
-              periodId: period.id,
-              movementType: 'OPENING',
-              quantity: qty,
-              unitCost: new Decimal(unitCost),
-              totalValue: new Decimal(openingStockValue),
-              movementDate: period.startDate,
+          await this.stocksService.createStockReceipt(
+            userId,
+            {
+              sourceType: 'OPENING',
+              receiptDate: period.startDate.toISOString(),
+              products: [
+                {
+                  productPublicId: prod.publicId,
+                  quantity: qty,
+                  unitCost: unitCost,
+                },
+              ],
             },
-          });
+            period.id,
+            tx,
+          );
         }
 
         return prod;

@@ -4,17 +4,22 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { InventoryMovementType, StockIssueStatus } from '@prisma/client';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
+import { StocksService } from '../stocks/stocks.service';
 
 describe('CostEngineService', () => {
   let service: CostEngineService;
   let prismaMock: any;
   let financialPeriodsServiceMock: any;
+  let stocksServiceMock: any;
   let txMock: any;
 
   beforeEach(async () => {
     prismaMock = {};
     financialPeriodsServiceMock = {
       ensurePeriodExists: jest.fn(),
+    };
+    stocksServiceMock = {
+      createStockReceipt: jest.fn(),
     };
 
     txMock = {
@@ -32,6 +37,18 @@ describe('CostEngineService', () => {
         findMany: jest.fn(),
         update: jest.fn(),
       },
+      stockReceiptDetail: {
+        findMany: jest.fn(),
+        delete: jest.fn(),
+      },
+      stockReceipt: {
+        delete: jest.fn(),
+        update: jest.fn(),
+      },
+      product: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -44,6 +61,10 @@ describe('CostEngineService', () => {
         {
           provide: FinancialPeriodsService,
           useValue: financialPeriodsServiceMock,
+        },
+        {
+          provide: StocksService,
+          useValue: stocksServiceMock,
         },
       ],
     }).compile();
@@ -218,6 +239,13 @@ describe('CostEngineService', () => {
         return [];
       });
 
+      txMock.stockReceiptDetail.findMany.mockResolvedValue([]);
+      txMock.product.findUnique.mockImplementation(async (args: any) => {
+        const { where } = args;
+        return { publicId: `prod-pub-${where.id}` };
+      });
+      txMock.product.updateMany.mockResolvedValue({ count: 1 });
+
       // Execute calculation
       await service.calculateAndApplyWeightedAverageCosts(mockUserId, mockPeriodId, txMock);
 
@@ -257,17 +285,22 @@ describe('CostEngineService', () => {
       // Ending stock Product 1:
       // Total Qty = 45, Outbound Qty = 20 => Ending Qty = 25.
       // Ending Val = 25 * expectedCost1
-      expect(txMock.inventoryMovement.create).toHaveBeenCalledWith({
-        data: {
-          productId: 1,
-          periodId: mockNextPeriod.id,
-          movementType: InventoryMovementType.OPENING,
-          quantity: 25,
-          unitCost: expectedCost1,
-          totalValue: new Decimal(25).mul(expectedCost1),
-          movementDate: mockNextPeriod.startDate,
+      expect(stocksServiceMock.createStockReceipt).toHaveBeenCalledWith(
+        mockUserId,
+        {
+          sourceType: 'OPENING',
+          receiptDate: mockNextPeriod.startDate.toISOString(),
+          products: [
+            {
+              productPublicId: 'prod-pub-1',
+              quantity: 25,
+              unitCost: Number(expectedCost1),
+            },
+          ],
         },
-      });
+        mockNextPeriod.id,
+        txMock,
+      );
 
       // Verify Product 2 calculations:
       // Opening: Qty = 10, Val = 100
@@ -295,17 +328,22 @@ describe('CostEngineService', () => {
       // Ending stock Product 2:
       // Total Qty = 10, Outbound Qty = 5 => Ending Qty = 5.
       // Ending Val = 50.
-      expect(txMock.inventoryMovement.create).toHaveBeenCalledWith({
-        data: {
-          productId: 2,
-          periodId: mockNextPeriod.id,
-          movementType: InventoryMovementType.OPENING,
-          quantity: 5,
-          unitCost: expectedCost2,
-          totalValue: new Decimal(50),
-          movementDate: mockNextPeriod.startDate,
+      expect(stocksServiceMock.createStockReceipt).toHaveBeenCalledWith(
+        mockUserId,
+        {
+          sourceType: 'OPENING',
+          receiptDate: mockNextPeriod.startDate.toISOString(),
+          products: [
+            {
+              productPublicId: 'prod-pub-2',
+              quantity: 5,
+              unitCost: Number(expectedCost2),
+            },
+          ],
         },
-      });
+        mockNextPeriod.id,
+        txMock,
+      );
 
       // Verify Product 3 calculations:
       // Opening: Qty = 0, Val = 0
@@ -315,17 +353,22 @@ describe('CostEngineService', () => {
       // Ending stock Product 3:
       // Total Qty = 20, Outbound Qty = 0 => Ending Qty = 20.
       // Ending Val = 300.
-      expect(txMock.inventoryMovement.create).toHaveBeenCalledWith({
-        data: {
-          productId: 3,
-          periodId: mockNextPeriod.id,
-          movementType: InventoryMovementType.OPENING,
-          quantity: 20,
-          unitCost: new Decimal(15),
-          totalValue: new Decimal(300),
-          movementDate: mockNextPeriod.startDate,
+      expect(stocksServiceMock.createStockReceipt).toHaveBeenCalledWith(
+        mockUserId,
+        {
+          sourceType: 'OPENING',
+          receiptDate: mockNextPeriod.startDate.toISOString(),
+          products: [
+            {
+              productPublicId: 'prod-pub-3',
+              quantity: 20,
+              unitCost: 15,
+            },
+          ],
         },
-      });
+        mockNextPeriod.id,
+        txMock,
+      );
     });
   });
 });

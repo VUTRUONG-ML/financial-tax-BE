@@ -193,6 +193,8 @@ export class StocksService {
           movementType = InventoryMovementType.PURCHASE_IN;
         } else if (createDto.sourceType === StockReceiptSourceType.PRODUCTION) {
           movementType = InventoryMovementType.PRODUCTION_IN;
+        } else if (createDto.sourceType === StockReceiptSourceType.OPENING) {
+          movementType = InventoryMovementType.OPENING;
         } else {
           movementType = InventoryMovementType.ADJUST_IN;
         }

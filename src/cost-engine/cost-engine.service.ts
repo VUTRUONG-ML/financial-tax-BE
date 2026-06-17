@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
+import { StocksService } from '../stocks/stocks.service';
 
 @Injectable()
 export class CostEngineService {
@@ -18,6 +19,7 @@ export class CostEngineService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => FinancialPeriodsService))
     private readonly financialPeriodsService: FinancialPeriodsService,
+    private readonly stocksService: StocksService,
   ) { }
 
   async calculateAndApplyWeightedAverageCosts(
@@ -186,6 +188,59 @@ export class CostEngineService {
             : new Decimal(0);
 
         if (nextPeriod) {
+          // Find existing StockReceiptDetails of type OPENING for this product in nextPeriod
+          const existingDetails = await tx.stockReceiptDetail.findMany({
+            where: {
+              productId,
+              receipt: {
+                periodId: nextPeriod.id,
+                sourceType: 'OPENING',
+              },
+            },
+            include: {
+              receipt: {
+                include: {
+                  details: true,
+                },
+              },
+            },
+          });
+
+          for (const detail of existingDetails) {
+            // Revert product currentStock
+            await tx.product.updateMany({
+              where: {
+                id: detail.productId,
+                productType: { not: 'SERVICE' },
+              },
+              data: {
+                currentStock: { decrement: Math.round(Number(detail.quantity)) },
+              },
+            });
+
+            const receipt = detail.receipt;
+            if (receipt.details.length === 1) {
+              // Only this product is in the receipt, safe to delete the whole receipt
+              await tx.stockReceipt.delete({
+                where: { id: receipt.id },
+              });
+            } else {
+              // Multiple products in the receipt, delete only this detail
+              await tx.stockReceiptDetail.delete({
+                where: { id: detail.id },
+              });
+              // Update total value of the receipt
+              const newTotalValue = new Decimal(receipt.totalValue).sub(new Decimal(detail.totalValue));
+              await tx.stockReceipt.update({
+                where: { id: receipt.id },
+                data: {
+                  totalValue: newTotalValue,
+                },
+              });
+            }
+          }
+
+          // Also delete the existing inventory movements of type OPENING for this product in nextPeriod (in case any exist)
           await tx.inventoryMovement.deleteMany({
             where: {
               productId,
@@ -194,19 +249,30 @@ export class CostEngineService {
             },
           });
 
-          // Nếu số lượng tồn cuối kỳ > 0, tạo bản ghi OPENING ở kỳ tiếp theo
+          // Nếu số lượng tồn cuối kỳ > 0, tạo bản ghi OPENING ở kỳ tiếp theo bằng StockReceipt service
           if (endingQty > 0) {
-            await tx.inventoryMovement.create({
-              data: {
-                productId,
-                periodId: nextPeriod.id,
-                movementType: InventoryMovementType.OPENING,
-                quantity: endingQty,
-                unitCost: weightedAverageUnitCost,
-                totalValue: endingValue,
-                movementDate: nextPeriod.startDate,
-              },
+            const product = await tx.product.findUnique({
+              where: { id: productId },
+              select: { publicId: true },
             });
+            if (product) {
+              await this.stocksService.createStockReceipt(
+                userId,
+                {
+                  sourceType: 'OPENING',
+                  receiptDate: nextPeriod.startDate.toISOString(),
+                  products: [
+                    {
+                      productPublicId: product.publicId,
+                      quantity: endingQty,
+                      unitCost: Number(weightedAverageUnitCost),
+                    },
+                  ],
+                },
+                nextPeriod.id,
+                tx,
+              );
+            }
           }
         }
       }

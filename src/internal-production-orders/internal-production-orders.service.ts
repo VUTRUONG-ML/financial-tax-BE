@@ -599,6 +599,12 @@ export class InternalProductionOrdersService {
           updatedOrder,
         );
 
+        this.log.log(LOG_ACTIONS.UPDATE_PRODUCTION_ORDER, {
+          status: LOG_STATUS.SUCCESS,
+          userId,
+          orderCode,
+        });
+
         return updatedOrder;
       },
       {
@@ -606,12 +612,6 @@ export class InternalProductionOrdersService {
         timeout: 15000,
       },
     );
-
-    this.log.log(LOG_ACTIONS.UPDATE_PRODUCTION_ORDER, {
-      status: LOG_STATUS.SUCCESS,
-      userId,
-      orderCode,
-    });
   }
 
   async findAll(userId: string, queryDto: GetProductionOrdersQueryDto) {

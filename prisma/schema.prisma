@@ -643,6 +643,7 @@ enum StockReceiptSourceType {
   PURCHASE
   PRODUCTION
   ADJUSTMENT
+  OPENING
 }
 
 enum StockReceiptStatus {
