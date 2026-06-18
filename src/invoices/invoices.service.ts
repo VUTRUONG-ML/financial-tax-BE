@@ -18,7 +18,13 @@ import {
 import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
-import { InvoiceStatus, Prisma, Product, StockIssueType, StockIssueDocument, TaxAuthorityConnection } from '@prisma/client';
+import {
+  InvoiceStatus,
+  Prisma,
+  Product,
+  StockIssueType,
+  StockIssueDocument,
+} from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { ProductsService } from '../products/products.service';
 import { mapToDto } from '../common/utils/mapper.util';

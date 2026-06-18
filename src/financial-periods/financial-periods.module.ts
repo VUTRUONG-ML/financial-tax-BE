@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module, forwardRef, Global } from '@nestjs/common';
 import { FinancialPeriodsService } from './financial-periods.service';
 import { FinancialPeriodsController } from './financial-periods.controller';
 import { FinancialPeriodValidationService } from './financial-period-validation.service';
@@ -6,6 +6,7 @@ import { PrismaModule } from '../core/prisma/prisma.module';
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { CostEngineModule } from '../cost-engine/cost-engine.module';
 
+@Global()
 @Module({
   imports: [PrismaModule, TaxEngineModule, forwardRef(() => CostEngineModule)],
   controllers: [FinancialPeriodsController],
