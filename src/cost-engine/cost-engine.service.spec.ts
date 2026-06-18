@@ -25,11 +25,11 @@ describe('CostEngineService', () => {
     txMock = {
       financialPeriod: {
         findUnique: jest.fn(),
-        findFirst: jest.fn(),
       },
       inventoryMovement: {
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
         deleteMany: jest.fn(),
         create: jest.fn(),
       },
@@ -39,11 +39,19 @@ describe('CostEngineService', () => {
       },
       stockReceiptDetail: {
         findMany: jest.fn(),
+        update: jest.fn(),
         delete: jest.fn(),
       },
       stockReceipt: {
+        findFirst: jest.fn(),
         delete: jest.fn(),
         update: jest.fn(),
+      },
+      stockIssue: {
+        findFirst: jest.fn(),
+      },
+      internalProductionOrder: {
+        findMany: jest.fn(),
       },
       product: {
         findUnique: jest.fn(),
@@ -88,7 +96,7 @@ describe('CostEngineService', () => {
       ).rejects.toThrow(`Financial period with id ${mockPeriodId} not found.`);
     });
 
-    it('should compute weighted average cost correctly and update records', async () => {
+    it('should compute weighted average cost correctly with two-phase production dependencies', async () => {
       // Setup Period
       txMock.financialPeriod.findUnique.mockResolvedValue({
         id: mockPeriodId,
@@ -104,34 +112,21 @@ describe('CostEngineService', () => {
       };
       financialPeriodsServiceMock.ensurePeriodExists.mockResolvedValue(mockNextPeriod);
 
+      // 1. Mock active products in the period (inventoryMovements with product { userId })
       txMock.inventoryMovement.findMany.mockImplementation(async (args: any) => {
         const { where } = args;
 
-        // 1. Initial product list searches
-        if (where.productId === undefined) {
-          // Find products with opening balances
-          if (where.periodId === mockPeriodId && where.movementType === InventoryMovementType.OPENING) {
-            return [
-              { productId: 1 },
-              { productId: 2 },
-              { productId: 4 },
-            ];
-          }
-          // Find products with movements in general
-          if (where.periodId === mockPeriodId && !where.movementType) {
-            return [
-              { productId: 1 },
-              { productId: 3 },
-            ];
-          }
-          return [];
+        // Listing active products in period
+        if (where.periodId === mockPeriodId && where.product && !where.movementType) {
+          return [
+            { productId: 1 }, // Raw material
+            { productId: 2 }, // Produced finished good
+          ];
         }
 
-        // 2. Loop product searches
-        const productId = where.productId;
-        // Inbound / Opening query for specific product
-        if (where.movementType === InventoryMovementType.OPENING) {
-          if (productId === 1) {
+        // Opening movements query for specific products
+        if (where.movementType === InventoryMovementType.OPENING && where.periodId === mockPeriodId) {
+          if (where.productId === 1) {
             return [
               {
                 id: 1,
@@ -142,149 +137,135 @@ describe('CostEngineService', () => {
               },
             ];
           }
-          if (productId === 2) {
-            return [
-              {
-                id: 2,
-                productId: 2,
-                quantity: 10,
-                totalValue: new Decimal('100.00'),
-                movementType: InventoryMovementType.OPENING,
-              },
-            ];
+          if (where.productId === 2) {
+            return []; // Product 2 has no opening balance
           }
-          if (productId === 4) {
-            return [
-              {
-                id: 4,
-                productId: 4,
-                quantity: 0,
-                totalValue: new Decimal('0.00'),
-                movementType: InventoryMovementType.OPENING,
-              },
-            ];
-          }
-          return []; // Product 3 has no opening
         }
 
-        // Inbound movements (Purchase, Production, Adjust)
-        if (where.movementType?.in?.includes(InventoryMovementType.PURCHASE_IN)) {
-          if (productId === 1) {
+        // Outbound movements query for specific products
+        if (where.movementType?.in && where.periodId === mockPeriodId) {
+          if (where.productId === 1) {
             return [
-              {
-                productId: 1,
-                quantity: 20,
-                totalValue: new Decimal('300.00'),
-                movementType: InventoryMovementType.PURCHASE_IN,
-              },
-              {
-                productId: 1,
-                quantity: 10,
-                totalValue: new Decimal('100.00'),
-                movementType: InventoryMovementType.PRODUCTION_IN,
-              },
-              {
-                productId: 1,
-                quantity: 5,
-                totalValue: new Decimal('50.00'),
-                movementType: InventoryMovementType.ADJUST_IN,
-              },
+              { id: 1001, quantity: 15, movementType: InventoryMovementType.PRODUCTION_OUT },
             ];
           }
-          if (productId === 3) {
+          if (where.productId === 2) {
             return [
-              {
-                productId: 3,
-                quantity: 20,
-                totalValue: new Decimal('300.00'),
-                movementType: InventoryMovementType.PURCHASE_IN,
-              },
+              { id: 1002, quantity: 1, movementType: InventoryMovementType.SALE_OUT },
             ];
           }
-          return [];
-        }
-
-        // Outbound movements (Sale, Production, Adjust)
-        if (where.movementType?.in?.includes(InventoryMovementType.SALE_OUT)) {
-          if (productId === 1) {
-            return [
-              { id: 101, productId: 1, quantity: 15, movementType: InventoryMovementType.SALE_OUT },
-              { id: 102, productId: 1, quantity: 5, movementType: InventoryMovementType.PRODUCTION_OUT },
-            ];
-          }
-          if (productId === 2) {
-            return [
-              { id: 201, productId: 2, quantity: 5, movementType: InventoryMovementType.SALE_OUT },
-            ];
-          }
-          return [];
         }
 
         return [];
       });
 
-      // Mock stock issue details
+      // 2. Mock stockReceiptDetail.findMany
+      txMock.stockReceiptDetail.findMany.mockImplementation(async (args: any) => {
+        const { where } = args;
+
+        // Identify produced products
+        if (where.receipt?.sourceType === 'PRODUCTION' && where.product?.userId === mockUserId) {
+          return [
+            { productId: 2 },
+          ];
+        }
+
+        // Query for old next-period opening receipt details
+        if (where.receipt?.sourceType === 'OPENING') {
+          return [];
+        }
+
+        // Inbound details for calculateProductCost
+        if (where.productId === 1) {
+          // Phase 1 (Purchase / Adjustment)
+          return [
+            { quantity: new Decimal(20), totalValue: new Decimal('300.00') },
+          ];
+        }
+
+        if (where.productId === 2) {
+          // Phase 2 (Production / Purchase / Adjustment)
+          // We mock this to return the updated detail that has the allocated cost = 200
+          return [
+            { quantity: new Decimal(2), totalValue: new Decimal('200.00') },
+          ];
+        }
+
+        return [];
+      });
+
+      // 3. Mock stockIssueDetail.findMany
       txMock.stockIssueDetail.findMany.mockImplementation(async (args: any) => {
         const { where } = args;
         if (where.productId === 1) {
           return [
-            { id: 501, productId: 1, quantity: new Decimal('15') },
+            { id: 501, quantity: new Decimal('15') },
           ];
         }
         if (where.productId === 2) {
           return [
-            { id: 502, productId: 2, quantity: new Decimal('5') },
+            { id: 502, quantity: new Decimal('1') },
           ];
         }
         return [];
       });
 
-      txMock.stockReceiptDetail.findMany.mockResolvedValue([]);
+      // 4. Mock production orders query
+      txMock.internalProductionOrder.findMany.mockResolvedValue([
+        { id: 100, orderCode: 'LSX-01', status: 'ACTIVE' },
+      ]);
+
+      // 5. Mock stockIssue and stockReceipt search for intermediate production costing
+      txMock.stockIssue.findFirst.mockResolvedValue({
+        id: 200,
+        details: [
+          { id: 501, productId: 1, quantity: new Decimal('15'), finalCogsValue: new Decimal('200.00') },
+        ],
+      });
+
+      txMock.stockReceipt.findFirst.mockResolvedValue({
+        id: 300,
+        details: [
+          { id: 601, productId: 2, quantity: new Decimal('2'), totalValue: new Decimal('0.00') },
+        ],
+      });
+
+      // Mock product query for carry-forward DTO creation
       txMock.product.findUnique.mockImplementation(async (args: any) => {
         const { where } = args;
-        return { publicId: `prod-pub-${where.id}` };
+        if (where.id === 1) return { publicId: 'prod-pub-1' };
+        if (where.id === 2) return { publicId: 'prod-pub-2' };
+        return null;
       });
-      txMock.product.updateMany.mockResolvedValue({ count: 1 });
 
       // Execute calculation
       await service.calculateAndApplyWeightedAverageCosts(mockUserId, mockPeriodId, txMock);
 
-      // Verify Product 1 calculations:
-      // Opening: Qty = 10, Val = 100
-      // Inbound: Qty = 35, Val = 450
-      // Total: Qty = 45, Val = 550
-      // Unit Cost = 550 / 45 = 12.222222...
-      // Expected Cost = new Decimal(550).div(45)
-      const expectedCost1 = new Decimal(550).div(45);
-      const expectedOutboundVal1_15 = new Decimal('15').mul(expectedCost1);
-      const expectedOutboundVal1_5 = new Decimal('5').mul(expectedCost1);
+      // Verify Phase 1 Calculations for Product 1 (Raw material):
+      // Opening: 10 qty, 100 val
+      // Inbound: 20 qty, 300 val
+      // Total: 30 qty, 400 val => Unit cost = 13.333333...
+      const expectedCost1 = new Decimal(400).div(30);
+      const expectedCogsVal1 = new Decimal(15).mul(expectedCost1);
 
       expect(txMock.stockIssueDetail.update).toHaveBeenCalledWith({
         where: { id: 501 },
         data: {
           finalWeightedUnitCost: expectedCost1,
-          finalCogsValue: expectedOutboundVal1_15,
+          finalCogsValue: expectedCogsVal1,
         },
       });
 
       expect(txMock.inventoryMovement.update).toHaveBeenCalledWith({
-        where: { id: 101 },
+        where: { id: 1001 },
         data: {
           unitCost: expectedCost1,
-          totalValue: expectedOutboundVal1_15,
-        },
-      });
-      expect(txMock.inventoryMovement.update).toHaveBeenCalledWith({
-        where: { id: 102 },
-        data: {
-          unitCost: expectedCost1,
-          totalValue: expectedOutboundVal1_5,
+          totalValue: expectedCogsVal1,
         },
       });
 
-      // Ending stock Product 1:
-      // Total Qty = 45, Outbound Qty = 20 => Ending Qty = 25.
-      // Ending Val = 25 * expectedCost1
+      // Ending stock carry forward check:
+      // Product 1: total = 30, outbound = 15 => ending = 15.
       expect(stocksServiceMock.createStockReceipt).toHaveBeenCalledWith(
         mockUserId,
         {
@@ -293,7 +274,7 @@ describe('CostEngineService', () => {
           products: [
             {
               productPublicId: 'prod-pub-1',
-              quantity: 25,
+              quantity: 15,
               unitCost: Number(expectedCost1),
             },
           ],
@@ -302,32 +283,59 @@ describe('CostEngineService', () => {
         txMock,
       );
 
-      // Verify Product 2 calculations:
-      // Opening: Qty = 10, Val = 100
-      // Inbound: Qty = 0, Val = 0
-      // Total: Qty = 10, Val = 100
-      // Unit Cost = 10
-      const expectedCost2 = new Decimal(10);
-      const expectedOutboundVal2_5 = new Decimal('5').mul(expectedCost2);
+      // Verify Intermediate Costing updates:
+      // totalMaterialCost of order-1 = 200.
+      // Total produced quantity = 2.
+      // Allocated cost to Product 2 = 200. Unit cost = 100.
+      expect(txMock.stockReceiptDetail.update).toHaveBeenCalledWith({
+        where: { id: 601 },
+        data: {
+          unitCost: new Decimal(100),
+          totalValue: new Decimal(200),
+        },
+      });
 
+      expect(txMock.inventoryMovement.updateMany).toHaveBeenCalledWith({
+        where: {
+          sourceDocumentId: 300,
+          sourceDocumentType: 'PRODUCTION_ORDER',
+          productId: 2,
+          movementType: 'PRODUCTION_IN',
+        },
+        data: {
+          unitCost: new Decimal(100),
+          totalValue: new Decimal(200),
+        },
+      });
+
+      expect(txMock.stockReceipt.update).toHaveBeenCalledWith({
+        where: { id: 300 },
+        data: {
+          totalValue: new Decimal(200),
+        },
+      });
+
+      // Verify Phase 2 Calculations for Product 2 (Finished Good):
+      // Opening: 0 qty, 0 val
+      // Inbound (Production): 2 qty, 200 val => Unit cost = 100.
       expect(txMock.stockIssueDetail.update).toHaveBeenCalledWith({
         where: { id: 502 },
         data: {
-          finalWeightedUnitCost: expectedCost2,
-          finalCogsValue: expectedOutboundVal2_5,
-        },
-      });
-      expect(txMock.inventoryMovement.update).toHaveBeenCalledWith({
-        where: { id: 201 },
-        data: {
-          unitCost: expectedCost2,
-          totalValue: expectedOutboundVal2_5,
+          finalWeightedUnitCost: new Decimal(100),
+          finalCogsValue: new Decimal(100),
         },
       });
 
-      // Ending stock Product 2:
-      // Total Qty = 10, Outbound Qty = 5 => Ending Qty = 5.
-      // Ending Val = 50.
+      expect(txMock.inventoryMovement.update).toHaveBeenCalledWith({
+        where: { id: 1002 },
+        data: {
+          unitCost: new Decimal(100),
+          totalValue: new Decimal(100),
+        },
+      });
+
+      // Ending stock carry forward check:
+      // Product 2: total = 2, outbound = 1 => ending = 1.
       expect(stocksServiceMock.createStockReceipt).toHaveBeenCalledWith(
         mockUserId,
         {
@@ -336,33 +344,8 @@ describe('CostEngineService', () => {
           products: [
             {
               productPublicId: 'prod-pub-2',
-              quantity: 5,
-              unitCost: Number(expectedCost2),
-            },
-          ],
-        },
-        mockNextPeriod.id,
-        txMock,
-      );
-
-      // Verify Product 3 calculations:
-      // Opening: Qty = 0, Val = 0
-      // Inbound: Qty = 20, Val = 300
-      // Total: Qty = 20, Val = 300
-      // Unit Cost = 15
-      // Ending stock Product 3:
-      // Total Qty = 20, Outbound Qty = 0 => Ending Qty = 20.
-      // Ending Val = 300.
-      expect(stocksServiceMock.createStockReceipt).toHaveBeenCalledWith(
-        mockUserId,
-        {
-          sourceType: 'OPENING',
-          receiptDate: mockNextPeriod.startDate.toISOString(),
-          products: [
-            {
-              productPublicId: 'prod-pub-3',
-              quantity: 20,
-              unitCost: 15,
+              quantity: 1,
+              unitCost: 100,
             },
           ],
         },

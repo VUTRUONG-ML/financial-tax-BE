@@ -196,6 +196,27 @@ describe('InternalProductionOrdersService', () => {
         BadRequestException,
       );
     });
+
+    it('should throw BadRequestException if products array is empty or contains more than 1 item', async () => {
+      const payloadEmpty = {
+        materials: [{ productPublicId: 'raw-1', quantity: 10 }],
+        products: [],
+      };
+      await expect(service.create('user-1', payloadEmpty as any, 10)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      const payloadMultiple = {
+        materials: [{ productPublicId: 'raw-1', quantity: 10 }],
+        products: [
+          { productPublicId: 'fin-1', quantity: 2 },
+          { productPublicId: 'fin-2', quantity: 1 },
+        ],
+      };
+      await expect(service.create('user-1', payloadMultiple as any, 10)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
 
   describe('cancel', () => {

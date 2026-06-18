@@ -517,7 +517,8 @@ export class StocksService {
         const quantity = qtyDetailMap.get(productEntity.publicId) ?? 0;
         const itemQty = new Decimal(quantity);
         const provUnitCost = productEntity.openingStockUnitCost;
-        const itemTotal = itemQty.mul(provUnitCost);
+        const itemCost = new Decimal(0);
+        const itemTotal = itemQty.mul(itemCost);
 
         // Create StockIssueDetail
         await client.stockIssueDetail.create({
@@ -557,7 +558,7 @@ export class StocksService {
             periodId: period.id,
             movementType,
             quantity: Math.round(quantity),
-            unitCost: new Decimal(0),
+            unitCost: itemCost,
             totalValue: itemTotal,
             movementDate: transactionDate,
             sourceDocumentType: sourceDocType,
@@ -1016,11 +1017,17 @@ export class StocksService {
           select: { id: true, invoiceSymbol: true },
         })
         : [];
-    const invoiceMap = new Map(invoices.map((inv) => [inv.id, inv.invoiceSymbol]));
+    const invoiceMap = new Map(
+      invoices.map((inv) => [inv.id, inv.invoiceSymbol]),
+    );
 
     // Fetch related internal production orders
     const orderIds = issues
-      .filter((i) => i.sourceDocumentType === 'PRODUCTION_ORDER' && i.sourceDocumentId !== null)
+      .filter(
+        (i) =>
+          i.sourceDocumentType === 'PRODUCTION_ORDER' &&
+          i.sourceDocumentId !== null,
+      )
       .map((i) => i.sourceDocumentId as number);
 
     const productionOrders = orderIds.length > 0
@@ -1029,7 +1036,9 @@ export class StocksService {
         select: { id: true, orderCode: true },
       })
       : [];
-    const orderMap = new Map(productionOrders.map((ord) => [ord.id, ord.orderCode]));
+    const orderMap = new Map(
+      productionOrders.map((ord) => [ord.id, ord.orderCode]),
+    );
 
     const mappedRaw = issues.map((i) => {
       let description = 'Phiếu xuất kho khác';
@@ -1039,7 +1048,10 @@ export class StocksService {
         const symbol = invoiceMap.get(i.sourceDocumentId) || '';
         description = `Phiếu xuất kho cho hóa đơn${symbol ? ` ${symbol}` : ''}`;
         sourceDocumentCode = symbol;
-      } else if (i.sourceDocumentType === 'PRODUCTION_ORDER' && i.sourceDocumentId) {
+      } else if (
+        i.sourceDocumentType === 'PRODUCTION_ORDER' &&
+        i.sourceDocumentId
+      ) {
         const code = orderMap.get(i.sourceDocumentId) || '';
         description = `Phiếu xuất kho cho lệnh sản xuất${code ? ` ${code}` : ''}`;
         sourceDocumentCode = code;

@@ -48,6 +48,12 @@ export class InternalProductionOrdersService {
     createDto: CreateProductionOrderDto,
     periodId: number,
   ) {
+    if (!createDto.products || createDto.products.length !== 1) {
+      throw new BadRequestException(
+        'Each production order is created for only one finished product.',
+      );
+    }
+
     const materialPublicIds = createDto.materials.map((m) => m.productPublicId);
     const productPublicIds = createDto.products.map((p) => p.productPublicId);
     const allPublicIds = Array.from(
@@ -415,6 +421,12 @@ export class InternalProductionOrdersService {
           if (!updateDto.materials || !updateDto.products) {
             throw new BadRequestException(
               'Both materials and products arrays are required when updating production order details.',
+            );
+          }
+
+          if (updateDto.products.length !== 1) {
+            throw new BadRequestException(
+              'Mỗi lệnh sản xuất chỉ được tạo cho duy nhất 1 thành phẩm.',
             );
           }
 
