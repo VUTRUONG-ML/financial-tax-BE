@@ -10,12 +10,16 @@ import {
   StockReceiptStatus,
   StockReceiptSourceType,
   ProductionStatus,
-  ProductType,
   StockIssueDocument,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { StocksService } from '../stocks/stocks.service';
+
+interface CostInfo {
+  unitCost: Decimal;
+  endingQty: number;
+}
 
 @Injectable()
 export class CostEngineService {
@@ -29,33 +33,45 @@ export class CostEngineService {
   ) { }
 
   /**
-   * Helper để tính toán đơn giá bình quan và cập nhật giá xuất kho cho từng sản phẩm.
+   * Tính toán đơn giá bình quân gia quyền và kết quả tồn kho cuối kỳ cho danh sách sản phẩm trong kỳ.
    */
-  private async calculateProductCost(
+  private async calculateCostsForProducts(
     userId: string,
-    productId: number,
+    targetProductIds: number[],
     periodId: number,
     isPhase2: boolean,
-    nextPeriod: any,
     tx: Prisma.TransactionClient,
-  ): Promise<Decimal> {
-    // tồn đầu kì
-    const openingMovementsForProduct = await tx.inventoryMovement.findMany({
-      where: {
-        productId,
-        periodId,
-        movementType: InventoryMovementType.OPENING,
-      },
-    });
-
-    let openingQty = 0;
-    let openingVal = new Decimal(0);
-    for (const om of openingMovementsForProduct) {
-      openingQty += om.quantity;
-      openingVal = openingVal.add(om.totalValue);
+  ): Promise<Map<number, CostInfo>> {
+    const costMap = new Map<number, CostInfo>();
+    if (targetProductIds.length === 0) {
+      return costMap;
     }
 
-    // nhập trong kì
+    // 1. Query opening stock aggregates in bulk
+    const openingAggregates: any[] = await tx.$queryRawUnsafe(
+      `
+        SELECT
+          product_id as "productId",
+          SUM(quantity) as "quantity",
+          SUM(total_value) as "totalValue"
+        FROM inventory_movements
+        WHERE period_id = $1
+          AND product_id IN (${targetProductIds.join(', ')})
+          AND movement_type = 'OPENING'
+        GROUP BY product_id
+      `,
+      periodId,
+    );
+
+    const openingMap = new Map<number, { qty: number; val: Decimal }>();
+    for (const agg of openingAggregates) {
+      const pId = Number(agg.productId);
+      const qty = agg.quantity ? Number(agg.quantity) : 0;
+      const val = agg.totalValue ? new Decimal(agg.totalValue) : new Decimal(0);
+      openingMap.set(pId, { qty, val });
+    }
+
+    // 2. Query inbound stock receipt aggregates in bulk
     const sourceTypes = isPhase2
       ? [
           StockReceiptSourceType.PRODUCTION,
@@ -64,178 +80,120 @@ export class CostEngineService {
         ]
       : [StockReceiptSourceType.PURCHASE, StockReceiptSourceType.ADJUSTMENT];
 
-    const inboundDetails = await tx.stockReceiptDetail.findMany({
-      where: {
-        productId,
-        receipt: {
-          periodId,
-          status: StockReceiptStatus.APPROVED,
-          sourceType: { in: sourceTypes },
-        },
-      },
-    });
+    const sourceTypesSqlList = sourceTypes.map((t) => `'${t}'`).join(', ');
 
-    let inboundQty = 0;
-    let inboundVal = new Decimal(0);
+    const receiptAggregates: any[] = await tx.$queryRawUnsafe(
+      `
+        SELECT
+          d.product_id as "productId",
+          SUM(d.quantity) as "quantity",
+          SUM(d.total_value) as "totalValue"
+        FROM stock_receipt_details d
+        JOIN stock_receipts r ON d.receipt_id = r.id
+        WHERE r.period_id = $1
+          AND r.status = 'APPROVED'
+          AND r.source_type IN (${sourceTypesSqlList})
+          AND d.product_id IN (${targetProductIds.join(', ')})
+        GROUP BY d.product_id
+      `,
+      periodId,
+    );
 
-    for (const d of inboundDetails) {
-      inboundQty += d.quantity.toNumber();
-      inboundVal = inboundVal.add(d.totalValue);
+    const receiptMap = new Map<number, { qty: number; val: Decimal }>();
+    for (const agg of receiptAggregates) {
+      const pId = Number(agg.productId);
+      const qty = agg.quantity ? Number(agg.quantity) : 0;
+      const val = agg.totalValue ? new Decimal(agg.totalValue) : new Decimal(0);
+      receiptMap.set(pId, { qty, val });
     }
 
-    const totalQty = openingQty + inboundQty;
-    const totalVal = openingVal.add(inboundVal);
+    // 3. Query outbound movement aggregates in bulk
+    const outboundAggregates: any[] = await tx.$queryRawUnsafe(
+      `
+        SELECT
+          d.product_id as "productId",
+          SUM(d.quantity) as "quantity"
+        FROM stock_issue_details d
+        JOIN stock_issues i ON d.issue_id = i.id
+        WHERE i.period_id = $1
+          AND i.status = 'APPROVED'
+          AND i.issue_type IN ('SALE', 'PRODUCTION', 'ADJUSTMENT')
+          AND d.product_id IN (${targetProductIds.join(', ')})
+        GROUP BY d.product_id
+      `,
+      periodId,
+    );
 
-    let weightedAverageUnitCost = new Decimal(0);
-    if (totalQty > 0) {
-      weightedAverageUnitCost = totalVal.div(totalQty);
+    const outboundMap = new Map<number, number>();
+    for (const agg of outboundAggregates) {
+      const pId = Number(agg.productId);
+      const qty = agg.quantity ? Number(agg.quantity) : 0;
+      outboundMap.set(pId, qty);
     }
 
-    // cập nhật
-    const issueDetails = await tx.stockIssueDetail.findMany({
-      where: {
-        productId,
-        issue: {
-          periodId,
-          status: StockIssueStatus.APPROVED,
-        },
-      },
-    });
+    // 4. Compute weighted average cost and endingQty for each product
+    const validCosts: [number, Decimal][] = [];
+    for (const productId of targetProductIds) {
+      const opening = openingMap.get(productId) || { qty: 0, val: new Decimal(0) };
+      const inbound = receiptMap.get(productId) || { qty: 0, val: new Decimal(0) };
+      const outboundQty = outboundMap.get(productId) || 0;
 
-    for (const detail of issueDetails) {
-      const finalCogsValue = detail.quantity.mul(weightedAverageUnitCost);
-      await tx.stockIssueDetail.update({
-        where: { id: detail.id },
-        data: {
-          finalWeightedUnitCost: weightedAverageUnitCost,
-          finalCogsValue,
-        },
-      });
-    }
+      const totalQty = opening.qty + inbound.qty;
+      const totalVal = opening.val.add(inbound.val);
 
-    const outboundMovements = await tx.inventoryMovement.findMany({
-      where: {
-        productId,
-        periodId,
-        movementType: {
-          in: [
-            InventoryMovementType.SALE_OUT,
-            InventoryMovementType.PRODUCTION_OUT,
-            InventoryMovementType.ADJUST_OUT,
-          ],
-        },
-      },
-    });
-
-    let outboundQty = 0;
-    for (const m of outboundMovements) {
-      const totalValue = new Decimal(m.quantity).mul(weightedAverageUnitCost);
-      outboundQty += m.quantity;
-      await tx.inventoryMovement.update({
-        where: { id: m.id },
-        data: {
-          unitCost: weightedAverageUnitCost,
-          totalValue,
-        },
-      });
-    }
-
-    // tính tồn cho đầu kì sau
-    const endingQty = totalQty - outboundQty;
-
-    if (nextPeriod) {
-      //  xóa cũ
-      const existingDetails = await tx.stockReceiptDetail.findMany({
-        where: {
-          productId,
-          receipt: {
-            periodId: nextPeriod.id,
-            sourceType: StockReceiptSourceType.OPENING,
-          },
-        },
-        include: {
-          receipt: {
-            include: {
-              details: true,
-            },
-          },
-        },
-      });
-
-      for (const detail of existingDetails) {
-        // Revert product currentStock
-        await tx.product.updateMany({
-          where: {
-            id: detail.productId,
-            productType: { not: ProductType.SERVICE },
-            currentStock: { gte: Math.round(Number(detail.quantity)) },
-          },
-          data: {
-            currentStock: { decrement: Math.round(Number(detail.quantity)) },
-          },
-        });
-
-        const receipt = detail.receipt;
-        if (receipt.details.length === 1) {
-          // Chỉ có 1 sản phẩm trong phiếu, xóa luôn phiếu nhập
-          await tx.stockReceipt.delete({
-            where: { id: receipt.id },
-          });
-        } else {
-          // Nhiều sản phẩm trong phiếu, chỉ xóa chi tiết của sản phẩm này
-          await tx.stockReceiptDetail.delete({
-            where: { id: detail.id },
-          });
-          // Cập nhật lại tổng giá trị của phiếu nhập
-          const newTotalValue = new Decimal(receipt.totalValue).sub(
-            new Decimal(detail.totalValue),
-          );
-          await tx.stockReceipt.update({
-            where: { id: receipt.id },
-            data: {
-              totalValue: newTotalValue,
-            },
-          });
-        }
+      let weightedAverageUnitCost = new Decimal(0);
+      if (totalQty > 0) {
+        weightedAverageUnitCost = totalVal.div(totalQty);
       }
 
-      // Xóa inventoryMovement kỳ tiếp theo
-      await tx.inventoryMovement.deleteMany({
-        where: {
-          productId,
-          periodId: nextPeriod.id,
-          movementType: InventoryMovementType.OPENING,
-        },
+      const endingQty = totalQty - outboundQty;
+
+      costMap.set(productId, {
+        unitCost: weightedAverageUnitCost,
+        endingQty,
       });
 
-      // Tạo mới
-      if (endingQty > 0) {
-        const product = await tx.product.findUnique({
-          where: { id: productId },
-          select: { publicId: true },
-        });
-        if (product) {
-          await this.stocksService.createStockReceipt(
-            userId,
-            {
-              sourceType: StockReceiptSourceType.OPENING,
-              receiptDate: nextPeriod.startDate.toISOString(),
-              products: [
-                {
-                  productPublicId: product.publicId,
-                  quantity: endingQty,
-                  unitCost: Number(weightedAverageUnitCost),
-                },
-              ],
-            },
-            nextPeriod.id,
-            tx,
-          );
-        }
-      }
+      validCosts.push([productId, weightedAverageUnitCost]);
     }
 
-    return weightedAverageUnitCost;
+    // 5. Bulk updates using raw SQL
+    if (validCosts.length > 0) {
+      const valuesStr = validCosts
+        .map(
+          ([prodId, cost]) =>
+            `(${prodId}::integer, ${cost.toString()}::numeric)`,
+        )
+        .join(', ');
+
+      // Bulk update stock_issue_details
+      const updateIssuesSql = `
+        UPDATE stock_issue_details AS d
+        SET
+          final_weighted_unit_cost = v.unit_cost,
+          final_cogs_value = d.quantity * v.unit_cost
+        FROM (VALUES ${valuesStr}) AS v(product_id, unit_cost)
+        WHERE d.product_id = v.product_id
+          AND d.issue_id IN (
+            SELECT id FROM stock_issues WHERE period_id = $1 AND status = 'APPROVED'
+          )
+      `;
+      await tx.$executeRawUnsafe(updateIssuesSql, periodId);
+
+      // Bulk update inventory_movements
+      const updateMovementsSql = `
+        UPDATE inventory_movements AS m
+        SET
+          unit_cost = v.unit_cost,
+          total_value = m.quantity * v.unit_cost
+        FROM (VALUES ${valuesStr}) AS v(product_id, unit_cost)
+        WHERE m.product_id = v.product_id
+          AND m.period_id = $1
+          AND m.movement_type IN ('SALE_OUT', 'PRODUCTION_OUT', 'ADJUST_OUT')
+      `;
+      await tx.$executeRawUnsafe(updateMovementsSql, periodId);
+    }
+
+    return costMap;
   }
 
   /**
@@ -311,16 +269,18 @@ export class CostEngineService {
         periodId,
       });
 
+      const allCosts = new Map<number, CostInfo>();
+
       // 4. Thực thi Phase 1: Tính giá xuất kho cho nguyên vật liệu/mua hàng/khác
-      for (const productId of phase1ProductIds) {
-        await this.calculateProductCost(
-          userId,
-          productId,
-          periodId,
-          false,
-          nextPeriod,
-          tx,
-        );
+      const phase1Costs = await this.calculateCostsForProducts(
+        userId,
+        phase1ProductIds,
+        periodId,
+        false,
+        tx,
+      );
+      for (const [prodId, costInfo] of phase1Costs.entries()) {
+        allCosts.set(prodId, costInfo);
       }
 
       // 5. Thực thi Intermediate Phase: Tính toán chi phí nguyên liệu cho lệnh sản xuất
@@ -337,26 +297,22 @@ export class CostEngineService {
       });
 
       for (const order of activeProductionOrders) {
-        // Tìm phiếu xuất nguyên vật liệu (StockIssue) của lệnh sản xuất này
-        const stockIssue = await tx.stockIssue.findFirst({
-          where: {
-            sourceDocumentType: StockIssueDocument.PRODUCTION_ORDER,
-            sourceDocumentId: order.id,
-            status: StockIssueStatus.APPROVED,
-          },
-          include: {
-            details: true,
-          },
-        });
+        // Tính tổng chi phí nguyên vật liệu (StockIssue) của lệnh sản xuất
+        const materialCostResult: any[] = await tx.$queryRawUnsafe(
+          `
+            SELECT COALESCE(SUM(d.final_cogs_value), 0) AS "totalMaterialCost"
+            FROM stock_issue_details d
+            JOIN stock_issues i ON d.issue_id = i.id
+            WHERE i.source_document_type = 'PRODUCTION_ORDER'
+              AND i.source_document_id = $1
+              AND i.status = 'APPROVED'
+          `,
+          order.id,
+        );
 
-        let totalMaterialCost = new Decimal(0);
-        if (stockIssue) {
-          for (const detail of stockIssue.details) {
-            totalMaterialCost = totalMaterialCost.add(
-              detail.finalCogsValue ?? 0,
-            );
-          }
-        }
+        const totalMaterialCost = materialCostResult[0]?.totalMaterialCost
+          ? new Decimal(materialCostResult[0].totalMaterialCost)
+          : new Decimal(0);
 
         // Tìm phiếu nhập kho thành phẩm (StockReceipt) của lệnh sản xuất này
         const stockReceipt = await tx.stockReceipt.findFirst({
@@ -411,15 +367,137 @@ export class CostEngineService {
       }
 
       // 6. Thực thi Phase 2: Tính giá xuất kho cho thành phẩm sản xuất
-      for (const productId of phase2ProductIds) {
-        await this.calculateProductCost(
-          userId,
-          productId,
-          periodId,
-          true,
-          nextPeriod,
-          tx,
-        );
+      const phase2Costs = await this.calculateCostsForProducts(
+        userId,
+        phase2ProductIds,
+        periodId,
+        true,
+        tx,
+      );
+      for (const [prodId, costInfo] of phase2Costs.entries()) {
+        allCosts.set(prodId, costInfo);
+      }
+
+      // 7. Cập nhật tồn kho kỳ tiếp theo
+      if (nextPeriod && allActiveProductIds.length > 0) {
+        // Find all active products details
+        const activeProducts = await tx.product.findMany({
+          where: { id: { in: allActiveProductIds } },
+          select: { id: true, publicId: true },
+        });
+        const activeProductsMap = new Map(activeProducts.map((p) => [p.id, p]));
+
+        // a. Xóa cũ và Revert currentStock trong kỳ tiếp theo
+        const existingDetails = await tx.stockReceiptDetail.findMany({
+          where: {
+            productId: { in: allActiveProductIds },
+            receipt: {
+              periodId: nextPeriod.id,
+              sourceType: StockReceiptSourceType.OPENING,
+            },
+          },
+          include: {
+            receipt: {
+              include: {
+                details: true,
+              },
+            },
+          },
+        });
+
+        const detailsByReceiptId = new Map<number, typeof existingDetails>();
+        if (existingDetails.length > 0) {
+          const revertMap = new Map<number, number>();
+          for (const d of existingDetails) {
+            const qty = Math.round(d.quantity.toNumber());
+            revertMap.set(d.productId, (revertMap.get(d.productId) || 0) + qty);
+
+            const list = detailsByReceiptId.get(d.receiptId) || [];
+            list.push(d);
+            detailsByReceiptId.set(d.receiptId, list);
+          }
+
+          const revertValues = Array.from(revertMap.entries())
+            .map(([pId, qty]) => `(${pId}::integer, ${qty}::integer)`)
+            .join(', ');
+
+          const updateProductsSql = `
+            UPDATE products AS p
+            SET current_stock = p.current_stock - v.qty
+            FROM (VALUES ${revertValues}) AS v(product_id, qty)
+            WHERE p.id = v.product_id
+              AND p.product_type != 'SERVICE'
+              AND p.current_stock >= v.qty
+          `;
+          await tx.$executeRawUnsafe(updateProductsSql);
+        }
+
+        // Xóa receipt details / receipts của kỳ tiếp theo
+        for (const [receiptId, detailsToDelete] of detailsByReceiptId.entries()) {
+          const receipt = detailsToDelete[0].receipt; // receipt gốc trong db
+          const totalDetailsCount = receipt.details.length; // tổng số lượng item detail thực chất trong receipt này
+          const deleteCount = detailsToDelete.length; // tổng số lượng item detail hoạt động trong kì đang muốn chốt này.
+
+          if (totalDetailsCount === deleteCount) {
+            await tx.stockReceipt.delete({
+              where: { id: receiptId },
+            });
+          } else {
+            const detailIds = detailsToDelete.map((d) => d.id);
+            await tx.stockReceiptDetail.deleteMany({
+              where: { id: { in: detailIds } },
+            });
+
+            const deletedValue = detailsToDelete.reduce(
+              (sum, d) => sum.add(d.totalValue),
+              new Decimal(0),
+            );
+            const newTotalValue = new Decimal(receipt.totalValue).sub(deletedValue);
+            await tx.stockReceipt.update({
+              where: { id: receiptId },
+              data: {
+                totalValue: newTotalValue,
+              },
+            });
+          }
+        }
+
+        // Xóa inventoryMovement kỳ tiếp theo
+        await tx.inventoryMovement.deleteMany({
+          where: {
+            productId: { in: allActiveProductIds },
+            periodId: nextPeriod.id,
+            movementType: InventoryMovementType.OPENING,
+          },
+        });
+
+        // b. Tạo mới
+        const nextPeriodProductsToCreate: any[] = [];
+        for (const [productId, info] of allCosts.entries()) {
+          if (info.endingQty > 0) {
+            const product = activeProductsMap.get(productId);
+            if (product) {
+              nextPeriodProductsToCreate.push({
+                productPublicId: product.publicId,
+                quantity: info.endingQty,
+                unitCost: Number(info.unitCost),
+              });
+            }
+          }
+        }
+
+        if (nextPeriodProductsToCreate.length > 0) {
+          await this.stocksService.createStockReceipt(
+            userId,
+            {
+              sourceType: StockReceiptSourceType.OPENING,
+              receiptDate: nextPeriod.startDate.toISOString(),
+              products: nextPeriodProductsToCreate,
+            },
+            nextPeriod.id,
+            tx,
+          );
+        }
       }
 
       this.log.log(LOG_ACTIONS.RUN_COST_ENGINE, {
