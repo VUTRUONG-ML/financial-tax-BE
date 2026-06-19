@@ -50,9 +50,7 @@ export class CreateInboundInvoiceDto {
   @IsString()
   attachmentUrl?: string; // Link ảnh chụp hóa đơn minh chứng
 
-  @IsBoolean()
-  @IsOptional()
-  isSyncedToInventory: boolean = false; // Checkbox [x] Cập nhật tồn kho
+
 
   @IsArray()
   @ArrayMinSize(1)

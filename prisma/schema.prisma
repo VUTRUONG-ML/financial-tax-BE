@@ -318,19 +318,18 @@ model InboundInvoice {
 
   totalAmount   Decimal              @map("total_amount") @db.Decimal(18, 4)
   attachmentUrl String?              @map("attachment_url") @db.Text
+  xmlFileUrl    String?              @map("xml_file_url") @db.Text
+  pdfFileUrl    String?              @map("pdf_file_url") @db.Text
   status        InboundInvoiceStatus @default(ACTIVE)
-
-  // Logic cốt lõi: Frontend gửi checkbox xác nhận đã đồng bộ kho
-  // Backend KHÔNG tự set true nếu không có yêu cầu rõ ràng
-  isSyncedToInventory Boolean @default(false) @map("is_synced_to_inventory")
 
   // Trạng thái trả tiền cho nhà cung cấp
   isPaid     Boolean @default(false) @map("is_paid")
   paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4)
 
-  user     User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details  InboundInvoiceDetail[]
-  vouchers Voucher[]
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details         InboundInvoiceDetail[]
+  vouchers        Voucher[]
+  receiptInvoices StockReceiptInvoice[]
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -693,9 +692,10 @@ model StockReceipt {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  period   FinancialPeriod      @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  details  StockReceiptDetail[]
-  vouchers Voucher[]
+  period          FinancialPeriod       @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  details         StockReceiptDetail[]
+  vouchers        Voucher[]
+  receiptInvoices StockReceiptInvoice[]
 
   @@index([periodId])
   @@map("stock_receipts")
@@ -794,5 +794,18 @@ model MockTaxAccount {
   businessName         String
   isEinvoiceRegistered Boolean
   createdAt            DateTime @default(now())
+}
+
+model StockReceiptInvoice {
+  id        Int      @id @default(autoincrement())
+  receiptId Int      @map("receipt_id")
+  invoiceId Int      @map("invoice_id")
+  linkedAt  DateTime @default(now()) @map("linked_at")
+
+  receipt StockReceipt   @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoice InboundInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([receiptId, invoiceId])
+  @@map("stock_receipt_invoices")
 }
 

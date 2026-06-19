@@ -21,6 +21,21 @@ describe('StocksService', () => {
         updateMany: jest.fn(),
         findUnique: jest.fn(),
       },
+      stockReceipt: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+      },
+      inboundInvoice: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+      },
+      stockReceiptInvoice: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        delete: jest.fn(),
+        findMany: jest.fn(),
+        findFirst: jest.fn(),
+      },
       product: {
         updateMany: jest.fn(),
         findMany: jest.fn(),
@@ -308,6 +323,300 @@ describe('StocksService', () => {
       expect(auditLogMock.logChange).toHaveBeenCalled();
       expect(result).toBeDefined();
       expect(result.status).toBe('CANCELLED');
+    });
+  });
+
+  describe('linkInvoice', () => {
+    const mockUserId = 'user-1';
+    const mockReceiptId = 100;
+    const mockReceiptCode = 'PNK-0626-0001';
+    const mockInvoicePublicId = 'inv-pub-1';
+
+    it('should link stock receipt to invoice successfully', async () => {
+      prismaMock.stockReceipt.findFirst.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        period: { userId: mockUserId },
+        details: [],
+      });
+      prismaMock.inboundInvoice.findUnique.mockResolvedValue({
+        id: 200,
+        publicId: mockInvoicePublicId,
+        userId: mockUserId,
+        details: [],
+      });
+      prismaMock.stockReceiptInvoice.findUnique.mockResolvedValue(null);
+      prismaMock.stockReceiptInvoice.create.mockResolvedValue({
+        receiptId: mockReceiptId,
+        invoiceId: 200,
+      });
+
+      const result = await service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId);
+
+      expect(prismaMock.stockReceipt.findFirst).toHaveBeenCalledWith({
+        where: { receiptCode: mockReceiptCode, period: { userId: mockUserId } },
+        include: { period: true, details: true },
+      });
+      expect(prismaMock.inboundInvoice.findUnique).toHaveBeenCalledWith({
+        where: { publicId: mockInvoicePublicId, userId: mockUserId },
+        include: { details: true },
+      });
+      expect(prismaMock.stockReceiptInvoice.create).toHaveBeenCalledWith({
+        data: {
+          receiptId: mockReceiptId,
+          invoiceId: 200,
+        },
+      });
+      expect(result.message).toContain('Linked stock receipt to invoice successfully');
+    });
+
+    it('should throw NotFoundException if stock receipt not found', async () => {
+      prismaMock.stockReceipt.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId)
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException if link already exists', async () => {
+      prismaMock.stockReceipt.findFirst.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        period: { userId: mockUserId },
+        details: [],
+      });
+      prismaMock.inboundInvoice.findUnique.mockResolvedValue({
+        id: 200,
+        publicId: mockInvoicePublicId,
+        userId: mockUserId,
+        details: [],
+      });
+      prismaMock.stockReceiptInvoice.findUnique.mockResolvedValue({
+        receiptId: mockReceiptId,
+        invoiceId: 200,
+      });
+
+      await expect(
+        service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId)
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('unlinkInvoice', () => {
+    const mockUserId = 'user-1';
+    const mockReceiptId = 100;
+    const mockReceiptCode = 'PNK-0626-0001';
+    const mockInvoiceId = 200;
+    const mockInvoicePublicId = 'inv-pub-1';
+
+    it('should unlink successfully', async () => {
+      prismaMock.stockReceipt.findFirst.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        period: { userId: mockUserId },
+      });
+      prismaMock.inboundInvoice.findUnique.mockResolvedValue({
+        id: mockInvoiceId,
+        publicId: mockInvoicePublicId,
+        userId: mockUserId,
+      });
+      prismaMock.stockReceiptInvoice.findUnique.mockResolvedValue({
+        receiptId: mockReceiptId,
+        invoiceId: mockInvoiceId,
+      });
+      prismaMock.stockReceiptInvoice.delete.mockResolvedValue({});
+
+      const result = await service.unlinkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId);
+
+      expect(prismaMock.stockReceiptInvoice.delete).toHaveBeenCalled();
+      expect(result.message).toContain('Unlinked stock receipt from invoice successfully');
+    });
+
+    it('should throw NotFoundException if link does not exist', async () => {
+      prismaMock.stockReceipt.findFirst.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        period: { userId: mockUserId },
+      });
+      prismaMock.inboundInvoice.findUnique.mockResolvedValue({
+        id: mockInvoiceId,
+        publicId: mockInvoicePublicId,
+        userId: mockUserId,
+      });
+      prismaMock.stockReceiptInvoice.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.unlinkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId)
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('reconcileReceipt', () => {
+    const mockUserId = 'user-1';
+    const mockReceiptCode = 'PNK-0626-0001';
+    const mockReceiptId = 100;
+
+    it('should throw NotFoundException if receipt does not exist', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.reconcileReceipt(mockUserId, mockReceiptCode)
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should return SUCCESS status if no invoice is linked', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        totalValue: new Decimal(1000),
+        details: [],
+        period: { userId: mockUserId },
+      });
+      prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue(null);
+
+      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+
+      expect(result.validation.status).toBe('SUCCESS');
+      expect(result.validation.warnings).toHaveLength(0);
+      expect(result.invoice).toBeNull();
+    });
+
+    it('should return SUCCESS status if receipt matches linked invoice perfectly', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        totalValue: new Decimal(1000),
+        details: [
+          { productId: 1, quantity: new Decimal(10), unitCost: new Decimal(100) },
+        ],
+        period: { userId: mockUserId },
+      });
+
+      prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue({
+        invoice: {
+          id: 200,
+          totalAmount: new Decimal(1000),
+          details: [
+            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
+          ],
+        },
+      });
+
+      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+
+      expect(result.validation.status).toBe('SUCCESS');
+      expect(result.validation.warnings).toHaveLength(0);
+    });
+
+    it('should flag TOTAL_AMOUNT_MISMATCH and QUANTITY_MISMATCH', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        totalValue: new Decimal(900),
+        details: [
+          { productId: 1, quantity: new Decimal(9), unitCost: new Decimal(100) },
+        ],
+        period: { userId: mockUserId },
+      });
+
+      prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue({
+        invoice: {
+          id: 200,
+          totalAmount: new Decimal(1000),
+          details: [
+            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
+          ],
+        },
+      });
+
+      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+
+      expect(result.validation.status).toBe('WARNING');
+      expect(result.validation.warnings).toContainEqual(expect.objectContaining({ code: 'TOTAL_AMOUNT_MISMATCH' }));
+      expect(result.validation.warnings).toContainEqual(expect.objectContaining({ code: 'QUANTITY_MISMATCH' }));
+    });
+
+    it('should flag PRODUCT_MISSING', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        totalValue: new Decimal(1000),
+        details: [
+          { productId: 2, quantity: new Decimal(10), unitCost: new Decimal(100) },
+        ],
+        period: { userId: mockUserId },
+      });
+
+      prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue({
+        invoice: {
+          id: 200,
+          totalAmount: new Decimal(1000),
+          details: [
+            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
+          ],
+        },
+      });
+
+      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+
+      expect(result.validation.status).toBe('WARNING');
+      expect(result.validation.warnings).toContainEqual(expect.objectContaining({ code: 'PRODUCT_MISSING' }));
+    });
+
+    it('should flag UNIT_COST_MISMATCH as WARNING if diff > 100', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        totalValue: new Decimal(2500),
+        details: [
+          { productId: 1, quantity: new Decimal(10), unitCost: new Decimal(250) },
+        ],
+        period: { userId: mockUserId },
+      });
+
+      prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue({
+        invoice: {
+          id: 200,
+          totalAmount: new Decimal(1000),
+          details: [
+            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
+          ],
+        },
+      });
+
+      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+
+      expect(result.validation.status).toBe('WARNING');
+      const unitCostWarning = result.validation.warnings.find((w) => w.code === 'UNIT_COST_MISMATCH');
+      expect(unitCostWarning.severity).toBe('WARNING');
+    });
+
+    it('should flag UNIT_COST_MISMATCH as INFO if diff <= 100', async () => {
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: mockReceiptId,
+        receiptCode: mockReceiptCode,
+        totalValue: new Decimal(1010),
+        details: [
+          { productId: 1, quantity: new Decimal(10), unitCost: new Decimal(101) },
+        ],
+        period: { userId: mockUserId },
+      });
+
+      prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue({
+        invoice: {
+          id: 200,
+          totalAmount: new Decimal(1000),
+          details: [
+            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
+          ],
+        },
+      });
+
+      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+
+      expect(result.validation.status).toBe('WARNING');
+      const unitCostWarning = result.validation.warnings.find((w) => w.code === 'UNIT_COST_MISMATCH');
+      expect(unitCostWarning.severity).toBe('INFO');
     });
   });
 });

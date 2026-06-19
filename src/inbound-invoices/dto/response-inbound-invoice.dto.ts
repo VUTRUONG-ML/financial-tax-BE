@@ -38,10 +38,11 @@ export class InboundResponseDto {
 
   // File đính kèm (Ảnh hóa đơn/PDF)
   @Expose() attachmentUrl!: string;
+  @Expose() xmlFileUrl!: string;
+  @Expose() pdfFileUrl!: string;
 
   // Trạng thái kho - Thanh toán
   @Expose() status!: InboundInvoiceStatus;
-  @Expose() isSyncedToInventory!: boolean;
   @Expose() isPaid!: boolean;
 
   @Expose()

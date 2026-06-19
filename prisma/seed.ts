@@ -328,7 +328,11 @@ async function main() {
         userId,
         productName: 'Sản phẩm test S2e',
         productType: 'FINISHED_GOOD',
+        skuCode: 'SP-S2E',
         sellingPrice: 100000,
+        openingStockQuantity: 10,
+        openingStockUnitCost: 60000,
+        openingStockValue: 600000,
         currentStock: 10,
         unit: 'cái',
       },
@@ -414,9 +418,10 @@ async function main() {
         issueDate: new Date(),
         totalAmount: 150000,
         status: 'ACTIVE',
-        isSyncedToInventory: false,
         isPaid: true,
         paidAmount: 150000,
+        xmlFileUrl: 'https://storage.tax.gov.vn/invoices/xml/ELEC-9988.xml',
+        pdfFileUrl: 'https://storage.tax.gov.vn/invoices/pdf/ELEC-9988.pdf',
       },
     });
 

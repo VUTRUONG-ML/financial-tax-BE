@@ -41,13 +41,13 @@ export class InvoicesController {
     };
   }
 
-  @Post(':id/publish')
+  @Post(':invoicePublicId/publish')
   @CheckPeriod()
   async publish(
-    @Param('id') invoiceId: string,
+    @Param('invoicePublicId') invoicePublicId: string,
     @CurrentUser('id') userId: string,
   ) {
-    const result = await this.invoicesService.publishInvoice(invoiceId, userId);
+    const result = await this.invoicesService.publishInvoice(invoicePublicId, userId);
     return {
       message:
         'Complete the process of calling the tax authority for the code.',

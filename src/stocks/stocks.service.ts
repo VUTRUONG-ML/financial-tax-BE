@@ -37,6 +37,7 @@ import { mapToDto } from 'src/common/utils/mapper.util';
 import { InventoryMovementsService } from '../inventory-movements/inventory-movements.service';
 import { moment } from 'src/common/utils/time.util';
 import { VouchersService } from '../vouchers/vouchers.service';
+import { InboundResponseDto } from '../inbound-invoices/dto/response-inbound-invoice.dto';
 
 @Injectable()
 export class StocksService {
@@ -1086,6 +1087,340 @@ export class StocksService {
         total,
         page,
         lastPage: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async linkInvoice(
+    userId: string,
+    receiptCode: string,
+    invoicePublicId: string,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Kiểm tra StockReceipt tồn tại và thuộc user
+      const receipt = await tx.stockReceipt.findFirst({
+        where: { receiptCode, period: { userId } },
+        include: { period: true, details: true },
+      });
+      if (!receipt) {
+        throw new NotFoundException(
+          'Stock receipt not found or access denied.',
+        );
+      }
+
+      // 2. Kiểm tra InboundInvoice tồn tại và thuộc user
+      const invoice = await tx.inboundInvoice.findUnique({
+        where: { publicId: invoicePublicId, userId },
+        include: { details: true },
+      });
+      if (!invoice) {
+        throw new NotFoundException(
+          'Inbound invoice not found or access denied.',
+        );
+      }
+
+      // 3. Kiểm tra xem đã liên kết chưa
+      const existingLink = await tx.stockReceiptInvoice.findUnique({
+        where: {
+          receiptId_invoiceId: {
+            receiptId: receipt.id,
+            invoiceId: invoice.id,
+          },
+        },
+      });
+      if (existingLink) {
+        throw new BadRequestException(
+          'This stock receipt and invoice are already linked.',
+        );
+      }
+
+      // 4. Tạo liên kết
+      const link = await tx.stockReceiptInvoice.create({
+        data: {
+          receiptId: receipt.id,
+          invoiceId: invoice.id,
+        },
+      });
+
+      // điều chỉnh Giá trị
+      const invoiceDetailsMap = new Map<number, { unitCost: Decimal }>();
+      for (const d of invoice.details) {
+        invoiceDetailsMap.set(d.productId, {
+          unitCost: new Decimal(d.unitCost),
+        });
+      }
+
+      let isAdjusted = false;
+
+      for (const recDetail of receipt.details) {
+        const invDetail = invoiceDetailsMap.get(recDetail.productId);
+        if (invDetail) {
+          // Compare unit cost (we don't change quantity as requested by user)
+          if (!new Decimal(recDetail.unitCost).equals(invDetail.unitCost)) {
+            const newTotalValue = new Decimal(recDetail.quantity).mul(
+              invDetail.unitCost,
+            );
+
+            // Cập nhật StockReceiptDetail
+            await tx.stockReceiptDetail.update({
+              where: { id: recDetail.id },
+              data: {
+                unitCost: invDetail.unitCost,
+                totalValue: newTotalValue,
+              },
+            });
+            isAdjusted = true;
+
+            // Cập nhật InventoryMovement tương ứng
+            await tx.inventoryMovement.updateMany({
+              where: {
+                sourceDocumentId: receipt.id,
+                productId: recDetail.productId,
+                movementType: { in: ['PURCHASE_IN', 'OPENING', 'ADJUST_IN', 'PRODUCTION_IN'] }
+              },
+              data: {
+                unitCost: invDetail.unitCost,
+                totalValue: newTotalValue,
+              },
+            });
+          }
+        }
+      }
+
+      // Cập nhật lại tổng tiền phiếu nhập kho nếu có điều chỉnh
+      if (isAdjusted) {
+        const updatedDetails = await tx.stockReceiptDetail.findMany({
+          where: { receiptId: receipt.id },
+        });
+        const newReceiptTotal = updatedDetails.reduce(
+          (acc, curr) => acc.add(new Decimal(curr.totalValue)),
+          new Decimal(0),
+        );
+        await tx.stockReceipt.update({
+          where: { id: receipt.id },
+          data: { totalValue: newReceiptTotal },
+        });
+      }
+
+      return {
+        message:
+          'Linked stock receipt to invoice successfully' +
+          (isAdjusted ? ' and adjusted inventory values.' : '.'),
+        data: link,
+      };
+    });
+  }
+
+  async unlinkInvoice(userId: string, receiptCode: string, invoicePublicId: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Kiểm tra StockReceipt tồn tại và thuộc user
+      const receipt = await tx.stockReceipt.findFirst({
+        where: { receiptCode, period: { userId } },
+        include: { period: true },
+      });
+      if (!receipt) {
+        throw new NotFoundException(
+          'Stock receipt not found or access denied.',
+        );
+      }
+
+      // 2. Kiểm tra InboundInvoice tồn tại và thuộc user
+      const invoice = await tx.inboundInvoice.findUnique({
+        where: { publicId: invoicePublicId },
+      });
+      if (!invoice || invoice.userId !== userId) {
+        throw new NotFoundException(
+          'Inbound invoice not found or access denied.',
+        );
+      }
+
+      // 3. Kiểm tra liên kết tồn tại
+      const link = await tx.stockReceiptInvoice.findUnique({
+        where: {
+          receiptId_invoiceId: {
+            receiptId: receipt.id,
+            invoiceId: invoice.id,
+          },
+        },
+      });
+      if (!link) {
+        throw new NotFoundException('Link not found.');
+      }
+
+      // 4. Xóa liên kết
+      await tx.stockReceiptInvoice.delete({
+        where: {
+          receiptId_invoiceId: {
+            receiptId: receipt.id,
+            invoiceId: invoice.id,
+          },
+        },
+      });
+
+      return {
+        message: 'Unlinked stock receipt from invoice successfully.',
+      };
+    });
+  }
+
+  async getLinkedInvoices(userId: string, receiptCode: string) {
+    // 1. Kiểm tra StockReceipt tồn tại và thuộc user
+    const receipt = await this.prisma.stockReceipt.findFirst({
+      where: { receiptCode, period: { userId } },
+      include: { period: true },
+    });
+    if (!receipt) {
+      throw new NotFoundException('Stock receipt not found or access denied.');
+    }
+
+    // 2. Lấy danh sách hóa đơn liên kết
+    const links = await this.prisma.stockReceiptInvoice.findMany({
+      where: { receiptId: receipt.id },
+      include: {
+        invoice: {
+          include: {
+            details: {
+              include: {
+                product: {
+                  select: { publicId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return mapToDto(
+      InboundResponseDto,
+      links.map((l) => l.invoice),
+    );
+  }
+
+  async reconcileReceipt(userId: string, receiptCode: string) {
+    const receipt = await this.prisma.stockReceipt.findUnique({
+      where: { receiptCode },
+      include: {
+        details: {
+          include: {
+            product: {
+              select: { publicId: true, productName: true, skuCode: true },
+            },
+          },
+        },
+        period: { select: { userId: true, periodName: true } },
+      },
+    });
+
+    if (!receipt || receipt.period.userId !== userId) {
+      throw new NotFoundException('Stock receipt not found or access denied.');
+    }
+
+    const link = await this.prisma.stockReceiptInvoice.findFirst({
+      where: { receiptId: receipt.id },
+      include: {
+        invoice: {
+          include: {
+            details: {
+              include: {
+                product: {
+                  select: { publicId: true, productName: true, skuCode: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const invoice = link?.invoice || null;
+    const warnings: any[] = [];
+    let status = 'SUCCESS';
+
+    if (invoice) {
+      const invoiceTotal = Number(invoice.totalAmount);
+      const receiptTotal = Number(receipt.totalValue);
+      if (Math.abs(invoiceTotal - receiptTotal) > 0.01) {
+        warnings.push({
+          code: 'TOTAL_AMOUNT_MISMATCH',
+          severity: 'WARNING',
+          message: 'Receipt total differs from linked invoice total.',
+        });
+      }
+
+      const invoiceDetailsMap = new Map<
+        number,
+        { quantity: number; unitCost: number }
+      >();
+      for (const d of invoice.details) {
+        invoiceDetailsMap.set(d.productId, {
+          quantity: d.quantity,
+          unitCost: Number(d.unitCost),
+        });
+      }
+
+      const receiptDetailsMap = new Map<
+        number,
+        { quantity: number; unitCost: number }
+      >();
+      for (const d of receipt.details) {
+        receiptDetailsMap.set(d.productId, {
+          quantity: Number(d.quantity),
+          unitCost: Number(d.unitCost),
+        });
+      }
+
+      for (const [productId, invDetail] of invoiceDetailsMap.entries()) {
+        if (!receiptDetailsMap.has(productId)) {
+          warnings.push({
+            code: 'PRODUCT_MISSING',
+            severity: 'WARNING',
+            message: 'Invoice product does not exist in receipt.',
+          });
+          continue;
+        }
+
+        const recDetail = receiptDetailsMap.get(productId)!;
+
+        if (Math.abs(invDetail.quantity - recDetail.quantity) > 0.001) {
+          warnings.push({
+            code: 'QUANTITY_MISMATCH',
+            severity: 'WARNING',
+            message: 'Receipt quantity differs from invoice quantity.',
+          });
+        }
+
+        const costDiff = Math.abs(invDetail.unitCost - recDetail.unitCost);
+        if (costDiff > 100) {
+          warnings.push({
+            code: 'UNIT_COST_MISMATCH',
+            severity: 'WARNING',
+            message: 'Receipt unit cost differs from invoice unit cost.',
+          });
+        } else if (costDiff > 0.01) {
+          warnings.push({
+            code: 'UNIT_COST_MISMATCH',
+            severity: 'INFO',
+            message: 'Receipt unit cost differs from invoice unit cost.',
+          });
+        }
+      }
+
+      const hasWarning = warnings.some((w) => w.severity === 'WARNING');
+      const hasInfo = warnings.some((w) => w.severity === 'INFO');
+      if (hasWarning) {
+        status = 'WARNING';
+      } else if (hasInfo) {
+        status = 'INFO';
+      }
+    }
+
+    return {
+      receipt: mapToDto(StockReceiptResponseDto, receipt),
+      invoice: invoice ? mapToDto(InboundResponseDto, invoice) : null,
+      validation: {
+        status,
+        warnings,
       },
     };
   }

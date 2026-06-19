@@ -3,7 +3,6 @@ import { InboundInvoicesService } from './inbound-invoices.service';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { AuditLogService } from '../core/audit-log/audit-log.service';
 import { VouchersService } from '../vouchers/vouchers.service';
-import { ProductsService } from '../products/products.service';
 
 describe('InboundInvoicesService', () => {
   let service: InboundInvoicesService;
@@ -51,10 +50,6 @@ describe('InboundInvoicesService', () => {
         },
         {
           provide: VouchersService,
-          useValue: {},
-        },
-        {
-          provide: ProductsService,
           useValue: {},
         },
       ],

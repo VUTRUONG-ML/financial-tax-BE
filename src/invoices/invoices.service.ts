@@ -409,8 +409,6 @@ export class InvoicesService {
   }
 
   /**
-   * Service phát hành invoice -
-   * Ở đây trừ tồn kho gốc
    * @param publicId
    * @param userId
    * @returns InvoiceResponseDto

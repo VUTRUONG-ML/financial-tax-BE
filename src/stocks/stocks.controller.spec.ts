@@ -14,12 +14,7 @@ describe('StocksController', () => {
         {
           provide: StocksService,
           useValue: {
-            createStockReceipt: jest.fn(),
-            createStockIssue: jest.fn(),
-            cancelIssue: jest.fn(),
             getSummary: jest.fn(),
-            findAllReceipts: jest.fn(),
-            findAllIssues: jest.fn(),
           },
         },
       ],
@@ -36,29 +31,6 @@ describe('StocksController', () => {
     expect(controller).toBeDefined();
   });
 
-  describe('cancelStockIssue', () => {
-    it('should cancel stock issue successfully', async () => {
-      const mockResult = { id: 1, issueCode: 'PXK-0626-0001' } as any;
-      jest.spyOn(service, 'cancelIssue').mockResolvedValue(mockResult);
-
-      const result = await controller.cancelStockIssue(
-        'user-123',
-        'PXK-0626-0001',
-        { financialPeriodId: 10 } as any,
-      );
-
-      expect(service.cancelIssue).toHaveBeenCalledWith(
-        'user-123',
-        10,
-        'PXK-0626-0001',
-      );
-      expect(result).toEqual({
-        message: 'Stock issue canceled successfully',
-        data: mockResult,
-      });
-    });
-  });
-
   describe('getSummary', () => {
     it('should return stock summary', async () => {
       const mockSummary = { endingInventoryValue: 1000 } as any;
@@ -70,36 +42,6 @@ describe('StocksController', () => {
       expect(result).toEqual({
         message: 'Stock summary retrieved successfully',
         data: mockSummary,
-      });
-    });
-  });
-
-  describe('findAllReceipts', () => {
-    it('should return all stock receipts', async () => {
-      const mockResult = { data: [], meta: { total: 0, page: 1, lastPage: 0 } };
-      jest.spyOn(service, 'findAllReceipts').mockResolvedValue(mockResult);
-
-      const result = await controller.findAllReceipts('user-123', '1', '20', 'PURCHASE');
-
-      expect(service.findAllReceipts).toHaveBeenCalledWith('user-123', 1, 20, 'PURCHASE');
-      expect(result).toEqual({
-        message: 'Stock receipts retrieved successfully',
-        ...mockResult,
-      });
-    });
-  });
-
-  describe('findAllIssues', () => {
-    it('should return all stock issues', async () => {
-      const mockResult = { data: [], meta: { total: 0, page: 1, lastPage: 0 } };
-      jest.spyOn(service, 'findAllIssues').mockResolvedValue(mockResult);
-
-      const result = await controller.findAllIssues('user-123', '1', '20', 'SALE');
-
-      expect(service.findAllIssues).toHaveBeenCalledWith('user-123', 1, 20, 'SALE');
-      expect(result).toEqual({
-        message: 'Stock issues retrieved successfully',
-        ...mockResult,
       });
     });
   });

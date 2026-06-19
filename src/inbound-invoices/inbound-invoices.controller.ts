@@ -1,28 +1,24 @@
 import {
-  Body,
   Controller,
-  Delete,
   Get,
   Param,
-  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { InboundInvoicesService } from './inbound-invoices.service';
+import { InvoiceSyncService } from './invoice-sync.service';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { CreateInboundInvoiceDto } from './dto/create-inbound-invoice.dto';
-import { Throttle } from '@nestjs/throttler';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
 import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { UpdateInboundInvoiceDto } from './dto/update-inbound-invoice.dto';
 
 @Controller('inbound-invoices')
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 export class InboundInvoicesController {
   constructor(
     private readonly inboundInvoicesService: InboundInvoicesService,
+    private readonly invoiceSyncService: InvoiceSyncService,
   ) {}
 
   @Get()
@@ -70,78 +66,15 @@ export class InboundInvoicesController {
     };
   }
 
-  @Post()
+  @Post('trigger-sync')
   @CheckPeriod()
-  @Throttle({ medium: { limit: 5, ttl: 60000 } })
-  async createInboundInvoice(
-    @CurrentUser('id') userId: string,
-    @Body() dto: CreateInboundInvoiceDto,
-  ) {
-    const result = await this.inboundInvoicesService.create(userId, dto);
+  async triggerSync(@CurrentUser('id') userId: string) {
+    const syncedCount = await this.invoiceSyncService.syncForUser(userId);
     return {
-      message: 'Create success.',
-      data: result,
+      message: 'Tax Authority invoice synchronization completed.',
+      data: {
+        syncedCount,
+      },
     };
-  }
-
-  @Patch('/:publicId/cancel')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 3, ttl: 60000 } })
-  async cancelInboundInvoice(
-    @CurrentUser('id') userId: string,
-    @Param('publicId') publicId: string,
-  ) {
-    const result = await this.inboundInvoicesService.cancel(userId, publicId);
-    return {
-      message: 'Cancel inbound invoice success.',
-      data: result,
-    };
-  }
-
-  @Patch('/:publicId/sync-inventory')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 5, ttl: 60000 } })
-  async syncInventory(
-    @Param('publicId') publicId: string,
-    @CurrentUser('id') userId: string,
-  ) {
-    const result = await this.inboundInvoicesService.syncToInventory(
-      userId,
-      publicId,
-    );
-    return {
-      message: 'Sync to inventory success.',
-      data: result,
-    };
-  }
-
-  @Patch('/:publicId')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 5, ttl: 60000 } })
-  async update(
-    @CurrentUser('id') userId: string,
-    @Param('publicId') publicId: string,
-    @Body() dto: UpdateInboundInvoiceDto,
-  ) {
-    const data = await this.inboundInvoicesService.update(
-      userId,
-      publicId,
-      dto,
-    );
-    return {
-      message: 'Update success.',
-      data,
-    };
-  }
-
-  @Delete('/:publicId')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 5, ttl: 60000 } })
-  async remove(
-    @CurrentUser('id') userId: string,
-    @Param('publicId') publicId: string,
-  ) {
-    const result = await this.inboundInvoicesService.remove(userId, publicId);
-    return result;
   }
 }

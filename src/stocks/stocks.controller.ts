@@ -1,25 +1,14 @@
 import {
-  Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
-  Param,
-  Patch,
-  Post,
-  Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import { StocksService } from './stocks.service';
-import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
-import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Throttle } from '@nestjs/throttler';
-import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Request } from 'express';
+import { PeriodLockGuard } from '../common/guards/period-lock.guard';
 
 @Controller('stocks')
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
@@ -33,130 +22,6 @@ export class StocksController {
     return {
       message: 'Stock summary retrieved successfully',
       data,
-    };
-  }
-
-  @Get('receipts')
-  @HttpCode(HttpStatus.OK)
-  async findAllReceipts(
-    @CurrentUser('id') userId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('sourceType') sourceType?: string,
-  ) {
-    const pageNumber = page ? parseInt(page, 10) : 1;
-    const limitNumber = limit ? parseInt(limit, 10) : 20;
-    const result = await this.stocksService.findAllReceipts(
-      userId,
-      pageNumber,
-      limitNumber,
-      sourceType,
-    );
-    return {
-      message: 'Stock receipts retrieved successfully',
-      ...result,
-    };
-  }
-
-  @Get('issues')
-  @HttpCode(HttpStatus.OK)
-  async findAllIssues(
-    @CurrentUser('id') userId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('sourceType') sourceType?: string,
-  ) {
-    const pageNumber = page ? parseInt(page, 10) : 1;
-    const limitNumber = limit ? parseInt(limit, 10) : 20;
-    const result = await this.stocksService.findAllIssues(
-      userId,
-      pageNumber,
-      limitNumber,
-      sourceType,
-    );
-    return {
-      message: 'Stock issues retrieved successfully',
-      ...result,
-    };
-  }
-
-  @Post('receipts')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  @HttpCode(HttpStatus.CREATED)
-  async createStockReceipt(
-    @CurrentUser('id') userId: string,
-    @Body() createDto: CreateStockReceiptDto,
-    @Req() req: Request & { financialPeriodId: number },
-  ) {
-    const result = await this.stocksService.createStockReceipt(
-      userId,
-      createDto,
-      req.financialPeriodId,
-    );
-    return {
-      message: 'Stock receipt created successfully',
-      data: result,
-    };
-  }
-
-  @Patch('receipts/:receiptCode/cancel')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  @HttpCode(HttpStatus.OK)
-  async cancelStockReceipt(
-    @CurrentUser('id') userId: string,
-    @Param('receiptCode') receiptCode: string,
-    @Req() req: Request & { financialPeriodId: number },
-  ) {
-    const result = await this.stocksService.cancelReceipt(
-      userId,
-      req.financialPeriodId,
-      receiptCode,
-    );
-    return {
-      message: 'Stock receipt created successfully',
-      data: result,
-    };
-  }
-
-  @Post('issues')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  @HttpCode(HttpStatus.CREATED)
-  async createStockIssue(
-    @CurrentUser('id') userId: string,
-    @Body() createDto: CreateStockIssueDto,
-    @Req() req: Request & { financialPeriodId: number },
-  ) {
-    const result = await this.stocksService.createStockIssue(
-      userId,
-      createDto,
-      req.financialPeriodId,
-    );
-    return {
-      message: 'Stock issue created successfully',
-      data: result,
-    };
-  }
-
-  @Patch('issues/:issueCode/cancel')
-  @CheckPeriod()
-  @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  @HttpCode(HttpStatus.OK)
-  async cancelStockIssue(
-    @CurrentUser('id') userId: string,
-    @Param('issueCode') issueCode: string,
-    @Req() req: Request & { financialPeriodId: number },
-  ) {
-    const result = await this.stocksService.cancelIssue(
-      userId,
-      req.financialPeriodId,
-      issueCode,
-    );
-    return {
-      message: 'Stock issue canceled successfully',
-      data: result,
     };
   }
 }
