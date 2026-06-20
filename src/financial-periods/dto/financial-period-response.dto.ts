@@ -1,55 +1,58 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { FinancialPeriod, PeriodStatus } from '@prisma/client';
+import { Expose, Transform } from 'class-transformer';
+import { PeriodStatus } from '@prisma/client';
+import { moment } from 'src/common/utils/time.util';
 
 export class FinancialPeriodResponseDto {
-  @ApiProperty()
-  publicId: string;
+  @Expose()
+  publicId!: string;
 
-  @ApiProperty()
-  periodName: string;
+  @Expose()
+  periodName!: string;
 
-  @ApiProperty()
-  startDate: Date;
+  @Expose()
+  startDate!: Date;
 
-  @ApiProperty()
-  endDate: Date;
+  @Expose()
+  endDate!: Date;
 
-  @ApiProperty()
-  deadlineDate: Date;
+  @Expose()
+  deadlineDate!: Date;
 
-  @ApiProperty({ enum: PeriodStatus })
-  status: PeriodStatus;
+  @Expose()
+  status!: PeriodStatus;
 
-  @ApiProperty()
-  taxAmount: number;
+  @Expose()
+  actualPaymentDate!: Date | null;
 
-  @ApiProperty({ required: false, nullable: true })
-  vatAmount: number | null;
+  @Expose()
+  createdAt!: Date;
 
-  @ApiProperty({ required: false, nullable: true })
-  pitAmount: number | null;
+  @Expose()
+  updatedAt!: Date;
 
-  @ApiProperty({ required: false, nullable: true })
-  actualPaymentDate: Date | null;
+  @Expose()
+  @Transform(({ value }) => Number(value || 0))
+  taxAmount!: number;
 
-  @ApiProperty()
-  createdAt: Date;
+  @Expose()
+  @Transform(({ value }) => value == null ? null : Number(value))
+  vatAmount!: number | null;
 
-  @ApiProperty()
-  updatedAt: Date;
+  @Expose()
+  @Transform(({ value }) => value == null ? null : Number(value))
+  pitAmount!: number | null;
 
-  constructor(partial: Partial<FinancialPeriod>) {
-    this.publicId = partial.publicId!;
-    this.periodName = partial.periodName!;
-    this.startDate = partial.startDate!;
-    this.endDate = partial.endDate!;
-    this.deadlineDate = partial.deadlineDate!;
-    this.status = partial.status!;
-    this.taxAmount = partial.taxAmount ? Number(partial.taxAmount) : 0;
-    this.vatAmount = partial.vatAmount ? Number(partial.vatAmount) : null;
-    this.pitAmount = partial.pitAmount ? Number(partial.pitAmount) : null;
-    this.actualPaymentDate = partial.actualPaymentDate ?? null;
-    this.createdAt = partial.createdAt!;
-    this.updatedAt = partial.updatedAt!;
-  }
+  @Expose()
+  @Transform(({ obj }) =>
+    obj.actualPaymentDate
+      ? moment(obj.actualPaymentDate).diff(obj.deadlineDate, 'day')
+      : moment().diff(obj.deadlineDate, 'day') > 0
+        ? moment().diff(obj.deadlineDate, 'day') : 0,
+  )
+  countExpireDate!: number;
+
+  @Expose()
+  @Transform(({ obj }) =>
+    !obj.actualPaymentDate || moment().isAfter(obj.deadlineDate) ? false : true)
+  isFinishedTaxPayment!: boolean;
 }

@@ -954,4 +954,90 @@ export class FinancialPeriodsService {
 
     return pitAmountDetails;
   }
+
+  async summary(userId: string) {
+    const [countOpen, countExpire, resTotalTax] = await Promise.all([
+      this.prisma.financialPeriod.count({
+        where: {
+          userId,
+          status: PeriodStatus.OPEN,
+        },
+      }),
+      this.prisma.$queryRaw<{ count: number | null }[]>`
+        SELECT COUNT(*)::bigint AS count
+        FROM financial_periods 
+        WHERE user_id = ${userId}
+          AND (actual_payment_date IS NULL OR actual_payment_date > deadline_date)
+      `,
+      this.prisma.financialPeriod.aggregate({
+        _sum: {
+          taxAmount: true,
+        },
+        where: {
+          status: PeriodStatus.CLOSED,
+          userId,
+        },
+      }),
+    ]);
+    return {
+      countOpen,
+      countExpire: countExpire[0] ? Number(countExpire[0].count) : 0,
+      totalTaxPayment: resTotalTax._sum.taxAmount
+        ? Number(resTotalTax._sum.taxAmount)
+        : 0,
+    };
+  }
+
+  async findAll(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    status?: string,
+  ) {
+    const skip = limit * (page - 1);
+    const where: Prisma.FinancialPeriodWhereInput = { userId };
+    if (status) {
+      const upperStatus = status.trim().toUpperCase();
+      if (upperStatus === 'OPENING' || upperStatus === 'DANG_MO'){
+        where.status = PeriodStatus.OPEN;
+      }
+      if (upperStatus === 'CLOSED' || upperStatus === 'DA_KHOA'){
+        where.status = PeriodStatus.CLOSED;
+      }
+      if (upperStatus === 'EXPIRE' || upperStatus === 'QUA_HAN'){
+        where.status = PeriodStatus.OPEN;
+        const now = moment().toDate();
+        where.endDate = {
+          lt: now,
+        };
+      }
+      if (upperStatus === 'FINISHED' || upperStatus === 'HOAN_THANH') {
+        where.status = PeriodStatus.CLOSED;
+        where.actualPaymentDate = {
+          not: null,
+        };
+      }
+    }
+    const [total, periods] = await Promise.all([
+      this.prisma.financialPeriod.count({
+        where: {
+          userId,
+        },
+      }),
+      this.prisma.financialPeriod.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return {
+      data: mapToDto(FinancialPeriodResponseDto, periods),
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
+  }
 }

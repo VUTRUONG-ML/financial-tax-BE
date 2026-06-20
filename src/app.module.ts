@@ -36,14 +36,14 @@ import { TaxAuthorityConnectionsModule } from './tax-authority-connections/tax-a
   imports: [
     ThrottlerModule.forRoot([
       {
-        name: 'short', // Quy tắc ngắn: chống spam click
+        name: 'short',
         ttl: 1000, // 1 giây
-        limit: 1, // Chỉ 1 lần/giây
+        limit: 1,
       },
       {
-        name: 'medium', // Quy tắc trung bình: bảo vệ tài nguyên
+        name: 'medium',
         ttl: 60000, // 1 phút
-        limit: 50, // Chỉ 20 lần/phút cho các tác vụ nặng như Hủy/Tạo
+        limit: 50,
       },
     ]),
     PrismaModule,

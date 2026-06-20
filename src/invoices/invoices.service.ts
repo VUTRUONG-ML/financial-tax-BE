@@ -590,6 +590,7 @@ export class InvoicesService {
       }),
     ]);
 
+    console.log('length',data.length);
     return {
       data: mapToDto(InvoiceResponseDto, data),
       meta: {

@@ -134,7 +134,7 @@ export class AuthService {
         await this.tokenService.getToken(userId, rt, tx);
         const count = await this.tokenService.markTokenRevoked(userId, rt, tx);
         if (count > 0) {
-          // Ghi log người dùng đã đăng xuất thành công
+          this.logger.log('USER_LOG_OUT_SUCCESS', { user: decode.id });
         }
         return { success: true };
       });

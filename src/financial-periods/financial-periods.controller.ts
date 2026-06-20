@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -27,6 +28,16 @@ export class FinancialPeriodsController {
   constructor(
     private readonly financialPeriodsService: FinancialPeriodsService,
   ) { }
+
+  @Get('summary')
+  @HttpCode(HttpStatus.OK)
+  async getSummary(@CurrentUser() user: RequestUser) {
+    const res = await this.financialPeriodsService.summary(user.id);
+    return {
+      message: 'Get summary successful',
+      data: res,
+    };
+  }
 
   @Patch(':id/reopen')
   @HttpCode(HttpStatus.OK)
@@ -83,5 +94,27 @@ export class FinancialPeriodsController {
       updateDto,
     );
     return { message: 'Cập nhật kỳ tài chính thành công', data };
+  }
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  async getAll(
+    @CurrentUser() user: RequestUser,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ){
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    const res = await this.financialPeriodsService.findAll(
+      user.id,
+      pageNumber,
+      limitNumber,
+      status,
+    );
+    return {
+      message: 'Get all period successful',
+      ...res,
+    };
   }
 }
