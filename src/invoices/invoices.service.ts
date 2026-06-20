@@ -267,7 +267,7 @@ export class InvoicesService {
     }
   }
 
-  async createInvoice(userId: string, dto: CreateInvoiceDto) {
+  async createInvoice(userId: string, dto: CreateInvoiceDto, periodId: number) {
     // ─── PRE-FLIGHT CHECKS (Ngoài Transaction để tránh giữ lock DB) ──────────
     this.validateInvoiceB2C(
       dto.isB2C,
@@ -305,6 +305,7 @@ export class InvoicesService {
       const invoice = await tx.invoice.create({
         data: {
           userId,
+          periodId,
           invoiceSymbol,
           isB2C: dto.isB2C ?? true,
           issueDate: new Date(dto.issueDate),
@@ -441,12 +442,6 @@ export class InvoicesService {
         );
 
         if (stockItems.length > 0) {
-          const period = await this.financialPeriodsService.ensurePeriodExists(
-            userId,
-            tx,
-            new Date(invoice.issueDate),
-          );
-
           await this.stocksService.createStockIssue(
             userId,
             {
@@ -459,7 +454,7 @@ export class InvoicesService {
                 quantity,
               })),
             },
-            period.id,
+            invoice.periodId,
             tx,
           );
         }
@@ -700,7 +695,12 @@ export class InvoicesService {
     return result;
   }
 
-  async updateInvoice(publicId: string, userId: string, dto: UpdateInvoiceDto) {
+  async updateInvoice(
+    publicId: string,
+    userId: string,
+    dto: UpdateInvoiceDto,
+    periodId: number,
+  ) {
     // 1. Kiểm tra quyền sở hữu và trạng thái
     const invoice = await this.validateInvoiceAccess(
       publicId,
@@ -791,6 +791,8 @@ export class InvoicesService {
           buyerEmail: dto.buyerEmail ?? undefined,
           buyerIdNumber: dto.buyerIdNumber ?? undefined,
           paymentMethod: dto.paymentMethod ?? undefined,
+          issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
+          periodId: periodId,
 
           taxRate: finalTaxRate,
           taxPayable: finalTaxPayable,

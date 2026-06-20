@@ -70,12 +70,7 @@ export class AccountingBooksService {
     return { ...periodTarget, startYear };
   }
 
-  async generateBookMetadata(
-    bookKey: AccountingBookKey,
-    userId: string,
-    startDate: Date,
-    endDate: Date,
-  ) {
+  async generateBookMetadata(bookKey: AccountingBookKey, userId: string) {
     const bookInfo = ACCOUNTING_BOOKS_CONFIG[bookKey];
 
     if (!bookInfo) {
@@ -120,18 +115,37 @@ export class AccountingBooksService {
     return taxConfig;
   }
 
+  private async getPeriodIdsForDateRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<number[]> {
+    const periods = (await this.prisma.financialPeriod.findMany({
+      where: {
+        userId,
+        OR: [
+          { startDate: { gte: startDate, lte: endDate } },
+          { endDate: { gte: startDate, lte: endDate } },
+        ],
+      },
+      select: { id: true },
+    })) || [];
+    return periods.map((p) => p.id);
+  }
+
   private async generateSyncCode(
     userId: string,
     startDate: Date,
     endDate: Date,
   ): Promise<string> {
+    const periodIds = await this.getPeriodIdsForDateRange(userId, startDate, endDate);
     const [invoiceAgg, voucherAgg] = await Promise.all([
       this.prisma.invoice.aggregate({
         _count: { id: true },
         _max: { updatedAt: true },
         where: {
           userId,
-          issueDate: { gte: startDate, lte: endDate },
+          periodId: { in: periodIds },
         },
       }),
       this.prisma.voucher.aggregate({
@@ -165,16 +179,14 @@ export class AccountingBooksService {
     // 2. Lấy cấu hình thuế hợp lệ của người dùng
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
+    const periodIds = await this.getPeriodIdsForDateRange(userId, startDate, endDate);
     const aggregateInvoices = await this.prisma.invoice.aggregate({
       _sum: { totalPayment: true },
       _count: { id: true },
       where: {
         userId,
         status: 'ISSUED',
-        issueDate: {
-          gte: startDate,
-          lte: endDate,
-        },
+        periodId: { in: periodIds },
       },
     });
 
@@ -252,12 +264,13 @@ export class AccountingBooksService {
 
     const skip = (page - 1) * limit;
 
+    const periodIds = await this.getPeriodIdsForDateRange(userId, startDate, endDate);
     const [invoices, totalInvoices, syncCode] = await Promise.all([
       this.prisma.invoice.findMany({
         where: {
           userId,
           status: 'ISSUED',
-          issueDate: { gte: startDate, lte: endDate },
+          periodId: { in: periodIds },
         },
         orderBy: { issueDate: 'asc' },
         skip,
@@ -267,7 +280,7 @@ export class AccountingBooksService {
         where: {
           userId,
           status: 'ISSUED',
-          issueDate: { gte: startDate, lte: endDate },
+          periodId: { in: periodIds },
         },
       }),
       this.generateSyncCode(userId, startDate, endDate),
@@ -320,12 +333,7 @@ export class AccountingBooksService {
     tong_doanh_thu: number,
     so_luong_don_hang: number,
   ) {
-    const bookMetadata = await this.generateBookMetadata(
-      'S1A',
-      userId,
-      startDate,
-      endDate,
-    );
+    const bookMetadata = await this.generateBookMetadata('S1A', userId);
 
     return {
       bookMetadata,
@@ -380,15 +388,16 @@ export class AccountingBooksService {
     );
 
     // 4. Calculate period VAT and PIT as YTD deltas
-    const tongThueGTGT = Decimal.max(0, ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount));
-    const tongThueTNCN = Decimal.max(0, ytdTaxEnd.pitAmount.sub(ytdTaxBefore.pitAmount));
-
-    const bookMetadata = await this.generateBookMetadata(
-      'S2A',
-      userId,
-      startDate,
-      endDate,
+    const tongThueGTGT = Decimal.max(
+      0,
+      ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount),
     );
+    const tongThueTNCN = Decimal.max(
+      0,
+      ytdTaxEnd.pitAmount.sub(ytdTaxBefore.pitAmount),
+    );
+
+    const bookMetadata = await this.generateBookMetadata('S2A', userId);
 
     return {
       bookMetadata,
@@ -450,12 +459,7 @@ export class AccountingBooksService {
       ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount),
     );
 
-    const bookMetadata = await this.generateBookMetadata(
-      'S2B',
-      userId,
-      startDate,
-      endDate,
-    );
+    const bookMetadata = await this.generateBookMetadata('S2B', userId);
 
     return {
       bookMetadata,
@@ -556,12 +560,7 @@ export class AccountingBooksService {
 
       const closingBalance = openingBalance + periodReceipt - periodPayment;
 
-      const bookMetadata = await this.generateBookMetadata(
-        bookKey,
-        userId,
-        startDate,
-        endDate,
-      );
+      const bookMetadata = await this.generateBookMetadata(bookKey, userId);
 
       return {
         bookMetadata,
@@ -745,7 +744,7 @@ export class AccountingBooksService {
           AND v.is_deductible_expense = TRUE
           AND v.status = 'ACTIVE';
       `,
-      this.generateBookMetadata('S2C', userId, startDate, endDate),
+      this.generateBookMetadata('S2C', userId),
       this.generateExpenseSyncCode(userId, startDate, endDate),
     ]);
 
@@ -1035,7 +1034,7 @@ export class AccountingBooksService {
     const { startDate: startDatePeriod, endDate: endDatePeriod } = periodTarget;
 
     const [bookMetadata, syncCode] = await Promise.all([
-      this.generateBookMetadata('S2D', userId, startDatePeriod, endDatePeriod),
+      this.generateBookMetadata('S2D', userId),
       this.generateInventorySyncCode(
         userId,
         startDatePeriod,

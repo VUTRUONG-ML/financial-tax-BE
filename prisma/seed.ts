@@ -434,10 +434,24 @@ async function main() {
       },
     });
 
+    // Create a FinancialPeriod
+    const period = await prisma.financialPeriod.create({
+      data: {
+        userId,
+        periodName: '2026-Q2',
+        startDate: new Date('2026-04-01'),
+        endDate: new Date('2026-06-30'),
+        deadlineDate: new Date('2026-07-31'),
+        vatFilingPeriod: 'QUARTERLY',
+        status: 'OPEN',
+      },
+    });
+
     // Create an Invoice
     const invoice = await prisma.invoice.create({
       data: {
         userId,
+        periodId: period.id,
         invoiceSymbol: 'K1/24T',
         isB2C: true,
         issueDate: new Date(),

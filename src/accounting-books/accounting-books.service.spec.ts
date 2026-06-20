@@ -152,6 +152,7 @@ describe('AccountingBooksService', () => {
             },
             financialPeriod: {
               findUnique: jest.fn(),
+              findMany: jest.fn(),
             },
             inventoryMovement: {
               findFirst: jest.fn(),

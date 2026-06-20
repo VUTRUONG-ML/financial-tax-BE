@@ -302,14 +302,17 @@ export class FinancialPeriodsService {
     userId: string,
     startDate: Date,
     endDate: Date,
+    periodId?: number,
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<{ revenue: Decimal; expense: Decimal }> {
     const aggregateInvoice = await tx.invoice.aggregate({
       _sum: { totalPayment: true },
       where: {
         userId,
-        issueDate: { gte: startDate, lte: endDate },
         status: InvoiceStatus.ISSUED, // Chỉ tính các hóa đơn đã phát hành
+        ...(periodId !== undefined
+          ? { periodId }
+          : { issueDate: { gte: startDate, lte: endDate } }),
       },
     });
     const revenue = aggregateInvoice._sum.totalPayment || new Decimal(0);
@@ -334,6 +337,7 @@ export class FinancialPeriodsService {
     startDate: Date,
     endDate: Date,
     tx: Prisma.TransactionClient = this.prisma,
+    periodId?: number,
   ): Promise<
     {
       taxCategoryId: number;
@@ -342,7 +346,23 @@ export class FinancialPeriodsService {
       revenue: Decimal;
     }[]
   > {
-    const rawResult = await tx.$queryRaw<any[]>`
+    const rawResult =
+      periodId !== undefined
+        ? await tx.$queryRaw<any[]>`
+      SELECT 
+        COALESCE(p.tax_category_id, 0) as "taxCategoryId",
+        COALESCE(tc.pit_rate, 0) as "pitRate",
+        COALESCE(tc.vat_rate, 0) as "vatRate",
+        COALESCE(SUM(id.total_amount), 0) as "revenue"
+      FROM invoice_details id
+      JOIN invoices i ON id.invoice_id = i.id
+      LEFT JOIN products p ON id.product_id = p.id
+      LEFT JOIN tax_categories_dictionary tc ON p.tax_category_id = tc.id
+      WHERE i.user_id = ${userId}
+        AND i.period_id = ${periodId}
+      GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate
+    `
+        : await tx.$queryRaw<any[]>`
       SELECT 
         COALESCE(p.tax_category_id, 0) as "taxCategoryId",
         COALESCE(tc.pit_rate, 0) as "pitRate",
@@ -368,7 +388,7 @@ export class FinancialPeriodsService {
 
   private async calculateYtdTaxForPercentageMethod(
     userId: string,
-    targetFp: { startDate: Date; endDate: Date },
+    targetFp: { id?: number; startDate: Date; endDate: Date },
     currentTaxConfig: TaxConfiguration,
     client: Prisma.TransactionClient,
   ): Promise<{ vatAmount: Decimal; pitAmount: Decimal }> {
@@ -412,7 +432,7 @@ export class FinancialPeriodsService {
 
   private async calculatePeriodTax(
     userId: string,
-    targetFp: { startDate: Date; endDate: Date },
+    targetFp: { id?: number; startDate: Date; endDate: Date },
     currentTaxConfig: TaxConfiguration,
     inPeriodRevenue: Decimal,
     inPeriodExpense: Decimal,
@@ -438,6 +458,7 @@ export class FinancialPeriodsService {
       targetFp.startDate,
       targetFp.endDate,
       client,
+      targetFp.id,
     );
     const taxResult = this.taxEngine.calculateTaxForPeriod(
       currentTaxConfig,
@@ -546,7 +567,7 @@ export class FinancialPeriodsService {
       const invalidInvoiceCount = await client.invoice.count({
         where: {
           userId,
-          issueDate: { gte: targetFp.startDate, lte: targetFp.endDate },
+          periodId: targetFp.id,
           NOT: [
             { status: InvoiceStatus.ISSUED },
             { status: InvoiceStatus.CANCELED },
@@ -581,6 +602,7 @@ export class FinancialPeriodsService {
           userId,
           targetFp.startDate,
           targetFp.endDate,
+          targetFp.id,
           client,
         );
         inPeriodRevenue = realtimeData.revenue;
@@ -921,6 +943,7 @@ export class FinancialPeriodsService {
       userId,
       targetFp.startDate,
       targetFp.endDate,
+      targetFp.id,
     );
     const inPeriodRevenue = realtimeData.revenue;
     const inPeriodExpense = realtimeData.expense;

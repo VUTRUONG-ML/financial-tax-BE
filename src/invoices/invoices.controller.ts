@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
@@ -33,8 +35,13 @@ export class InvoicesController {
   async createInvoice(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateInvoiceDto,
+    @Req() req: Request & { financialPeriodId: number },
   ) {
-    const data = await this.invoicesService.createInvoice(userId, dto);
+    const data = await this.invoicesService.createInvoice(
+      userId,
+      dto,
+      req.financialPeriodId,
+    );
     return {
       message: 'Invoice created successfully.',
       data,
@@ -128,11 +135,13 @@ export class InvoicesController {
     @Param('invoicePublicId') invPublicId: string,
     @CurrentUser('id') userId: string,
     @Body() dto: UpdateInvoiceDto,
+    @Req() req: Request & { financialPeriodId: number },
   ) {
     const data = await this.invoicesService.updateInvoice(
       invPublicId,
       userId,
       dto,
+      req.financialPeriodId,
     );
     return {
       message: 'Invoice updated successfully.',

@@ -273,7 +273,11 @@ model Invoice {
   // Ngày phát hành hóa đơn (thay thế transactionDate và issuedAt)
   issueDate DateTime @default(now()) @map("issue_date") @db.Timestamptz(3)
 
+  periodId Int             @map("period_id")
+  period   FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
   @@index([userId, issueDate, status])
+  @@index([periodId])
   @@map("invoices")
 }
 
@@ -506,6 +510,7 @@ model FinancialPeriod {
   inventoryMovements  InventoryMovement[]
   stockReceipts       StockReceipt[]
   stockIssues         StockIssue[]
+  invoices            Invoice[]
   createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
