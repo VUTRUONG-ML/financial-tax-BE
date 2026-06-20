@@ -186,15 +186,15 @@ export class InvoicesService {
     }
 
     if (action && action === 'CANCELED') {
-      if (invoice.status !== 'ISSUED') {
+      if (invoice.status !== 'ISSUED' && invoice.status !== 'SYNC_FAILED') {
         this.log.warn('VALIDATE_ACCESS', {
           status: LOG_STATUS.FAILED,
-          reason: 'CANCELED_INVOICE_DIFFERENCE_ISSUED',
+          reason: 'CANCELED_INVOICE_DIFFERENCE_ISSUED_OR_SYNC_FAILED',
           userId,
           invoicePublicId: publicId,
         });
         throw new ForbiddenException(
-          'Cancel invoice when the status is different from ISSUED.',
+          'Cancel invoice when the status is different from ISSUED or SYNC_FAILED.',
         );
       }
     }
@@ -266,7 +266,7 @@ export class InvoicesService {
       return await this.prisma.$transaction(run);
     }
   }
-  // cộng doanh thu trừ tồn kho ở đây.
+
   async createInvoice(userId: string, dto: CreateInvoiceDto) {
     // ─── PRE-FLIGHT CHECKS (Ngoài Transaction để tránh giữ lock DB) ──────────
     this.validateInvoiceB2C(
@@ -335,35 +335,7 @@ export class InvoicesService {
         })),
       });
 
-      // 3. Tạo StockIssue (Phiếu xuất kho) cho các sản phẩm vật lý / theo dõi kho
-      const stockItems = resolvedItems.filter(
-        ({ product }) =>
-          product.productType !== 'SERVICE' && product.isInventoryTracked,
-      );
-
-      if (stockItems.length > 0) {
-        const period = await this.financialPeriodsService.ensurePeriodExists(
-          userId,
-          tx,
-          new Date(dto.issueDate),
-        );
-
-        await this.stocksService.createStockIssue(
-          userId,
-          {
-            issueType: StockIssueType.SALE,
-            issueDate: dto.issueDate,
-            sourceDocumentType: StockIssueDocument.INVOICE,
-            sourceDocumentId: invoice.id,
-            products: stockItems.map(({ product, quantity }) => ({
-              productPublicId: product.publicId,
-              quantity,
-            })),
-          },
-          period.id,
-          tx,
-        );
-      }
+      // 3. Draft invoices do not deduct stock (Stock is only deducted on Publish).
 
       // 4. Ghi AuditLog trong cùng Transaction
       await this.auditLog.logChange(
@@ -411,18 +383,22 @@ export class InvoicesService {
    * @param userId
    * @returns InvoiceResponseDto
    */
-  async publishInvoice(publicId: string, userId: string) {
+  async publishInvoice(
+    publicId: string,
+    userId: string,
+    requestCqtCode?: boolean,
+  ) {
     // 1. Cập nhật trạng thái PENDING_ISSUED / trừ tồn kho, cộng doanh thu trước khi gọi api cơ quan thuế
-    const phaseFirst = await this.prisma.$transaction(async (tx) => {
+    const currentInvoice = await this.prisma.$transaction(async (tx) => {
       // Kiểm tra quyền sở hữu và invoice phải ở trạng thái khác ISSUED, CANCELED, hoặc PENDING_ISSUED
-      const currentInvoice = await this.validateInvoiceAccess(
+      const invoice = await this.validateInvoiceAccess(
         publicId,
         userId,
         'UPDATE',
         tx,
       );
       const details = await tx.invoiceDetail.findMany({
-        where: { invoiceId: currentInvoice.id },
+        where: { invoiceId: invoice.id },
         include: {
           product: {
             select: { publicId: true },
@@ -446,59 +422,115 @@ export class InvoicesService {
         'UPDATE',
         tableWrite.invoices,
         resPending.id,
-        { status: currentInvoice.status },
+        { status: invoice.status },
         { status: resPending.status },
       );
+
+      // Trừ tồn kho & Tạo phiếu xuất kho (StockIssue) nếu chưa có
+      const existingIssue = await tx.stockIssue.findFirst({
+        where: {
+          sourceDocumentType: 'INVOICE',
+          sourceDocumentId: invoice.id,
+        },
+      });
+
+      if (!existingIssue) {
+        const stockItems = resolvedItems.filter(
+          ({ product }) =>
+            product.productType !== 'SERVICE' && product.isInventoryTracked,
+        );
+
+        if (stockItems.length > 0) {
+          const period = await this.financialPeriodsService.ensurePeriodExists(
+            userId,
+            tx,
+            new Date(invoice.issueDate),
+          );
+
+          await this.stocksService.createStockIssue(
+            userId,
+            {
+              issueType: StockIssueType.SALE,
+              issueDate: invoice.issueDate.toISOString(),
+              sourceDocumentType: StockIssueDocument.INVOICE,
+              sourceDocumentId: invoice.id,
+              products: stockItems.map(({ product, quantity }) => ({
+                productPublicId: product.publicId,
+                quantity,
+              })),
+            },
+            period.id,
+            tx,
+          );
+        }
+      }
 
       this.log.log(LOG_ACTIONS.INVOICE_CQT_ISSUED + '_PHASE1', {
         status: LOG_STATUS.SUCCESS,
         userId,
         publicId,
       });
+
+      return invoice;
     });
 
-    // Fetch the user's taxCode to pass it as C5_C9 (or default 'ABCDE')
-
-    const infoVerified = await this.taxConnection.verifyConnection(userId);
-
-    // Gọi Mock API
-    const result = await this.taxAuthorityService.requestTaxCode(
-      publicId,
-      infoVerified.cashRegisterCode,
-    );
-
-    if (result.success) {
-      // Nếu thành công -> Chạy hàm lockInvoice
-      const phaseSecond = await this.lockInvoice(
-        publicId,
+    const activeTaxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
         userId,
-        result.cqtCode,
+        applyFromDate: { lte: currentInvoice.issueDate },
+        applyToDate: { gte: currentInvoice.issueDate },
+      },
+    });
+    const taxGroupId = activeTaxConfig?.taxGroupId ?? 1; // 1 là mức miễn thuế
+    const needsCqt = taxGroupId !== 1 || !!requestCqtCode;
+
+    if (needsCqt) {
+      // Fetch the user's taxCode to pass it as C5_C9
+      const infoVerified = await this.taxConnection.verifyConnection(userId);
+
+      // Gọi Mock API
+      const result = await this.taxAuthorityService.requestTaxCode(
+        publicId,
+        infoVerified.cashRegisterCode,
       );
-      return mapToDto(InvoiceResponseDto, phaseSecond);
-    } else if (result.success === false) {
-      const phaseFinally = await this.prisma.$transaction(async (tx) => {
-        const currentInvoice = await tx.invoice.findUnique({
-          where: { publicId },
-        });
-        if (!currentInvoice || currentInvoice.status !== 'PENDING_ISSUED') {
-          this.log.warn('ROLLBACK_ISSUED', {
-            status: LOG_STATUS.FAILED,
-            reason: 'INVOICE_NOT_FOUND_OR_INVALID_STATUS',
-            userId,
-            publicId,
+
+      if (result.success) {
+        // Nếu thành công -> Chạy hàm lockInvoice
+        const phaseSecond = await this.lockInvoice(
+          publicId,
+          userId,
+          result.cqtCode,
+        );
+        return mapToDto(InvoiceResponseDto, phaseSecond);
+      } else {
+        const phaseFinally = await this.prisma.$transaction(async (tx) => {
+          const currentInv = await tx.invoice.findUnique({
+            where: { publicId },
           });
-          throw new BadRequestException(
-            'Invalid status invoice while rollback process.',
-          );
-        }
-        const rollbackInvoice = await tx.invoice.update({
-          where: { publicId },
-          data: { status: 'SYNC_FAILED' },
-          include: { details: true },
+          if (!currentInv || currentInv.status !== 'PENDING_ISSUED') {
+            this.log.warn('ROLLBACK_ISSUED', {
+              status: LOG_STATUS.FAILED,
+              reason: 'INVOICE_NOT_FOUND_OR_INVALID_STATUS',
+              userId,
+              publicId,
+            });
+            throw new BadRequestException(
+              'Invalid status invoice while rollback process.',
+            );
+          }
+          const rollbackInvoice = await tx.invoice.update({
+            where: { publicId },
+            data: { status: 'SYNC_FAILED' },
+            include: { details: true },
+          });
+          return rollbackInvoice;
         });
-        return rollbackInvoice;
-      });
-      return mapToDto(InvoiceResponseDto, phaseFinally);
+        return mapToDto(InvoiceResponseDto, phaseFinally);
+      }
+    } else {
+      // Không cần cấp mã CQT -> Trực tiếp chuyển thành ISSUED
+      const phaseSecond = await this.lockInvoice(publicId, userId);
+      return mapToDto(InvoiceResponseDto, phaseSecond);
     }
   }
 
@@ -601,12 +633,10 @@ export class InvoicesService {
       userId,
       'CANCELED',
     );
-    // Lấy ra danh sách sản phẩm của invoice đó thông qua details
-    // duyệt qua toàn bộ thông tin detail hoàn trả lại số lượng
-    // hủy bỏ toàn bộ phiếu thu đối với invoice này
+
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedInvoice = await tx.invoice.updateMany({
-        where: { id: invoice.id, status: 'ISSUED' },
+        where: { id: invoice.id, status: { in: ['ISSUED', 'SYNC_FAILED'] } },
         data: { status: 'CANCELED', cancellationReason },
       });
       if (updatedInvoice.count === 0) {
@@ -619,18 +649,24 @@ export class InvoicesService {
         throw new BadRequestException('Invoice already CANCELED.');
       }
 
-      // Hoàn lại tồn kho
-      const item = await tx.invoiceDetail.findMany({
-        where: { invoiceId: invoice.id },
-        select: { productId: true, quantity: true },
+      // Hoàn lại tồn kho bằng cách hủy StockIssue
+      const stockIssue = await tx.stockIssue.findFirst({
+        where: {
+          sourceDocumentType: 'INVOICE',
+          sourceDocumentId: invoice.id,
+          status: { not: 'CANCELLED' },
+        },
       });
-      await this.productService.updateStockFromCanceledInvoice(
-        tx,
-        userId,
-        item,
-        'INCREMENT',
-        invoice.id,
-      );
+
+      if (stockIssue) {
+        await this.stocksService.cancelIssue(
+          userId,
+          stockIssue.periodId,
+          stockIssue.issueCode,
+          true,
+          tx,
+        );
+      }
 
       // Hủy các phiếu thu liên quan
       await this.voucherService.bulkCancelByInvoice(
@@ -639,14 +675,6 @@ export class InvoicesService {
         invoice.id,
         'OUTBOUND',
       );
-
-      // Trừ doanh thu
-      await tx.revenueTracker.update({
-        where: {
-          userId_year: { userId, year: invoice.issueDate.getFullYear() },
-        },
-        data: { revenueYtd: { decrement: invoice.totalPayment } },
-      });
 
       await this.auditLog.logChange(
         tx,
@@ -662,7 +690,7 @@ export class InvoicesService {
         status: InvoiceStatus.CANCELED,
       });
     });
-    // Hoàn lại tồn kho trong sổ s05 thong qua details.d._sum.quantity---------------------------
+
     this.log.log(LOG_ACTIONS.CANCEL_INVOICE, {
       status: LOG_STATUS.SUCCESS,
       userId,

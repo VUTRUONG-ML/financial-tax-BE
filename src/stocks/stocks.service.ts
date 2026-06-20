@@ -810,9 +810,11 @@ export class StocksService {
         }
 
         const year = current.issueDate.getFullYear();
-        await client.revenueTracker.update({
+        await client.revenueTracker.updateMany({
           where: {
-            userId_year: { userId, year },
+            userId,
+            year,
+            revenueYtd: { gte: totalRevenue },
           },
           data: {
             revenueYtd: { decrement: totalRevenue },

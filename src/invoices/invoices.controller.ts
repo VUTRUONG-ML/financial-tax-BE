@@ -46,8 +46,10 @@ export class InvoicesController {
   async publish(
     @Param('invoicePublicId') invoicePublicId: string,
     @CurrentUser('id') userId: string,
+    @Query('requestCqtCode') requestCqtCode?: string,
   ) {
-    const result = await this.invoicesService.publishInvoice(invoicePublicId, userId);
+    const requestCqt = requestCqtCode === 'true';
+    const result = await this.invoicesService.publishInvoice(invoicePublicId, userId, requestCqt);
     return {
       message:
         'Complete the process of calling the tax authority for the code.',
