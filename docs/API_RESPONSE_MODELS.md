@@ -60,6 +60,7 @@ This document describes the request and response data structures of the core API
   - [10.1. Reopen Financial Period](#101-reopen-financial-period)
   - [10.2. Confirm Tax Payment](#102-confirm-tax-payment)
   - [10.3. Compare PIT](#103-compare-pit)
+  - [10.4. Update Financial Period](#104-update-financial-period)
 - [11. Internal Production Orders](#11-internal-production-orders)
   - [11.1. Create Production Order](#111-create-production-order)
   - [11.2. Cancel Production Order](#112-cancel-production-order)
@@ -88,6 +89,25 @@ This document describes the request and response data structures of the core API
   - [13.6. Get Expense Book Records](#136-get-expense-book-records)
   - [13.7. Get Inventory Book Summary](#137-get-inventory-book-summary)
   - [13.8. Get Inventory Book Records](#138-get-inventory-book-records)
+- [14. Stocks](#14-stocks)
+  - [14.1. Get Stock Summary](#141-get-stock-summary)
+- [15. Stock Receipts](#15-stock-receipts)
+  - [15.1. Get All Stock Receipts](#151-get-all-stock-receipts)
+  - [15.2. Create Stock Receipt](#152-create-stock-receipt)
+  - [15.3. Cancel Stock Receipt](#153-cancel-stock-receipt)
+  - [15.4. Link Invoice to Stock Receipt](#154-link-invoice-to-stock-receipt)
+  - [15.5. Unlink Invoice from Stock Receipt](#155-unlink-invoice-from-stock-receipt)
+  - [15.6. Get Linked Invoices](#156-get-linked-invoices)
+  - [15.7. Get Stock Receipt Detail](#157-get-stock-receipt-detail)
+- [16. Stock Issues](#16-stock-issues)
+  - [16.1. Get All Stock Issues](#161-get-all-stock-issues)
+  - [16.2. Create Stock Issue](#162-create-stock-issue)
+  - [16.3. Cancel Stock Issue](#163-cancel-stock-issue)
+- [17. Tax Authority Connections](#17-tax-authority-connections)
+  - [17.1. Get Tax Connection](#171-get-tax-connection)
+  - [17.2. Upsert Tax Connection](#172-upsert-tax-connection)
+- [18. Mock Tax Authority](#18-mock-tax-authority)
+  - [18.1. Verify Mock Tax Account](#181-verify-mock-tax-account)
 
 ---
 
@@ -1822,7 +1842,7 @@ None
 
 - **Route:** `/metadata/onboarding-init`
 - **Method:** `GET`
-- **Authentication:** Required (Bearer Token in Authorization Header)
+- **Authentication:** None
 
 #### Request Body
 
@@ -1915,7 +1935,6 @@ None
 {
   "industryId": "number",
   "taxGroupId": "number",
-  "pitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
   "isOtherIndustry": "boolean (Optional)",
   "isVatReducible": "boolean (Optional)"
 }
@@ -2134,6 +2153,48 @@ None
   "data": {
     "profitMethodAmount": "number | null",
     "percentageMethodAmount": "number | null"
+  },
+  "meta": null
+}
+```
+
+### 10.4. Update Financial Period
+
+- **Route:** `/financial-periods/:id`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "periodName": "string (Optional)",
+  "status": "\"OPEN\" | \"CLOSED\" (Optional)",
+  "actualPaymentDate": "Date string (Optional)"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Cập nhật kỳ tài chính thành công",
+  "data": {
+    "publicId": "string",
+    "periodName": "string",
+    "startDate": "Date string",
+    "endDate": "Date string",
+    "deadlineDate": "Date string",
+    "status": "\"OPEN\" | \"CLOSED\"",
+    "taxAmount": "number",
+    "vatAmount": "number | null",
+    "pitAmount": "number | null",
+    "actualPaymentDate": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string"
   },
   "meta": null
 }
@@ -3406,6 +3467,200 @@ None
         "So_Luong_Ton": "number"
       }
     ],
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve expense book summary successfully",
+  "data": {
+    "activeBookKey": "S2c-HKD",
+    "books": {
+      "S2c-HKD": {
+        "bookMetadata": {
+          "businessName": "string",
+          "taxCode": "string",
+          "bookTitle": "string",
+          "ownerName": "string",
+          "templateStyle": "string"
+        },
+        "bookKey": "S2C",
+        "timeFrame": {
+          "startDate": "Date string",
+          "endDate": "Date string"
+        },
+        "summary": {
+          "chi_phi_nguyen_vat_lieu": "number",
+          "chi_phi_nhan_cong": "number",
+          "chi_phi_khau_hao": "number",
+          "chi_phi_dich_vu_mua_ngoai": "number",
+          "chi_phi_lai_vay": "number",
+          "chi_phi_khac": "number",
+          "tong_chi_phi_hop_le": "number"
+        }
+      }
+    },
+    "syncCode": "string"
+  },
+  "meta": null
+}
+
+### 13.6. Get Expense Book Records
+
+- **Route:** `/accounting-books/expense/records`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `year`: `number (Optional - Required if timeFrame is "custom")`
+- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `syncCode`: `string (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve expense book successfully",
+  "data": {
+    "rows": [
+      {
+        "Ngay_Chi": "Date string",
+        "So_Phieu_Chi": "string",
+        "Hang_Muc": "string",
+        "Dien_Giai": "string",
+        "So_Tien": "number",
+        "Hoa_Don_Chung_Tu_Kem_Theo": "string"
+      }
+    ],
+    "meta": {
+      "total": "number",
+      "page": "number",
+      "lastPage": "number"
+    },
+    "activeBookKey": "S2c-HKD",
+    "syncCode": "string",
+    "isSummaryOutdated": "boolean"
+  },
+  "meta": null
+}
+```
+
+### 13.7. Get Inventory Book Summary
+
+- **Route:** `/accounting-books/inventory/summary`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "timeFrame": "\"thang_nay\" | \"thang_truoc\" | \"quy_nay\" | \"custom\"",
+  "periodPublicId": "string",
+  "productPublicId": "string",
+  "year": "number (Optional)",
+  "quarter": "number (Optional)"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve inventory book summary successfully",
+  "data": {
+    "activeBookKey": "\"S2d-HKD\"",
+    "books": {
+      "S2d-HKD": {
+        "bookMetadata": {
+          "businessName": "string",
+          "taxCode": "string",
+          "bookTitle": "string",
+          "ownerName": "string",
+          "templateStyle": "\"S1a_TEMPLATE_MIEN_THUE\" | \"S2a_TEMPLATE_TONG_HOP_TNCN\" | \"S2b_TEMPLATE_TRACH_NHIEM_GTGT\" | \"S2c_TEMPLATE_PHAN_BO_COT\" | \"S2d_TEMPLATE_NHAP_XUAT_TON\" | \"S2e_TEMPLATE_RUNNING_BALANCE\""
+        },
+        "bookKey": "\"S2D\"",
+        "timeFrame": {
+          "startDatePeriod": "Date string",
+          "endDatePeriod": "Date string"
+        },
+        "summary": {
+          "Tong_So_Luong_Ton_Dau_Ky": "number",
+          "Tong_Thanh_tien_Dau_Ky": "number",
+          "Tong_So_Luong_Nhap": "number",
+          "Tong_Thanh_Tien_Nhap": "number",
+          "Tong_So_Luong_Xuat": "number",
+          "Tong_Thanh_Tien_Xuat": "number",
+          "Tong_So_Luong_Ton_Cuoi_Ky": "number",
+          "Tong_Thanh_tien_Cuoi_Ky": "number"
+        },
+        "isFinalized": "boolean"
+      }
+    },
+    "syncCode": "string"
+  },
+  "meta": null
+}
+```
+
+### 13.8. Get Inventory Book Records
+
+- **Route:** `/accounting-books/inventory/records`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
+- `productPublicId`: `string`
+- `periodPublicId`: `string`
+- `year`: `number (Optional)`
+- `quarter`: `number (Optional)`
+- `syncCode`: `string (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve inventory book successfully",
+  "data": {
+    "rows": [
+      {
+        "Ngay_Chung_Tu": "Date string",
+        "So_Chung_Tu": "string",
+        "Dien_Giai": "string",
+        "Product_Id": "number",
+        "Product_Name": "string",
+        "Sku_Code": "string",
+        "Unit": "string",
+        "So_Luong_Nhap": "number",
+        "Don_Gia_Nhap": "number",
+        "Thanh_Tien_Nhap": "number",
+        "So_Luong_Xuat": "number",
+        "Don_Gia_Xuat": "number",
+        "Thanh_Tien_Xuat": "number",
+        "So_Luong_Ton": "number"
+      }
+    ],
     "meta": {
       "total": "number",
       "page": "number",
@@ -3414,6 +3669,630 @@ None
     "activeBookKey": "\"S2d-HKD\"",
     "syncCode": "string",
     "isSummaryOutdated": "boolean"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 14. Stocks
+
+### 14.1. Get Stock Summary
+
+- **Route:** `/stocks/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Stock summary retrieved successfully",
+  "data": {
+    "endingInventoryValue": "number",
+    "trackedItemsCount": "number",
+    "lowStockItemsCount": "number"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 15. Stock Receipts
+
+### 15.1. Get All Stock Receipts
+
+- **Route:** `/stock-receipts`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `sourceType`: `"PURCHASE" | "PRODUCTION" | "ADJUSTMENT" | "OPENING" (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Stock receipts retrieved successfully",
+  "data": [
+    {
+      "receiptCode": "string",
+      "receiptDate": "Date string",
+      "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+      "supplierName": "string | null",
+      "sourceInvoiceNo": "string | null",
+      "totalValue": "number",
+      "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\"",
+      "payment": "\"UNPAID\" | \"CASH\" | \"BANK\" | \"PAID\""
+    }
+  ],
+  "meta": {
+    "total": "number",
+    "page": "number",
+    "lastPage": "number"
+  }
+}
+```
+
+### 15.2. Create Stock Receipt
+
+- **Route:** `/stock-receipts`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+  "receiptDate": "Date string",
+  "supplierName": "string (Optional)",
+  "sourceInvoiceNo": "string (Optional)",
+  "sourceDocumentUrl": "string (Optional)",
+  "products": [
+    {
+      "productPublicId": "string",
+      "quantity": "number",
+      "unitCost": "number"
+    }
+  ]
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "timestamp": "Date string",
+  "message": "Stock receipt created successfully",
+  "data": {
+    "receiptCode": "string",
+    "receiptDate": "Date string",
+    "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+    "supplierName": "string | null",
+    "sourceInvoiceNo": "string | null",
+    "sourceDocumentUrl": "string | null",
+    "totalValue": "number",
+    "status": "\"APPROVED\"",
+    "periodName": "string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string",
+        "quantity": "number",
+        "unitCost": "number",
+        "totalValue": "number",
+        "taxCategoryIdSnapshot": "number | null"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 15.3. Cancel Stock Receipt
+
+- **Route:** `/stock-receipts/:receiptCode/cancel`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Stock receipt canceled successfully",
+  "data": {
+    "receiptCode": "string",
+    "receiptDate": "Date string",
+    "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+    "supplierName": "string | null",
+    "sourceInvoiceNo": "string | null",
+    "sourceDocumentUrl": "string | null",
+    "totalValue": "number",
+    "status": "\"CANCELLED\"",
+    "periodName": "string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string",
+        "quantity": "number",
+        "unitCost": "number",
+        "totalValue": "number",
+        "taxCategoryIdSnapshot": "number | null"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 15.4. Link Invoice to Stock Receipt
+
+- **Route:** `/stock-receipts/:receiptCode/link-invoice`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "invoicePublicId": "string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Linked stock receipt to invoice successfully.",
+  "data": null,
+  "meta": null
+}
+```
+
+### 15.5. Unlink Invoice from Stock Receipt
+
+- **Route:** `/stock-receipts/:receiptCode/link-invoice/:invoicePublicId`
+- **Method:** `DELETE`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Unlinked stock receipt from invoice successfully.",
+  "data": null,
+  "meta": null
+}
+```
+
+### 15.6. Get Linked Invoices
+
+- **Route:** `/stock-receipts/:receiptCode/invoices`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Linked invoices retrieved successfully",
+  "data": [
+    {
+      "publicId": "string",
+      "sellerName": "string",
+      "sellerTaxCode": "string",
+      "invoiceNo": "string",
+      "issueDate": "Date string",
+      "attachmentUrl": "string | null",
+      "status": "\"ACTIVE\" | \"CANCELED\"",
+      "isSyncedToInventory": "boolean",
+      "isPaid": "boolean",
+      "totalAmount": "number",
+      "paidAmount": "number",
+      "remainingAmount": "number",
+      "createdAt": "Date string",
+      "details": [
+        {
+          "id": "number",
+          "quantity": "number",
+          "unitCost": "number",
+          "lineTotal": "number",
+          "productPublicId": "string",
+          "productName": "string"
+        }
+      ]
+    }
+  ],
+  "meta": null
+}
+```
+
+### 15.7. Get Stock Receipt Detail
+
+- **Route:** `/stock-receipts/:receiptCode`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "receipt": {
+      "receiptCode": "string",
+      "receiptDate": "Date string",
+      "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+      "supplierName": "string | null",
+      "sourceInvoiceNo": "string | null",
+      "sourceDocumentUrl": "string | null",
+      "totalValue": "number",
+      "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\"",
+      "periodName": "string",
+      "createdAt": "Date string",
+      "details": [
+        {
+          "productPublicId": "string",
+          "productName": "string",
+          "skuCode": "string",
+          "quantity": "number",
+          "unitCost": "number",
+          "totalValue": "number",
+          "taxCategoryIdSnapshot": "number | null"
+        }
+      ]
+    },
+    "invoice": {
+      "publicId": "string",
+      "sellerName": "string",
+      "sellerTaxCode": "string",
+      "invoiceNo": "string",
+      "issueDate": "Date string",
+      "attachmentUrl": "string | null",
+      "status": "\"ACTIVE\" | \"CANCELED\"",
+      "isSyncedToInventory": "boolean",
+      "isPaid": "boolean",
+      "totalAmount": "number",
+      "paidAmount": "number",
+      "remainingAmount": "number",
+      "createdAt": "Date string",
+      "details": [
+        {
+          "id": "number",
+          "quantity": "number",
+          "unitCost": "number",
+          "lineTotal": "number",
+          "productPublicId": "string",
+          "productName": "string"
+        }
+      ]
+    },
+    "validation": {
+      "status": "\"SUCCESS\" | \"WARNING\" | \"INFO\"",
+      "warnings": [
+        {
+          "code": "\"TOTAL_AMOUNT_MISMATCH\" | \"PRODUCT_MISSING\" | \"QUANTITY_MISMATCH\" | \"UNIT_COST_MISMATCH\"",
+          "severity": "\"WARNING\" | \"INFO\"",
+          "message": "string"
+        }
+      ]
+    }
+  },
+  "meta": null
+}
+```
+
+---
+
+## 16. Stock Issues
+
+### 16.1. Get All Stock Issues
+
+- **Route:** `/stock-issues`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `sourceType`: `"INVOICE\" | \"PRODUCTION_ORDER\" | \"SALE\" | \"PRODUCTION\" | \"ADJUSTMENT\" (Optional)`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Stock issues retrieved successfully",
+  "data": [
+    {
+      "issueCode": "string",
+      "issueDate": "Date string",
+      "issueType": "\"SALE\" | \"PRODUCTION\" | \"ADJUSTMENT\"",
+      "description": "string",
+      "totalValue": "number",
+      "isAutomatic": "boolean",
+      "sourceDocumentType": "\"INVOICE\" | \"PRODUCTION_ORDER\" | null",
+      "sourceDocumentId": "number | null",
+      "sourceDocumentCode": "string | null",
+      "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\" | \"PENDING_ISSUED\" | \"SYNC_FAILED\""
+    }
+  ],
+  "meta": {
+    "total": "number",
+    "page": "number",
+    "lastPage": "number"
+  }
+}
+```
+
+### 16.2. Create Stock Issue
+
+- **Route:** `/stock-issues`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "issueType": "\"SALE\" | \"PRODUCTION\" | \"ADJUSTMENT\"",
+  "issueDate": "Date string",
+  "sourceDocumentType": "\"INVOICE\" | \"PRODUCTION_ORDER\" (Optional)",
+  "sourceDocumentId": "number (Optional)",
+  "products": [
+    {
+      "productPublicId": "string",
+      "quantity": "number"
+    }
+  ]
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "timestamp": "Date string",
+  "message": "Stock issue created successfully",
+  "data": {
+    "issueCode": "string",
+    "issueDate": "Date string",
+    "issueType": "\"SALE\" | \"PRODUCTION\" | \"ADJUSTMENT\"",
+    "sourceDocumentType": "\"INVOICE\" | \"PRODUCTION_ORDER\" | null",
+    "sourceDocumentId": "number | null",
+    "status": "\"APPROVED\"",
+    "periodName": "string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string",
+        "quantity": "number",
+        "provisionalUnitCost": "number | null",
+        "finalWeightedUnitCost": "number | null",
+        "finalCogsValue": "number | null",
+        "cogsPostedToS2c": "\"PENDING\" | \"POSTED\" | \"FAILED\""
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+### 16.3. Cancel Stock Issue
+
+- **Route:** `/stock-issues/:issueCode/cancel`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Stock issue canceled successfully",
+  "data": {
+    "issueCode": "string",
+    "issueDate": "Date string",
+    "issueType": "\"SALE\" | \"PRODUCTION\" | \"ADJUSTMENT\"",
+    "sourceDocumentType": "\"INVOICE\" | \"PRODUCTION_ORDER\" | null",
+    "sourceDocumentId": "number | null",
+    "status": "\"CANCELLED\"",
+    "periodName": "string",
+    "createdAt": "Date string",
+    "details": [
+      {
+        "id": "number",
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string",
+        "quantity": "number",
+        "provisionalUnitCost": "number | null",
+        "finalWeightedUnitCost": "number | null",
+        "finalCogsValue": "number | null",
+        "cogsPostedToS2c": "\"PENDING\" | \"POSTED\" | \"FAILED\""
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+---
+
+## 17. Tax Authority Connections
+
+### 17.1. Get Tax Connection
+
+- **Route:** `/tax-authority-connections`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Get tax connection initiated successfully.",
+  "data": {
+    "isConfigured": "boolean",
+    "taxCode": "string | null",
+    "cashRegisterCode": "string | null",
+    "connectionStatus": "\"PENDING_VERIFY\" | \"VERIFIED\" | \"FAILED\" | null",
+    "lastVerifiedAt": "Date string | null"
+  },
+  "meta": null
+}
+```
+
+### 17.2. Upsert Tax Connection
+
+- **Route:** `/tax-authority-connections`
+- **Method:** `PUT`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "taxCode": "string",
+  "username": "string",
+  "password": "string",
+  "cashRegisterCode": "string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Tax connection initiated successfully.",
+  "data": {
+    "isConfigured": "boolean",
+    "taxCode": "string",
+    "cashRegisterCode": "string",
+    "connectionStatus": "\"VERIFIED\"",
+    "lastVerifiedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 18. Mock Tax Authority
+
+### 18.1. Verify Mock Tax Account
+
+- **Route:** `/mock-tax-authority/verify`
+- **Method:** `POST`
+- **Authentication:** None
+
+#### Request Body (JSON)
+
+```json
+{
+  "taxCode": "string",
+  "username": "string",
+  "password": "string",
+  "cashRegisterCode": "string"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": {
+    "success": "boolean",
+    "businessName": "string"
   },
   "meta": null
 }

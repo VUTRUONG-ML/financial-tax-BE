@@ -917,23 +917,6 @@ export class FinancialPeriodsService {
       );
     }
 
-    const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
-    const mostRecentDeclaration = await this.prisma.taxDeclaration.findFirst({
-      where: {
-        period: {
-          userId,
-          startDate: { gte: startOfYear },
-          endDate: { lt: targetFp.startDate },
-          status: PeriodStatus.CLOSED,
-        },
-      },
-      orderBy: {
-        period: {
-          endDate: 'desc',
-        },
-      },
-    });
-
     const realtimeData = await this.calculateRealtimeTaxData(
       userId,
       targetFp.startDate,
