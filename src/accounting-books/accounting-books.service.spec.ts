@@ -5,6 +5,7 @@ import { parseDateRange } from 'src/common/utils/date-range-parser.util';
 import { moment } from 'src/common/utils/time.util';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { Decimal } from '@prisma/client/runtime/client';
 
 describe('DateRangeParser', () => {
@@ -107,6 +108,7 @@ describe('AccountingBooksService', () => {
   let service: AccountingBooksService;
   let prisma: jest.Mocked<PrismaService>;
   let taxEngine: jest.Mocked<TaxEngineService>;
+  let financialPeriodsService: jest.Mocked<FinancialPeriodsService>;
 
   beforeAll(() => {
     jest.useFakeTimers();
@@ -176,6 +178,14 @@ describe('AccountingBooksService', () => {
           provide: TaxEngineService,
           useValue: {
             calculateTotalTax: jest.fn(),
+            calculatePitPercentageMultipleIndustries: jest.fn(),
+            calculateTaxForPeriod: jest.fn(),
+          },
+        },
+        {
+          provide: FinancialPeriodsService,
+          useValue: {
+            getRevenueByIndustry: jest.fn(),
           },
         },
       ],
@@ -184,6 +194,7 @@ describe('AccountingBooksService', () => {
     service = module.get<AccountingBooksService>(AccountingBooksService);
     prisma = module.get(PrismaService);
     taxEngine = module.get(TaxEngineService);
+    financialPeriodsService = module.get(FinancialPeriodsService);
   });
 
   it('should be defined', () => {
@@ -276,6 +287,32 @@ describe('AccountingBooksService', () => {
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
 
+      financialPeriodsService.getRevenueByIndustry
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            taxCategoryId: 11,
+            pitRate: new Decimal(0.005),
+            vatRate: new Decimal(0.01),
+            revenue: new Decimal(30000000),
+          },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            taxCategoryId: 11,
+            pitRate: new Decimal(0.005),
+            vatRate: new Decimal(0.01),
+            revenue: new Decimal(30000000),
+          },
+        ]);
+
+      (taxEngine.calculateTaxForPeriod as jest.Mock)
+        .mockReturnValueOnce({ vatAmount: new Decimal(0), pitAmount: new Decimal(0), totalTax: new Decimal(0) })
+        .mockReturnValueOnce({ vatAmount: new Decimal(300000), pitAmount: new Decimal(150000), totalTax: new Decimal(450000) })
+        .mockReturnValueOnce({ vatAmount: new Decimal(0), pitAmount: new Decimal(0), totalTax: new Decimal(0) })
+        .mockReturnValueOnce({ vatAmount: new Decimal(300000), pitAmount: new Decimal(150000), totalTax: new Decimal(450000) });
+
       const result = await service.getRevenueBookSummary(
         'user-001',
         'thang_nay',
@@ -290,6 +327,11 @@ describe('AccountingBooksService', () => {
       expect(s2a.summary.so_luong_don_hang).toBe(2);
       expect(s2a.summary.Tong_Thue_TNCN_Phai_Nop).toBe(150000);
       expect(s2a.summary.Tong_So_Thue_GTGT_Phai_Nop).toBe(300000);
+
+      const s2b = result.books['S2b-HKD'];
+      expect(s2b.summary.tong_doanh_thu).toBe(30000000);
+      expect(s2b.summary.so_luong_don_hang).toBe(2);
+      expect(s2b.summary.Tong_So_Thue_GTGT_Phai_Nop).toBe(300000);
     });
 
     it('should retrieve records with activeBookKey S1a-HKD for taxGroupId 1', async () => {

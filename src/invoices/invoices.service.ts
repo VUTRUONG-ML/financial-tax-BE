@@ -67,11 +67,12 @@ export class InvoicesService {
     const publicIds = Array.from(itemMap.keys());
     const products = await tx.product.findMany({
       where: { publicId: { in: publicIds }, userId },
+      include: { taxCategory: true },
     });
     const productMap = new Map(products.map((p) => [p.publicId, p]));
     let totalPayment = 0;
     const resolvedItems: {
-      product: Product;
+      product: any;
       lineTotal: Decimal;
       quantity: number;
     }[] = [];
@@ -265,15 +266,7 @@ export class InvoicesService {
       return await this.prisma.$transaction(run);
     }
   }
-
-  /**
-   * Tạo hóa đơn DRAFT -
-   * Chỉ cộng doanh thu -
-   * Không trừ tồn kho -
-   * @param userId
-   * @param dto
-   * @returns InvoiceResponseDto
-   */
+  // cộng doanh thu trừ tồn kho ở đây.
   async createInvoice(userId: string, dto: CreateInvoiceDto) {
     // ─── PRE-FLIGHT CHECKS (Ngoài Transaction để tránh giữ lock DB) ──────────
     this.validateInvoiceB2C(
@@ -301,7 +294,13 @@ export class InvoicesService {
       const taxRate = activeTaxConfig
         ? activeTaxConfig.vatRateSnapShot
         : new Decimal(0);
-      const taxPayable = new Decimal(totalPayment).mul(taxRate);
+      let taxPayableSum = new Decimal(0);
+      for (const item of resolvedItems) {
+        const itemVatRate = item.product.taxCategory?.vatRate ?? taxRate;
+        const itemVat = item.lineTotal.mul(itemVatRate);
+        taxPayableSum = taxPayableSum.add(itemVat);
+      }
+      const taxPayable = taxPayableSum;
 
       const invoice = await tx.invoice.create({
         data: {
@@ -327,7 +326,6 @@ export class InvoicesService {
         data: resolvedItems.map(({ product, quantity, lineTotal }) => ({
           invoiceId: invoice.id,
           productId: product.id,
-          // SNAPSHOT: ghi chết tên & giá tại thời điểm bán
           productNameSnapshot: product.productName,
           unit: product.unit,
           productType: product.productType,
@@ -728,7 +726,13 @@ export class InvoicesService {
         finalTaxRate = activeTaxConfig
           ? activeTaxConfig.vatRateSnapShot
           : new Decimal(0);
-        finalTaxPayable = new Decimal(newTotalPayment).mul(finalTaxRate);
+        let taxPayableSum = new Decimal(0);
+        for (const item of resolvedItems) {
+          const itemVatRate = item.product.taxCategory?.vatRate ?? finalTaxRate;
+          const itemVat = item.lineTotal.mul(itemVatRate);
+          taxPayableSum = taxPayableSum.add(itemVat);
+        }
+        finalTaxPayable = taxPayableSum;
 
         await tx.invoiceDetail.createMany({
           data: resolvedItems.map(({ product, quantity, lineTotal }) => ({

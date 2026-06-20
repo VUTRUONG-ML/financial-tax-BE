@@ -40,11 +40,11 @@ export class DashboardService {
 
   private calculateRevenueProgress(revenue: number): RevenueProgressDto {
     let warningLevel: 'GREEN' | 'YELLOW' | 'RED' = 'GREEN';
-    let nextThreshold = 500_000_000;
+    let nextThreshold = 1_000_000_000;
 
-    if (revenue < 500_000_000) {
+    if (revenue < 1_000_000_000) {
       warningLevel = 'GREEN';
-      nextThreshold = 500_000_000;
+      nextThreshold = 1_000_000_000;
     } else if (revenue < 3_000_000_000) {
       warningLevel = 'YELLOW';
       nextThreshold = 3_000_000_000;

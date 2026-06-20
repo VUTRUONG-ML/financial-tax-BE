@@ -329,11 +329,46 @@ export class FinancialPeriodsService {
     return { revenue, expense };
   }
 
+  async getRevenueByIndustry(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<
+    {
+      taxCategoryId: number;
+      pitRate: Decimal;
+      vatRate: Decimal;
+      revenue: Decimal;
+    }[]
+  > {
+    const rawResult = await tx.$queryRaw<any[]>`
+      SELECT 
+        COALESCE(p.tax_category_id, 0) as "taxCategoryId",
+        COALESCE(tc.pit_rate, 0) as "pitRate",
+        COALESCE(tc.vat_rate, 0) as "vatRate",
+        COALESCE(SUM(id.total_amount), 0) as "revenue"
+      FROM invoice_details id
+      JOIN invoices i ON id.invoice_id = i.id
+      LEFT JOIN products p ON id.product_id = p.id
+      LEFT JOIN tax_categories_dictionary tc ON p.tax_category_id = tc.id
+      WHERE i.user_id = ${userId}
+        AND i.issue_date >= ${startDate}
+        AND i.issue_date <= ${endDate}
+      GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate
+    `;
+
+    return rawResult.map((r) => ({
+      taxCategoryId: Number(r.taxCategoryId),
+      pitRate: new Decimal(r.pitRate || 0),
+      vatRate: new Decimal(r.vatRate || 0),
+      revenue: new Decimal(r.revenue || 0),
+    }));
+  }
+
   private async calculateYtdTaxForPercentageMethod(
     userId: string,
-    targetFp: { startDate: Date },
-    ytdRevenue: Decimal,
-    ytdExpense: Decimal,
+    targetFp: { startDate: Date; endDate: Date },
     currentTaxConfig: TaxConfiguration,
     client: Prisma.TransactionClient,
   ): Promise<{ vatAmount: Decimal; pitAmount: Decimal }> {
@@ -355,20 +390,66 @@ export class FinancialPeriodsService {
     const prevVatAmount = aggregateResult._sum.vatAmount ?? new Decimal(0);
     const prevPitAmount = aggregateResult._sum.pitAmount ?? new Decimal(0);
 
-    const ytdTaxResult = this.taxEngine.calculateTotalTax(
-      ytdRevenue,
-      ytdExpense,
-      currentTaxConfig,
+    const ytdEndIndustries = await this.getRevenueByIndustry(
+      userId,
+      startOfYear,
+      targetFp.endDate,
+      client,
     );
 
-    const ytdVatAmount = ytdTaxResult.vatAmount;
-    const ytdPitAmount =
-      ytdTaxResult.pitAmountDetails.percentageMethodAmount ?? new Decimal(0);
+    const ytdTaxResult = this.taxEngine.calculateTaxForPeriod(
+      currentTaxConfig,
+      new Decimal(0),
+      new Decimal(0),
+      ytdEndIndustries,
+    );
 
-    const vatAmount = Decimal.max(0, ytdVatAmount.sub(prevVatAmount));
-    const pitAmount = Decimal.max(0, ytdPitAmount.sub(prevPitAmount));
+    const vatAmount = Decimal.max(0, ytdTaxResult.vatAmount.sub(prevVatAmount));
+    const pitAmount = Decimal.max(0, ytdTaxResult.pitAmount.sub(prevPitAmount));
 
     return { vatAmount, pitAmount };
+  }
+
+  private async calculatePeriodTax(
+    userId: string,
+    targetFp: { startDate: Date; endDate: Date },
+    currentTaxConfig: TaxConfiguration,
+    inPeriodRevenue: Decimal,
+    inPeriodExpense: Decimal,
+    client: Prisma.TransactionClient,
+  ): Promise<{ vatAmount: Decimal; pitAmount: Decimal; totalTax: Decimal }> {
+    if (currentTaxConfig.chosenPitMethod === 'PERCENTAGE') {
+      const ytdTax = await this.calculateYtdTaxForPercentageMethod(
+        userId,
+        targetFp,
+        currentTaxConfig,
+        client,
+      );
+      return {
+        vatAmount: ytdTax.vatAmount,
+        pitAmount: ytdTax.pitAmount,
+        totalTax: ytdTax.vatAmount.add(ytdTax.pitAmount),
+      };
+    }
+
+    // tính lũy kế
+    const periodIndustries = await this.getRevenueByIndustry(
+      userId,
+      targetFp.startDate,
+      targetFp.endDate,
+      client,
+    );
+    const taxResult = this.taxEngine.calculateTaxForPeriod(
+      currentTaxConfig,
+      inPeriodRevenue,
+      inPeriodExpense,
+      periodIndustries,
+    );
+    return {
+      vatAmount: taxResult.vatAmount,
+      pitAmount: taxResult.pitAmount,
+      totalTax: taxResult.totalTax,
+    };
   }
 
   /**
@@ -537,37 +618,17 @@ export class FinancialPeriodsService {
         userId,
       });
 
-      let vatAmount = new Decimal(0);
-      let pitAmount = new Decimal(0);
-      let totalTax = new Decimal(0);
-
-      const isPercentageGroup2 =
-        currentTaxConfig.chosenPitMethod === 'PERCENTAGE' &&
-        currentTaxConfig.taxGroupId === 2;
-
-      if (isPercentageGroup2) {
-        const ytdTax = await this.calculateYtdTaxForPercentageMethod(
-          userId,
-          targetFp,
-          ytdRevenue,
-          ytdExpense,
-          currentTaxConfig,
-          client,
-        );
-        vatAmount = ytdTax.vatAmount;
-        pitAmount = ytdTax.pitAmount;
-        totalTax = vatAmount.add(pitAmount);
-      } else {
-        const taxResult = this.taxEngine.calculateTotalTax(
-          inPeriodRevenue,
-          inPeriodExpense,
-          currentTaxConfig,
-        );
-        vatAmount = taxResult.vatAmount;
-        pitAmount =
-          taxResult.pitAmountDetails.profitMethodAmount ?? new Decimal(0);
-        totalTax = taxResult.totalTaxDue;
-      }
+      const taxResult = await this.calculatePeriodTax(
+        userId,
+        targetFp,
+        currentTaxConfig,
+        inPeriodRevenue,
+        inPeriodExpense,
+        client,
+      );
+      const vatAmount = taxResult.vatAmount;
+      const pitAmount = taxResult.pitAmount;
+      const totalTax = taxResult.totalTax;
 
       const updatedFp = await client.financialPeriod.update({
         where: { id: targetFp.id },
@@ -881,13 +942,6 @@ export class FinancialPeriodsService {
     const inPeriodRevenue = realtimeData.revenue;
     const inPeriodExpense = realtimeData.expense;
 
-    const ytdRevenue = (
-      mostRecentDeclaration?.ytdRevenue ?? new Decimal(0)
-    ).add(inPeriodRevenue);
-    const ytdExpense = (
-      mostRecentDeclaration?.ytdExpense ?? new Decimal(0)
-    ).add(inPeriodExpense);
-
     // Tính pitAmount theo phương thức lợi nhuận (Không dùng YTD)
     const inPeriodTaxResult = this.taxEngine.calculatePitAmount(
       inPeriodRevenue,
@@ -899,8 +953,6 @@ export class FinancialPeriodsService {
     const ytdTax = await this.calculateYtdTaxForPercentageMethod(
       userId,
       targetFp,
-      ytdRevenue,
-      ytdExpense,
       currentTaxConfig,
       this.prisma,
     );

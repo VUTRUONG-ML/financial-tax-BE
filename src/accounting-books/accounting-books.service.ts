@@ -12,6 +12,7 @@ import {
 import { parseDateRange } from 'src/common/utils/date-range-parser.util';
 import { Invoice, TaxConfiguration, Prisma } from '@prisma/client';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
+import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from 'src/common/utils/time.util';
 import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
@@ -40,6 +41,7 @@ export class AccountingBooksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
+    private readonly financialPeriodsService: FinancialPeriodsService,
   ) { }
 
   private async getPeriodTarget(
@@ -344,70 +346,42 @@ export class AccountingBooksService {
     tong_doanh_thu: number,
     so_luong_don_hang: number,
   ) {
-    // Thuế GTGT được tính từ tổng doanh thu nhân với tỷ lệ thuế
-    const vatRate = Number(taxConfig.vatRateSnapShot);
-    const tongThueGTGT = tong_doanh_thu * vatRate;
-
-    // Tính Thuế TNCN (PIT) lũy kế YTD --------------------------------------------------------
     const startOfYear = moment(startDate).startOf('year').toDate();
 
-    // 1. Tính tổng doanh thu và chi phí từ đầu năm đến trước startDate
-    const [revBefore, expBefore] = await Promise.all([
-      this.prisma.invoice.aggregate({
-        _sum: { totalPayment: true },
-        where: {
-          userId,
-          status: 'ISSUED',
-          issueDate: { gte: startOfYear, lt: startDate },
-        },
-      }),
-      this.prisma.voucher.aggregate({
-        _sum: { amount: true },
-        where: {
-          userId,
-          transactionAt: { gte: startOfYear, lt: startDate },
-          voucherType: 'PAYMENT',
-          isDeductibleExpense: true,
-          status: 'ACTIVE',
-        },
-      }),
-    ]);
-    const ytdRevenueBefore = revBefore._sum.totalPayment || new Decimal(0);
-    const ytdExpenseBefore = expBefore._sum.amount || new Decimal(0);
-
-    // 2. Tính chi phí trong kỳ (doanh thu trong kỳ chính là tong_doanh_thu)
-    const expInPeriod = await this.prisma.voucher.aggregate({
-      _sum: { amount: true },
-      where: {
+    // 1. Fetch YTD revenues per industry up to before this period
+    const ytdBeforeIndustries =
+      await this.financialPeriodsService.getRevenueByIndustry(
         userId,
-        transactionAt: { gte: startDate, lte: endDate },
-        voucherType: 'PAYMENT',
-        isDeductibleExpense: true,
-        status: 'ACTIVE',
-      },
-    });
-    const expenseInPeriod = expInPeriod._sum.amount || new Decimal(0);
+        startOfYear,
+        moment(startDate).subtract(1, 'ms').toDate(),
+      );
 
-    // 3. Tính YTD đến cuối kỳ
-    const ytdRevenueEnd = ytdRevenueBefore.add(tong_doanh_thu);
-    const ytdExpenseEnd = ytdExpenseBefore.add(expenseInPeriod);
+    // 2. Fetch YTD revenues per industry up to the end of this period
+    const ytdEndIndustries =
+      await this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        startOfYear,
+        endDate,
+      );
 
-    // 4. Tính thuế lũy kế 2 mốc
-    const taxBefore = this.taxEngine.calculateTotalTax(
-      ytdRevenueBefore,
-      ytdExpenseBefore,
+    // 3. Calculate YTD tax values before and end of period
+    const ytdTaxBefore = this.taxEngine.calculateTaxForPeriod(
       taxConfig,
-    );
-    const taxEnd = this.taxEngine.calculateTotalTax(
-      ytdRevenueEnd,
-      ytdExpenseEnd,
-      taxConfig,
+      new Decimal(0),
+      new Decimal(0),
+      ytdBeforeIndustries,
     );
 
-    // 5. Lấy phần PIT phát sinh trong kỳ (TaxEnd - TaxBefore) bằng cách lấy tổng thuế trừ đi VAT
-    const pitBefore = taxBefore.totalTaxDue.sub(taxBefore.vatAmount);
-    const pitEnd = taxEnd.totalTaxDue.sub(taxEnd.vatAmount);
-    const tongThueTNCN = Number(Decimal.max(0, pitEnd.sub(pitBefore)));
+    const ytdTaxEnd = this.taxEngine.calculateTaxForPeriod(
+      taxConfig,
+      new Decimal(0),
+      new Decimal(0),
+      ytdEndIndustries,
+    );
+
+    // 4. Calculate period VAT and PIT as YTD deltas
+    const tongThueGTGT = Decimal.max(0, ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount));
+    const tongThueTNCN = Decimal.max(0, ytdTaxEnd.pitAmount.sub(ytdTaxBefore.pitAmount));
 
     const bookMetadata = await this.generateBookMetadata(
       'S2A',
@@ -423,7 +397,7 @@ export class AccountingBooksService {
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
-        Tong_Thue_TNCN_Phai_Nop: tongThueTNCN,
+        Tong_Thue_TNCN_Phai_Nop: Number(tongThueTNCN),
         Tong_So_Thue_GTGT_Phai_Nop: Number(tongThueGTGT),
       },
     };
@@ -437,10 +411,44 @@ export class AccountingBooksService {
     tong_doanh_thu: number,
     so_luong_don_hang: number,
   ) {
-    const vatRate = Number(taxConfig.vatRateSnapShot);
+    const startOfYear = moment(startDate).startOf('year').toDate();
 
-    // Thuế GTGT được tính từ tổng doanh thu nhân với tỷ lệ thuế
-    const tongThueGTGT = tong_doanh_thu * vatRate;
+    // 1. Fetch YTD revenues per industry up to before this period
+    const ytdBeforeIndustries =
+      await this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        startOfYear,
+        moment(startDate).subtract(1, 'ms').toDate(),
+      );
+
+    // 2. Fetch YTD revenues per industry up to the end of this period
+    const ytdEndIndustries =
+      await this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        startOfYear,
+        endDate,
+      );
+
+    // 3. Calculate YTD VAT amounts before and end of period
+    const ytdTaxBefore = this.taxEngine.calculateTaxForPeriod(
+      taxConfig,
+      new Decimal(0),
+      new Decimal(0),
+      ytdBeforeIndustries,
+    );
+
+    const ytdTaxEnd = this.taxEngine.calculateTaxForPeriod(
+      taxConfig,
+      new Decimal(0),
+      new Decimal(0),
+      ytdEndIndustries,
+    );
+
+    // 4. Calculate period VAT as YTD delta
+    const tongThueGTGT = Decimal.max(
+      0,
+      ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount),
+    );
 
     const bookMetadata = await this.generateBookMetadata(
       'S2B',
@@ -456,7 +464,7 @@ export class AccountingBooksService {
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
-        Tong_So_Thue_GTGT_Phai_Nop: tongThueGTGT,
+        Tong_So_Thue_GTGT_Phai_Nop: Number(tongThueGTGT),
       },
     };
   }

@@ -17,17 +17,17 @@ async function main() {
       id: 1,
       groupName: 'Mức 1: Miễn thuế',
       minRevenue: 0,
-      maxRevenue: 500000000,
+      maxRevenue: 1000000000,
       allowedMethods: [PitMethod.EXEMPT],
-      description: 'Dưới 500 triệu/năm: Miễn thuế GTGT & TNCN',
+      description: 'Dưới 1 tỷ/năm: Miễn thuế GTGT & TNCN',
     },
     {
       id: 2,
       groupName: 'Mức 2: Nhóm linh hoạt',
-      minRevenue: 500000000, // Để 500tr để làm mốc so sánh > 500tr
+      minRevenue: 1000000000,
       maxRevenue: 3000000000,
       allowedMethods: [PitMethod.PERCENTAGE, PitMethod.PROFIT_15],
-      description: 'Trên 500tr - 3 tỷ: Được chọn % hoặc 15% Lợi nhuận',
+      description: 'Trên 1 tỷ - 3 tỷ: Được chọn % hoặc 15% Lợi nhuận',
     },
     {
       id: 3,
@@ -55,57 +55,144 @@ async function main() {
     });
   }
 
-  // 2. Seed cho TaxCategory (Từ điển 6 nhóm gốc - Cha)
+  // 2. Seed cho TaxCategory (Từ điển 4 nhóm gốc - Cha và các Nhóm con)
   const mainCategories = [
+    // --- Nhóm 1 ---
     {
       id: 1,
       categoryName: 'Phân phối, cung cấp hàng hóa',
       vatRate: 0.01,
       pitRate: 0.005,
-      xmlIndicator: 'ct28',
+      xmlIndicator: null,
+      parentId: null,
     },
+    {
+      id: 11,
+      categoryName: 'Bán buôn, bán lẻ hàng hóa thông thường (tạp hóa, siêu thị, linh kiện, điện máy...)',
+      vatRate: 0.01,
+      pitRate: 0.005,
+      xmlIndicator: 'ct28',
+      parentId: 1,
+    },
+    {
+      id: 12,
+      categoryName: 'Hàng hóa không chịu thuế GTGT, chịu thuế GTGT 0% hoặc không phải khai thuế GTGT',
+      vatRate: 0.00,
+      pitRate: 0.005,
+      xmlIndicator: 'ct28',
+      parentId: 1,
+    },
+    // --- Nhóm 2 ---
     {
       id: 2,
-      categoryName: 'Sản xuất, vận tải, dịch vụ gắn với hàng hóa',
-      vatRate: 0.03,
-      pitRate: 0.015,
-      xmlIndicator: 'ct29',
+      categoryName: 'Dịch vụ, xây dựng (Không bao thầu nguyên vật liệu)',
+      vatRate: 0.05,
+      pitRate: 0.02,
+      xmlIndicator: null,
+      parentId: null,
     },
     {
-      id: 3,
-      categoryName: 'Dịch vụ, xây dựng không bao thầu NVL',
+      id: 21,
+      categoryName: 'Dịch vụ thông thường: Lưu trú, bốc xếp, bưu chính, môi giới, tư vấn luật/kế toán, tắm hơi, massage, cắt tóc, giặt là, sửa chữa máy tính, thi công xây dựng (chỉ nhận tiền công)',
       vatRate: 0.05,
       pitRate: 0.02,
       xmlIndicator: 'ct30',
+      parentId: 2,
     },
     {
-      id: 4,
-      categoryName: 'Cho thuê tài sản, đại lý bảo hiểm, xổ số',
+      id: 22,
+      categoryName: 'Dịch vụ không chịu thuế GTGT, thuế GTGT 0% (Ví dụ: Dịch vụ y tế, khám chữa bệnh, thú y, dịch vụ xuất khẩu...)',
+      vatRate: 0.00,
+      pitRate: 0.02,
+      xmlIndicator: 'ct30',
+      parentId: 2,
+    },
+    {
+      id: 23,
+      categoryName: 'Dịch vụ đặc thù: Cho thuê tài sản (nhà, đất, cửa hàng, nhà xưởng, kho bãi, máy móc, thiết bị, phương tiện vận tải)',
       vatRate: 0.05,
       pitRate: 0.05,
       xmlIndicator: 'ct31',
+      parentId: 2,
     },
     {
-      id: 5,
-      categoryName: 'Cung cấp nội dung thông tin số',
-      vatRate: 0.05,
+      id: 24,
+      categoryName: 'Dịch vụ đại lý đặc thù: Đại lý xổ số, đại lý bảo hiểm, đại lý bán hàng đa cấp; Khoản bồi thường vi phạm hợp đồng',
+      vatRate: 0.00,
       pitRate: 0.05,
-      xmlIndicator: 'ct32',
+      xmlIndicator: 'ct31',
+      parentId: 2,
+    },
+    // --- Nhóm 3 ---
+    {
+      id: 3,
+      categoryName: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng (Có bao thầu NVL)',
+      vatRate: 0.03,
+      pitRate: 0.015,
+      xmlIndicator: null,
+      parentId: null,
     },
     {
-      id: 6,
+      id: 31,
+      categoryName: 'Dịch vụ trọn gói: Sản xuất, gia công chế biến, khai thác khoáng sản; Vận tải hành khách/hàng hóa; Dịch vụ ăn uống (nhà hàng, quán cafe); Xây dựng, lắp đặt có bao thầu cả vật tư',
+      vatRate: 0.03,
+      pitRate: 0.015,
+      xmlIndicator: 'ct29',
+      parentId: 3,
+    },
+    {
+      id: 32,
+      categoryName: 'Các hoạt động thuộc Nhóm 3 nhưng là đối tượng không chịu thuế GTGT hoặc chịu thuế GTGT 0%',
+      vatRate: 0.00,
+      pitRate: 0.015,
+      xmlIndicator: 'ct29',
+      parentId: 3,
+    },
+    // --- Nhóm 4 ---
+    {
+      id: 4,
       categoryName: 'Hoạt động kinh doanh khác',
       vatRate: 0.02,
       pitRate: 0.01,
+      xmlIndicator: null,
+      parentId: null,
+    },
+    {
+      id: 41,
+      categoryName: 'Sản xuất, kinh doanh các sản phẩm thuộc đối tượng chịu thuế Tiêu thụ đặc biệt (như kinh doanh quán bar, bán rượu bia, xì gà...); Các hoạt động kinh doanh không được phân loại rõ ở 3 nhóm trên',
+      vatRate: 0.02,
+      pitRate: 0.01,
       xmlIndicator: 'ct33',
+      parentId: 4,
+    },
+    {
+      id: 42,
+      categoryName: 'Các hoạt động thuộc Nhóm 4 nhưng không chịu thuế GTGT, chịu thuế GTGT 0%',
+      vatRate: 0.00,
+      pitRate: 0.01,
+      xmlIndicator: 'ct33',
+      parentId: 4,
     },
   ];
 
   for (const cat of mainCategories) {
     await prisma.taxCategory.upsert({
       where: { id: cat.id },
-      update: cat,
-      create: { ...cat, parentId: null },
+      update: {
+        categoryName: cat.categoryName,
+        vatRate: cat.vatRate,
+        pitRate: cat.pitRate,
+        xmlIndicator: cat.xmlIndicator,
+        parentId: cat.parentId,
+      },
+      create: {
+        id: cat.id,
+        categoryName: cat.categoryName,
+        vatRate: cat.vatRate,
+        pitRate: cat.pitRate,
+        xmlIndicator: cat.xmlIndicator,
+        parentId: cat.parentId,
+      },
     });
   }
 
@@ -114,15 +201,15 @@ async function main() {
   const popularTags = [
     {
       tagName: 'Tạp hóa - Siêu thị mini',
-      mappedTaxId: 1,
+      mappedTaxId: 11,
       iconName: 'shopping-cart',
     },
-    { tagName: 'Thời trang', mappedTaxId: 1, iconName: 'shirt' },
-    { tagName: 'Mỹ phẩm', mappedTaxId: 1, iconName: 'sparkles' },
-    { tagName: 'Mẹ và bé', mappedTaxId: 1, iconName: 'baby' },
-    { tagName: 'Gia dụng', mappedTaxId: 1, iconName: 'home' },
-    { tagName: 'Dược phẩm', mappedTaxId: 1, iconName: 'pill' },
-    { tagName: 'Dịch vụ ăn uống', mappedTaxId: 3, iconName: 'utensils' },
+    { tagName: 'Thời trang', mappedTaxId: 11, iconName: 'shirt' },
+    { tagName: 'Mỹ phẩm', mappedTaxId: 11, iconName: 'sparkles' },
+    { tagName: 'Mẹ và bé', mappedTaxId: 11, iconName: 'baby' },
+    { tagName: 'Gia dụng', mappedTaxId: 11, iconName: 'home' },
+    { tagName: 'Dược phẩm', mappedTaxId: 11, iconName: 'pill' },
+    { tagName: 'Dịch vụ ăn uống', mappedTaxId: 31, iconName: 'utensils' },
   ];
 
   for (const tag of popularTags) {
@@ -269,6 +356,15 @@ async function main() {
       await prisma.inboundInvoice.deleteMany({ where: { userId } });
       await prisma.invoiceDetail.deleteMany({ where: { invoice: { userId } } });
       await prisma.invoice.deleteMany({ where: { userId } });
+
+      // Xóa dữ liệu kho
+      await prisma.inventoryMovement.deleteMany({ where: { product: { userId } } });
+      await prisma.stockReceiptDetail.deleteMany({ where: { product: { userId } } });
+      await prisma.stockReceipt.deleteMany({ where: { period: { userId } } });
+      await prisma.stockIssueDetail.deleteMany({ where: { product: { userId } } });
+      await prisma.stockIssue.deleteMany({ where: { period: { userId } } });
+
+      await prisma.taxDeclaration.deleteMany({ where: { period: { userId } } });
       await prisma.taxDeclarationDraft.deleteMany({ where: { userId } });
       await prisma.financialPeriod.deleteMany({ where: { userId } });
       await prisma.taxConfiguration.deleteMany({ where: { userId } });
@@ -313,7 +409,7 @@ async function main() {
       data: {
         userId,
         taxGroupId: 1,
-        industryId: 2,
+        industryId: 11,
         vatRateSnapShot: 0.01,
         pitRateSnapShot: 0.005,
         applyFromDate: new Date('2023-01-01'),

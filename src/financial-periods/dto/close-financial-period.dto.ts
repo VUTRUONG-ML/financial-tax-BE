@@ -13,7 +13,6 @@ export class CloseFinancialPeriodDto {
     description: 'Declared taxable revenue',
     type: Number,
   })
-
   // Revenue và expense được nhận từ service khác
   @IsOptional()
   @IsNumber()
