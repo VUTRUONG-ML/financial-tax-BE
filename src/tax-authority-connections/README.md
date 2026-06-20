@@ -6,13 +6,13 @@ Module này quản lý và xác thực kết nối giữa hệ thống thuế c�
 
 # Luồng nghiệp vụ Phát hành & Cấp mã Hóa đơn điện tử
 
-Dưới đây là quy trình từ thời điểm người dùng nhấn **Phát hành & Cấp mã** cho đến khi hóa đơn được cấp mã Cơ quan Thuế.
+Dưới đây là quy trình từ thời điểm người dùng nhấn **Phát hành** cho đến khi hóa đơn được cấp mã Cơ quan Thuế.
 
 ```mermaid
 graph TD
 
-A[User nhấn Phát hành & Cấp mã]
---> B["POST /invoices/:invoiceId/issue"]
+A[User nhấn Phát hành]
+--> B["POST /invoices/:invoicePublicId/publish"]
 
 B --> C{Cần cấp mã CQT?}
 
@@ -50,7 +50,7 @@ S --> T[Lưu TaxAuthorityConnection]
 
 T --> U[connectionStatus = VERIFIED]
 
-U --> V["POST /invoices/:invoiceId/issue"]
+U --> V["POST /invoices/:invoicePublicId/publish"]
 
 V --> H
 ```
@@ -59,12 +59,37 @@ V --> H
 
 # Các API liên quan
 
-## 1. Thiết lập / Cập nhật cấu hình kết nối
+## 1. Lấy thông tin cấu hình kết nối hiện tại
 
 ### Endpoint
 
 ```http
-PUT /v1/tax-authority-connections
+GET /tax-authority-connections
+```
+
+### Response
+
+```json
+{
+  "message": "Get tax connection initiated successfully.",
+  "data": {
+    "isConfigured": true,
+    "taxCode": "0123456789",
+    "cashRegisterCode": "ABCDE",
+    "connectionStatus": "VERIFIED",
+    "lastVerifiedAt": "2026-06-20"
+  }
+}
+```
+
+---
+
+## 2. Thiết lập / Cập nhật cấu hình kết nối
+
+### Endpoint
+
+```http
+PUT /tax-authority-connections
 ```
 
 ### Request
@@ -100,12 +125,12 @@ PUT /v1/tax-authority-connections
 
 ---
 
-## 2. Phát hành & Cấp mã hóa đơn
+## 3. Phát hành & Cấp mã hóa đơn
 
 ### Endpoint
 
 ```http
-POST /v1/invoices/{invoiceId}/issue
+POST /invoices/{invoicePublicId}/publish
 ```
 
 ### Luồng xử lý
@@ -113,7 +138,7 @@ POST /v1/invoices/{invoiceId}/issue
 1. Kiểm tra hóa đơn có thuộc diện cấp mã CQT hay không.
 2. Nếu không thuộc diện cấp mã:
 
-   * Phát hành hóa đơn theo luồng thông thường.
+   * Phát hành hóa đơn theo luồng thông thường (Chuyển status sang ISSUED).
 3. Nếu thuộc diện cấp mã:
 
    * Kiểm tra TaxAuthorityConnection của người dùng.
