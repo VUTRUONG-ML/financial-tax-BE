@@ -47,6 +47,8 @@ model User {
   financialPeriods    FinancialPeriod[]
   revenueTrackers     RevenueTracker[]
   taxDeclarationDraft TaxDeclarationDraft[]
+  stockReceipts       StockReceipt[]
+  stockIssues         StockIssue[]
 
   @@map("users")
 }
@@ -330,7 +332,7 @@ model InboundInvoice {
   isPaid     Boolean @default(false) @map("is_paid")
   paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4)
 
-  user            User                  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details         InboundInvoiceDetail[]
   vouchers        Voucher[]
   receiptInvoices StockReceiptInvoice[]
@@ -681,7 +683,8 @@ enum StockIssueDocument {
 
 model StockReceipt {
   id                Int                    @id @default(autoincrement())
-  receiptCode       String                 @unique @map("receipt_code") @db.VarChar(50)
+  userId            String                 @map("user_id")
+  receiptCode       String                 @map("receipt_code") @db.VarChar(50)
   receiptDate       DateTime               @map("receipt_date") @db.Timestamptz(3)
   sourceType        StockReceiptSourceType @map("source_type")
   supplierName      String?                @map("supplier_name") @db.VarChar(255)
@@ -697,12 +700,15 @@ model StockReceipt {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   period          FinancialPeriod       @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details         StockReceiptDetail[]
   vouchers        Voucher[]
   receiptInvoices StockReceiptInvoice[]
 
+  @@unique([userId, receiptCode])
   @@index([periodId])
+  @@index([userId])
   @@map("stock_receipts")
 }
 
@@ -725,7 +731,8 @@ model StockReceiptDetail {
 
 model StockIssue {
   id                 Int                 @id @default(autoincrement())
-  issueCode          String              @unique @map("issue_code") @db.VarChar(50)
+  userId             String              @map("user_id")
+  issueCode          String              @map("issue_code") @db.VarChar(50)
   issueDate          DateTime            @map("issue_date") @db.Timestamptz(3)
   issueType          StockIssueType      @map("issue_type")
   sourceDocumentType StockIssueDocument? @map("source_document_type")
@@ -736,10 +743,13 @@ model StockIssue {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  user    User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   period  FinancialPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details StockIssueDetail[]
 
+  @@unique([userId, issueCode])
   @@index([periodId])
+  @@index([userId])
   @@map("stock_issues")
 }
 
@@ -813,4 +823,3 @@ model StockReceiptInvoice {
   @@unique([receiptId, invoiceId])
   @@map("stock_receipt_invoices")
 }
-

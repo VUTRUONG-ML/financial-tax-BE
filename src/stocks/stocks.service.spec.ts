@@ -24,6 +24,7 @@ describe('StocksService', () => {
       stockReceipt: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+        updateMany: jest.fn(),
       },
       inboundInvoice: {
         findUnique: jest.fn(),
@@ -43,6 +44,7 @@ describe('StocksService', () => {
       revenueTracker: {
         update: jest.fn(),
         upsert: jest.fn(),
+        updateMany: jest.fn(),
       },
       $transaction: jest.fn((cb) => cb(prismaMock)),
     };
@@ -194,6 +196,7 @@ describe('StocksService', () => {
       expect(prismaMock.stockIssue.updateMany).toHaveBeenCalledWith({
         where: {
           issueCode: mockIssueCode,
+          userId: mockUserId,
           periodId: mockPeriodId,
           status: { not: 'CANCELLED' },
         },
@@ -289,6 +292,7 @@ describe('StocksService', () => {
       expect(prismaMock.stockIssue.updateMany).toHaveBeenCalledWith({
         where: {
           issueCode: mockIssueCode,
+          userId: mockUserId,
           periodId: mockPeriodId,
           status: { not: 'CANCELLED' },
         },
@@ -354,7 +358,7 @@ describe('StocksService', () => {
       const result = await service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId);
 
       expect(prismaMock.stockReceipt.findFirst).toHaveBeenCalledWith({
-        where: { receiptCode: mockReceiptCode, period: { userId: mockUserId } },
+        where: { receiptCode: mockReceiptCode, userId: mockUserId },
         include: { period: true, details: true },
       });
       expect(prismaMock.inboundInvoice.findUnique).toHaveBeenCalledWith({

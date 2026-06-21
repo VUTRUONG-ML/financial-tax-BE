@@ -82,49 +82,59 @@ describe('TaxEngineService', () => {
 
   describe('calculateVatAmount', () => {
     it('should return 0 for taxGroupId 1 if revenue is under threshold', () => {
-      const result = service.calculateVatAmount(new Decimal(500_000_000), {
+      const result = service.calculateVatAmount({
         taxGroupId: 1,
         vatRateSnapShot: new Decimal(0.01),
-      });
+      }, new Decimal(500_000_000));
       expect(result.toNumber()).toBe(0);
     });
 
     it('should return calculated VAT if taxGroupId is not 1', () => {
-      const result = service.calculateVatAmount(new Decimal(500_000_000), {
+      const result = service.calculateVatAmount({
         taxGroupId: 2,
         vatRateSnapShot: new Decimal(0.01),
-      });
+      }, new Decimal(500_000_000));
       expect(result.toNumber()).toBe(5_000_000);
     });
   });
 
   describe('calculatePitAmount', () => {
     it('should return EXEMPT for EXEMPT method', () => {
-      const result = service.calculatePitAmount(new Decimal(2000000), new Decimal(1000000), {
+      const result = service.calculatePitAmount({
         taxGroupId: 1,
         pitRateSnapShot: new Decimal(0.01),
         chosenPitMethod: PitMethod.EXEMPT,
-      });
+      }, new Decimal(2000000), new Decimal(1000000), new Decimal(2000000));
       expect(result.profitMethodAmount).toBeNull();
       expect(result.percentageMethodAmount).toBeNull();
     });
 
     it('should calculate profit-based PIT correctly for PROFIT_17', () => {
-      const result = service.calculatePitAmount(new Decimal(2_000_000_000), new Decimal(1_000_000_000), {
+      const result = service.calculatePitAmount({
         taxGroupId: 3,
         pitRateSnapShot: new Decimal(0.015),
         chosenPitMethod: PitMethod.PROFIT_17,
-      });
+      }, new Decimal(2_000_000_000), new Decimal(1_000_000_000), new Decimal(2_000_000_000));
       expect(result.profitMethodAmount!.toNumber()).toBe(170_000_000); // (2B - 1B) * 17%
     });
 
     it('should calculate percentage-based PIT for taxGroupId 2', () => {
-      const result = service.calculatePitAmount(new Decimal(1_200_000_000), new Decimal(500_000_000), {
+      const result = service.calculatePitAmount({
         taxGroupId: 2,
         pitRateSnapShot: new Decimal(0.005),
         chosenPitMethod: PitMethod.PERCENTAGE,
-      });
+      }, new Decimal(1_200_000_000), new Decimal(500_000_000), new Decimal(1_200_000_000));
       expect(result.percentageMethodAmount!.toNumber()).toBe(1_000_000); // (1.2B - 1B) * 0.5%
+    });
+
+    it('should calculate both profit-based and percentage-based PIT simultaneously', () => {
+      const result = service.calculatePitAmount({
+        taxGroupId: 2,
+        pitRateSnapShot: new Decimal(0.005),
+        chosenPitMethod: PitMethod.PERCENTAGE,
+      }, new Decimal(1_200_000_000), new Decimal(500_000_000), new Decimal(1_200_000_000));
+      expect(result.percentageMethodAmount!.toNumber()).toBe(1_000_000); // (1.2B - 1B) * 0.5%
+      expect(result.profitMethodAmount!.toNumber()).toBe(105_000_000); // (1.2B - 500M) * 15% default rate
     });
 
     it('should calculate percentage-based PIT for taxGroupId 2 using multi-industry greedy logic if industries are passed', () => {
@@ -133,97 +143,69 @@ describe('TaxEngineService', () => {
         { pitRate: new Decimal(0.02), revenue: new Decimal(600_000_000) },
       ];
       const result = service.calculatePitAmount(
-        new Decimal(1_400_000_000),
-        new Decimal(0),
         {
           taxGroupId: 2,
           pitRateSnapShot: new Decimal(0.005),
           chosenPitMethod: PitMethod.PERCENTAGE,
         },
+        new Decimal(1_400_000_000),
+        new Decimal(0),
         industries,
       );
       expect(result.percentageMethodAmount!.toNumber()).toBe(4_000_000);
     });
   });
 
-  describe('calculateTaxForPeriod', () => {
-    it('should calculate tax correctly when revenue and expense are omitted and derived from industries', () => {
-      const taxConfig = {
-        taxGroupId: 2,
-        chosenPitMethod: PitMethod.PERCENTAGE,
-        vatRateSnapShot: new Decimal(0.01),
+  describe('calculatePitPercentage', () => {
+    it('should return 0 if under 1B threshold for group 1', () => {
+      const config = {
+        taxGroupId: 1,
         pitRateSnapShot: new Decimal(0.005),
       };
-
-      const industries = [
-        { vatRate: new Decimal(0.01), pitRate: new Decimal(0.02), revenue: new Decimal(600_000_000) },
-        { vatRate: new Decimal(0.05), pitRate: new Decimal(0.01), revenue: new Decimal(800_000_000) },
-      ];
-
-      const result = service.calculateTaxForPeriod(taxConfig, undefined, undefined, industries);
-
-      // VAT: (600M * 1%) + (800M * 5%) = 6M + 40M = 46M
-      expect(result.vatAmount.toNumber()).toBe(46_000_000);
-      // PIT (Greedy on 1.4B with 1B exemption):
-      // A (2%): 600M exempt. Rem exemption = 400M. Taxable = 0.
-      // B (1%): 800M - 400M exempt = 400M taxable. PIT = 400M * 1% = 4M.
-      expect(result.pitAmount.toNumber()).toBe(4_000_000);
-      expect(result.totalTax.toNumber()).toBe(50_000_000);
+      const result = service.calculatePitPercentage(config, new Decimal(800_000_000));
+      expect(result.toNumber()).toBe(0);
     });
 
-    it('should calculate tax correctly for multi-industry PERCENTAGE method', () => {
-      const taxConfig = {
+    it('should calculate PIT correctly for group 2 using flat rate above 1B', () => {
+      const config = {
         taxGroupId: 2,
-        chosenPitMethod: PitMethod.PERCENTAGE,
-        vatRateSnapShot: new Decimal(0.01),
         pitRateSnapShot: new Decimal(0.005),
       };
-
-      const industries = [
-        { vatRate: new Decimal(0.01), pitRate: new Decimal(0.02), revenue: new Decimal(600_000_000) },
-        { vatRate: new Decimal(0.05), pitRate: new Decimal(0.01), revenue: new Decimal(800_000_000) },
-      ];
-
-      const result = service.calculateTaxForPeriod(taxConfig, new Decimal(1_400_000_000), new Decimal(0), industries);
-
-      // VAT: (600M * 1%) + (800M * 5%) = 6M + 40M = 46M
-      expect(result.vatAmount.toNumber()).toBe(46_000_000);
-      // PIT (Greedy on 1.4B with 1B exemption):
-      // A (2%): 600M exempt. Rem exemption = 400M. Taxable = 0.
-      // B (1%): 800M - 400M exempt = 400M taxable. PIT = 400M * 1% = 4M.
-      expect(result.pitAmount.toNumber()).toBe(4_000_000);
-      expect(result.totalTax.toNumber()).toBe(50_000_000);
+      const result = service.calculatePitPercentage(config, new Decimal(1_200_000_000));
+      expect(result.toNumber()).toBe(1_000_000); // (1.2B - 1B) * 0.5%
     });
 
-    it('should calculate tax correctly for profit method PROFIT_17', () => {
-      const taxConfig = {
+    it('should calculate PIT correctly using multi-industry greedy logic', () => {
+      const config = {
+        taxGroupId: 2,
+        pitRateSnapShot: new Decimal(0.005),
+      };
+      const industries = [
+        { pitRate: new Decimal(0.01), revenue: new Decimal(800_000_000) },
+        { pitRate: new Decimal(0.02), revenue: new Decimal(600_000_000) },
+      ];
+      const result = service.calculatePitPercentage(config, industries);
+      expect(result.toNumber()).toBe(4_000_000);
+    });
+  });
+
+  describe('calculatePitProfitForPeriod / calculatePitProfitForYtd', () => {
+    it('should return PIT for PROFIT_17 method', () => {
+      const config = {
         taxGroupId: 3,
         chosenPitMethod: PitMethod.PROFIT_17,
-        vatRateSnapShot: new Decimal(0.03),
-        pitRateSnapShot: new Decimal(0.015),
       };
-
-      const result = service.calculateTaxForPeriod(taxConfig, new Decimal(2_000_000_000), new Decimal(1_200_000_000));
-
-      // VAT: 2B * 3% = 60M
-      expect(result.vatAmount.toNumber()).toBe(60_000_000);
-      // PIT: (2B - 1.2B) * 17% = 800M * 17% = 136M
-      expect(result.pitAmount.toNumber()).toBe(136_000_000);
-      expect(result.totalTax.toNumber()).toBe(196_000_000);
+      const result = service.calculatePitProfitForPeriod(config, new Decimal(2_000_000_000), new Decimal(1_200_000_000));
+      expect(result.toNumber()).toBe(136_000_000); // (2B - 1.2B) * 17%
     });
 
-    it('should return 0 tax for EXEMPT group 1 under 1B', () => {
-      const taxConfig = {
+    it('should return 0 PIT if method is EXEMPT', () => {
+      const config = {
         taxGroupId: 1,
         chosenPitMethod: PitMethod.EXEMPT,
-        vatRateSnapShot: new Decimal(0.01),
-        pitRateSnapShot: new Decimal(0.005),
       };
-
-      const result = service.calculateTaxForPeriod(taxConfig, new Decimal(800_000_000), new Decimal(0));
-      expect(result.vatAmount.toNumber()).toBe(0);
-      expect(result.pitAmount.toNumber()).toBe(0);
-      expect(result.totalTax.toNumber()).toBe(0);
+      const result = service.calculatePitProfitForPeriod(config, new Decimal(2_000_000_000), new Decimal(1_200_000_000));
+      expect(result.toNumber()).toBe(0);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AccountingBooksController } from './accounting-books.controller';
 import { AccountingBooksService } from './accounting-books.service';
-import { TimeFrame } from './dto/get-revenue-book.dto';
+
 
 describe('AccountingBooksController', () => {
   let controller: AccountingBooksController;
@@ -48,15 +48,14 @@ describe('AccountingBooksController', () => {
 
       const user = { id: 'user-123' } as any;
       const query = {
-        timeFrame: TimeFrame.THANG_NAY,
+        periodPublicId: 'period-123',
       };
 
-      const response = await controller.getExpenseBookSummary(user, query);
+      const response = await controller.getExpenseBookSummary(user, query as any);
 
       expect(service.getExpenseBookSummary).toHaveBeenCalledWith(
         'user-123',
-        TimeFrame.THANG_NAY,
-        undefined,
+        'period-123',
       );
       expect(response).toEqual({
         success: true,
@@ -79,18 +78,17 @@ describe('AccountingBooksController', () => {
 
       const user = { id: 'user-123' } as any;
       const query = {
-        timeFrame: TimeFrame.THANG_NAY,
+        periodPublicId: 'period-123',
         page: 1,
         limit: 20,
         syncCode: 'old-sync-code',
       };
 
-      const response = await controller.getExpenseBookRecords(user, query);
+      const response = await controller.getExpenseBookRecords(user, query as any);
 
       expect(service.getExpenseBookRecords).toHaveBeenCalledWith(
         'user-123',
-        TimeFrame.THANG_NAY,
-        undefined,
+        'period-123',
         1,
         20,
         'old-sync-code',
@@ -149,7 +147,6 @@ describe('AccountingBooksController', () => {
 
       const user = { id: 'user-123' } as any;
       const query = {
-        timeFrame: TimeFrame.THANG_NAY,
         productPublicId: 'prod-123',
         periodPublicId: 'period-123',
         page: 1,

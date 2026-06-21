@@ -4,8 +4,4 @@ export class GetInventoryBookDto extends GetRevenueBookDto {
   @IsString()
   @IsNotEmpty()
   productPublicId!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  periodPublicId!: string;
 }

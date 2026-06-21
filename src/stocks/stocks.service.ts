@@ -140,7 +140,7 @@ export class StocksService {
       // Get last receipt of user in month to generate sequence
       const lastReceipt = await client.stockReceipt.findFirst({
         where: {
-          period: { userId },
+          userId,
           receiptCode: { startsWith: `${prefix}-${mmyy}-` },
         },
         orderBy: { id: 'desc' },
@@ -157,6 +157,7 @@ export class StocksService {
       // 4. Create StockReceipt
       const receipt = await client.stockReceipt.create({
         data: {
+          userId,
           receiptCode,
           receiptDate: transactionDate,
           sourceType: createDto.sourceType,
@@ -285,9 +286,7 @@ export class StocksService {
       const current = await client.stockReceipt.findFirst({
         where: {
           receiptCode,
-          period: {
-            userId,
-          },
+          userId,
         },
         include: { vouchers: true, details: true },
       });
@@ -309,6 +308,7 @@ export class StocksService {
       const updateReceipt = await client.stockReceipt.updateMany({
         where: {
           receiptCode,
+          userId,
           periodId,
           status: { not: StockReceiptStatus.CANCELLED },
         },
@@ -488,7 +488,7 @@ export class StocksService {
 
       const lastIssue = await client.stockIssue.findFirst({
         where: {
-          period: { userId },
+          userId,
           issueCode: { startsWith: `${prefix}-${mmyy}-` },
         },
         orderBy: { id: 'desc' },
@@ -504,6 +504,7 @@ export class StocksService {
 
       const issue = await client.stockIssue.create({
         data: {
+          userId,
           issueCode,
           issueDate: transactionDate,
           issueType: createDto.issueType,
@@ -673,9 +674,7 @@ export class StocksService {
       const current = await client.stockIssue.findFirst({
         where: {
           issueCode,
-          period: {
-            userId,
-          },
+          userId,
         },
         include: { details: true },
       });
@@ -719,6 +718,7 @@ export class StocksService {
       const updateIssue = await client.stockIssue.updateMany({
         where: {
           issueCode,
+          userId,
           periodId,
           status: { not: StockIssueStatus.CANCELLED },
         },
@@ -932,7 +932,7 @@ export class StocksService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.StockReceiptWhereInput = {
-      period: { userId },
+      userId,
     };
 
     if (sourceType) {
@@ -977,7 +977,7 @@ export class StocksService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.StockIssueWhereInput = {
-      period: { userId },
+      userId,
     };
 
     if (sourceType) {
@@ -1101,7 +1101,7 @@ export class StocksService {
     return await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra StockReceipt tồn tại và thuộc user
       const receipt = await tx.stockReceipt.findFirst({
-        where: { receiptCode, period: { userId } },
+        where: { receiptCode, userId },
         include: { period: true, details: true },
       });
       if (!receipt) {
@@ -1217,7 +1217,7 @@ export class StocksService {
     return await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra StockReceipt tồn tại và thuộc user
       const receipt = await tx.stockReceipt.findFirst({
-        where: { receiptCode, period: { userId } },
+        where: { receiptCode, userId },
         include: { period: true },
       });
       if (!receipt) {
@@ -1268,7 +1268,7 @@ export class StocksService {
   async getLinkedInvoices(userId: string, receiptCode: string) {
     // 1. Kiểm tra StockReceipt tồn tại và thuộc user
     const receipt = await this.prisma.stockReceipt.findFirst({
-      where: { receiptCode, period: { userId } },
+      where: { receiptCode, userId },
       include: { period: true },
     });
     if (!receipt) {
@@ -1301,7 +1301,12 @@ export class StocksService {
 
   async reconcileReceipt(userId: string, receiptCode: string) {
     const receipt = await this.prisma.stockReceipt.findUnique({
-      where: { receiptCode },
+      where: {
+        userId_receiptCode: {
+          userId,
+          receiptCode,
+        },
+      },
       include: {
         details: {
           include: {
@@ -1314,7 +1319,7 @@ export class StocksService {
       },
     });
 
-    if (!receipt || receipt.period.userId !== userId) {
+    if (!receipt) {
       throw new NotFoundException('Stock receipt not found or access denied.');
     }
 

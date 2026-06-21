@@ -20,18 +20,9 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetRevenueBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getRevenueBookSummary(
       user.id,
-      query.timeFrame,
-      customRange,
+      query.periodPublicId,
     );
 
     return {
@@ -46,18 +37,9 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetRevenueBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getRevenueBookRecords(
       user.id,
-      query.timeFrame,
-      customRange,
+      query.periodPublicId,
       query.page,
       query.limit,
       query.syncCode,
@@ -75,18 +57,9 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetCashFlowBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getCashFlowBookSummary(
       user.id,
-      query.timeFrame,
-      customRange,
+      query.periodPublicId,
     );
 
     return {
@@ -101,18 +74,9 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetCashFlowBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getCashFlowBookRecords(
       user.id,
-      query.timeFrame,
-      customRange,
+      query.periodPublicId,
       query.bookKey,
       query.page,
       query.limit,
@@ -131,18 +95,9 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetExpenseBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getExpenseBookSummary(
       user.id,
-      query.timeFrame,
-      customRange,
+      query.periodPublicId,
     );
 
     return {
@@ -157,18 +112,9 @@ export class AccountingBooksController {
     @CurrentUser() user: RequestUser,
     @Query() query: GetExpenseBookDto,
   ) {
-    const customRange =
-      query.year || query.quarter
-        ? {
-          year: query.year,
-          quarter: query.quarter,
-        }
-        : undefined;
-
     const data = await this.accountingBooksService.getExpenseBookRecords(
       user.id,
-      query.timeFrame,
-      customRange,
+      query.periodPublicId,
       query.page,
       query.limit,
       query.syncCode,

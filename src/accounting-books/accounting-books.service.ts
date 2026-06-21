@@ -9,8 +9,7 @@ import {
   ACCOUNTING_BOOKS_CONFIG,
   AccountingBookKey,
 } from './constant/accounting-books.constant';
-import { parseDateRange } from 'src/common/utils/date-range-parser.util';
-import { Invoice, TaxConfiguration, Prisma } from '@prisma/client';
+import { TaxConfiguration, Prisma } from '@prisma/client';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { Decimal } from '@prisma/client/runtime/client';
@@ -115,37 +114,19 @@ export class AccountingBooksService {
     return taxConfig;
   }
 
-  private async getPeriodIdsForDateRange(
-    userId: string,
-    startDate: Date,
-    endDate: Date,
-  ): Promise<number[]> {
-    const periods = (await this.prisma.financialPeriod.findMany({
-      where: {
-        userId,
-        OR: [
-          { startDate: { gte: startDate, lte: endDate } },
-          { endDate: { gte: startDate, lte: endDate } },
-        ],
-      },
-      select: { id: true },
-    })) || [];
-    return periods.map((p) => p.id);
-  }
-
   private async generateSyncCode(
     userId: string,
+    periodId: number,
     startDate: Date,
     endDate: Date,
   ): Promise<string> {
-    const periodIds = await this.getPeriodIdsForDateRange(userId, startDate, endDate);
     const [invoiceAgg, voucherAgg] = await Promise.all([
       this.prisma.invoice.aggregate({
         _count: { id: true },
         _max: { updatedAt: true },
         where: {
           userId,
-          periodId: { in: periodIds },
+          periodId: periodId,
         },
       }),
       this.prisma.voucher.aggregate({
@@ -165,40 +146,38 @@ export class AccountingBooksService {
     return `${invCount}-${invMaxTime}-${vchCount}-${vchMaxTime}`;
   }
 
-  async getRevenueBookSummary(
-    userId: string,
-    timeFrame: string,
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
-  ) {
-    // 1. Phân tích mốc thời gian
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+  async getRevenueBookSummary(userId: string, periodPublicId: string) {
+    const {
+      id: periodId,
+      startDate,
+      endDate,
+    } = await this.getPeriodTarget(periodPublicId, userId);
 
-    // 2. Lấy cấu hình thuế hợp lệ của người dùng
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
-    const periodIds = await this.getPeriodIdsForDateRange(userId, startDate, endDate);
-    const aggregateInvoices = await this.prisma.invoice.aggregate({
-      _sum: { totalPayment: true },
-      _count: { id: true },
-      where: {
+    const [realtimeData, so_luong_don_hang] = await Promise.all([
+      this.financialPeriodsService.calculateRealtimeTaxData(
         userId,
-        status: 'ISSUED',
-        periodId: { in: periodIds },
-      },
-    });
+        startDate,
+        endDate,
+        periodId,
+      ),
+      this.prisma.invoice.count({
+        where: {
+          userId,
+          status: 'ISSUED',
+          periodId: periodId,
+        },
+      }),
+    ]);
 
-    const tong_doanh_thu = Number(aggregateInvoices._sum.totalPayment || 0);
-    const so_luong_don_hang = aggregateInvoices._count.id;
+    const tong_doanh_thu = Number(realtimeData.revenue);
 
     const taxGroupId = taxConfig.taxGroupId;
 
     const books: Record<string, any> = {};
     let activeBookKey = '';
 
-    // 4. Rẽ nhánh theo tax_group để tính toán các sổ được phép truy cập
     if (taxGroupId === 1) {
       books['S1a-HKD'] = await this.calculateS1a(
         userId,
@@ -238,7 +217,12 @@ export class AccountingBooksService {
       activeBookKey = 'S2b-HKD';
     }
 
-    const syncCode = await this.generateSyncCode(userId, startDate, endDate);
+    const syncCode = await this.generateSyncCode(
+      userId,
+      periodId,
+      startDate,
+      endDate,
+    );
 
     return {
       books,
@@ -249,42 +233,49 @@ export class AccountingBooksService {
 
   async getRevenueBookRecords(
     userId: string,
-    timeFrame: string,
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
+    periodPublicId: string,
     page: number = 1,
     limit: number = 20,
     currentSyncCode?: string,
   ) {
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+    const {
+      id: periodId,
+      startDate,
+      endDate,
+    } = await this.getPeriodTarget(periodPublicId, userId);
 
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
     const skip = (page - 1) * limit;
 
-    const periodIds = await this.getPeriodIdsForDateRange(userId, startDate, endDate);
-    const [invoices, totalInvoices, syncCode] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where: {
+    const [invoices, totalInvoices, syncCode, realtimeData] = await Promise.all(
+      [
+        this.prisma.invoice.findMany({
+          where: {
+            userId,
+            status: 'ISSUED',
+            periodId: periodId,
+          },
+          orderBy: { issueDate: 'asc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.invoice.count({
+          where: {
+            userId,
+            status: 'ISSUED',
+            periodId: periodId,
+          },
+        }),
+        this.generateSyncCode(userId, periodId, startDate, endDate),
+        this.financialPeriodsService.calculateRealtimeTaxData(
           userId,
-          status: 'ISSUED',
-          periodId: { in: periodIds },
-        },
-        orderBy: { issueDate: 'asc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.invoice.count({
-        where: {
-          userId,
-          status: 'ISSUED',
-          periodId: { in: periodIds },
-        },
-      }),
-      this.generateSyncCode(userId, startDate, endDate),
-    ]);
+          startDate,
+          endDate,
+          periodId,
+        ),
+      ],
+    );
 
     const mappedInvoices = invoices.map((inv) => ({
       ...inv,
@@ -295,6 +286,7 @@ export class AccountingBooksService {
     let rows: S1ARowDto[] | S2ARowDto[] | S2BRowDto[] = [];
     let activeBookKey = '';
     const taxGroupId = taxConfig.taxGroupId;
+    const pitMethod = taxConfig.chosenPitMethod;
 
     if (taxGroupId === 1) {
       rows = plainToInstance(S1ARowDto, mappedInvoices, {
@@ -313,6 +305,130 @@ export class AccountingBooksService {
       activeBookKey = 'S2b-HKD';
     }
 
+    let totalsByIndustry: any[] = [];
+    let tongThueGTGT = new Decimal(0);
+    let tongThueTNCN = new Decimal(0);
+
+    if (taxGroupId === 2 || taxGroupId === 3 || taxGroupId === 4) {
+      const totalInvoicesPaymentVal = realtimeData.revenue;
+      const inPeriodExpenseVal = realtimeData.expense;
+
+      const periodTax = await this.financialPeriodsService.calculatePeriodTax(
+        userId,
+        { id: periodId, startDate, endDate },
+        taxConfig,
+        totalInvoicesPaymentVal,
+        inPeriodExpenseVal,
+      );
+
+      tongThueGTGT = periodTax.vatAmount;
+      tongThueTNCN = periodTax.pitAmount;
+
+      const startOfYear = moment(startDate).startOf('year').toDate();
+
+      const ytdBeforeIndustries =
+        await this.financialPeriodsService.getRevenueByIndustry(
+          userId,
+          startOfYear,
+          moment(startDate).subtract(1, 'ms').toDate(),
+          undefined,
+        );
+
+      const ytdEndIndustries =
+        await this.financialPeriodsService.getRevenueByIndustry(
+          userId,
+          startOfYear,
+          endDate,
+          undefined,
+        );
+
+      const beforeMap = new Map(
+        ytdBeforeIndustries.map((ind) => [ind.taxCategoryId, ind]),
+      );
+      const endMap = new Map(
+        ytdEndIndustries.map((ind) => [ind.taxCategoryId, ind]),
+      );
+
+      const allCategoryIds = Array.from(
+        new Set([
+          ...ytdBeforeIndustries.map((ind) => ind.taxCategoryId),
+          ...ytdEndIndustries.map((ind) => ind.taxCategoryId),
+        ]),
+      );
+
+      const taxCategories = await this.prisma.taxCategory.findMany({
+        where: { id: { in: allCategoryIds } },
+        select: { id: true, categoryName: true },
+      });
+      const categoryNameMap = new Map(
+        taxCategories.map((tc) => [tc.id, tc.categoryName]),
+      );
+
+      const beforePitMap = new Map<number, Decimal>();
+      const beforeSorted = [...ytdBeforeIndustries].sort((a, b) =>
+        b.pitRate.comparedTo(a.pitRate),
+      );
+      const beforeCalc =
+        this.taxEngine.calculatePitPercentageMultipleIndustries(
+          beforeSorted.map((ind) => ({
+            pitRate: ind.pitRate,
+            ytdRevenue: ind.revenue,
+          })),
+        );
+      beforeSorted.forEach((ind, index) => {
+        beforePitMap.set(
+          ind.taxCategoryId,
+          beforeCalc.details[index].pitAmount,
+        );
+      });
+
+      const endPitMap = new Map<number, Decimal>();
+      const endSorted = [...ytdEndIndustries].sort((a, b) =>
+        b.pitRate.comparedTo(a.pitRate),
+      );
+      const endCalc = this.taxEngine.calculatePitPercentageMultipleIndustries(
+        endSorted.map((ind) => ({
+          pitRate: ind.pitRate,
+          ytdRevenue: ind.revenue,
+        })),
+      );
+      endSorted.forEach((ind, index) => {
+        endPitMap.set(ind.taxCategoryId, endCalc.details[index].pitAmount);
+      });
+
+      totalsByIndustry = allCategoryIds.map((catId) => {
+        const beforeInd = beforeMap.get(catId);
+        const endInd = endMap.get(catId);
+
+        const revenueBefore = beforeInd ? beforeInd.revenue : new Decimal(0);
+        const revenueEnd = endInd ? endInd.revenue : new Decimal(0);
+        const revenuePeriod = Decimal.max(0, revenueEnd.sub(revenueBefore));
+
+        const vatBefore = beforeInd
+          ? revenueBefore.mul(beforeInd.vatRate)
+          : new Decimal(0);
+        const vatEnd = endInd ? revenueEnd.mul(endInd.vatRate) : new Decimal(0);
+        const vatPeriod = Decimal.max(0, vatEnd.sub(vatBefore));
+
+        const pitBefore = beforePitMap.get(catId) || new Decimal(0);
+        const pitEnd = endPitMap.get(catId) || new Decimal(0);
+        let pitPeriod = Decimal.max(0, pitEnd.sub(pitBefore));
+
+        if (taxGroupId !== 2 || pitMethod !== 'PERCENTAGE') {
+          pitPeriod = new Decimal(0);
+        }
+
+        return {
+          taxCategoryId: catId,
+          categoryName:
+            categoryNameMap.get(catId) || `Ngành nghề khác (ID ${catId})`,
+          revenue: Number(revenuePeriod),
+          vatAmount: Number(vatPeriod),
+          pitAmount: Number(pitPeriod),
+        };
+      });
+    }
+
     return {
       rows,
       meta: {
@@ -323,6 +439,12 @@ export class AccountingBooksService {
       activeBookKey,
       syncCode,
       isSummaryOutdated: currentSyncCode ? currentSyncCode !== syncCode : true,
+      total: {
+        tong_doanh_thu: Number(realtimeData.revenue),
+        tong_thue_gtgt: Number(tongThueGTGT),
+        tong_thue_tncn: Number(tongThueTNCN),
+      },
+      totalsByIndustry,
     };
   }
 
@@ -354,47 +476,12 @@ export class AccountingBooksService {
     tong_doanh_thu: number,
     so_luong_don_hang: number,
   ) {
-    const startOfYear = moment(startDate).startOf('year').toDate();
-
-    // 1. Fetch YTD revenues per industry up to before this period
-    const ytdBeforeIndustries =
-      await this.financialPeriodsService.getRevenueByIndustry(
-        userId,
-        startOfYear,
-        moment(startDate).subtract(1, 'ms').toDate(),
-      );
-
-    // 2. Fetch YTD revenues per industry up to the end of this period
-    const ytdEndIndustries =
-      await this.financialPeriodsService.getRevenueByIndustry(
-        userId,
-        startOfYear,
-        endDate,
-      );
-
-    // 3. Calculate YTD tax values before and end of period
-    const ytdTaxBefore = this.taxEngine.calculateTaxForPeriod(
+    const periodTax = await this.financialPeriodsService.calculatePeriodTax(
+      userId,
+      { startDate, endDate },
       taxConfig,
+      new Decimal(tong_doanh_thu),
       new Decimal(0),
-      new Decimal(0),
-      ytdBeforeIndustries,
-    );
-
-    const ytdTaxEnd = this.taxEngine.calculateTaxForPeriod(
-      taxConfig,
-      new Decimal(0),
-      new Decimal(0),
-      ytdEndIndustries,
-    );
-
-    // 4. Calculate period VAT and PIT as YTD deltas
-    const tongThueGTGT = Decimal.max(
-      0,
-      ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount),
-    );
-    const tongThueTNCN = Decimal.max(
-      0,
-      ytdTaxEnd.pitAmount.sub(ytdTaxBefore.pitAmount),
     );
 
     const bookMetadata = await this.generateBookMetadata('S2A', userId);
@@ -406,8 +493,8 @@ export class AccountingBooksService {
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
-        Tong_Thue_TNCN_Phai_Nop: Number(tongThueTNCN),
-        Tong_So_Thue_GTGT_Phai_Nop: Number(tongThueGTGT),
+        Tong_Thue_TNCN_Phai_Nop: Number(periodTax.pitAmount),
+        Tong_So_Thue_GTGT_Phai_Nop: Number(periodTax.vatAmount),
       },
     };
   }
@@ -420,43 +507,12 @@ export class AccountingBooksService {
     tong_doanh_thu: number,
     so_luong_don_hang: number,
   ) {
-    const startOfYear = moment(startDate).startOf('year').toDate();
-
-    // 1. Fetch YTD revenues per industry up to before this period
-    const ytdBeforeIndustries =
-      await this.financialPeriodsService.getRevenueByIndustry(
-        userId,
-        startOfYear,
-        moment(startDate).subtract(1, 'ms').toDate(),
-      );
-
-    // 2. Fetch YTD revenues per industry up to the end of this period
-    const ytdEndIndustries =
-      await this.financialPeriodsService.getRevenueByIndustry(
-        userId,
-        startOfYear,
-        endDate,
-      );
-
-    // 3. Calculate YTD VAT amounts before and end of period
-    const ytdTaxBefore = this.taxEngine.calculateTaxForPeriod(
+    const periodTax = await this.financialPeriodsService.calculatePeriodTax(
+      userId,
+      { startDate, endDate },
       taxConfig,
+      new Decimal(tong_doanh_thu),
       new Decimal(0),
-      new Decimal(0),
-      ytdBeforeIndustries,
-    );
-
-    const ytdTaxEnd = this.taxEngine.calculateTaxForPeriod(
-      taxConfig,
-      new Decimal(0),
-      new Decimal(0),
-      ytdEndIndustries,
-    );
-
-    // 4. Calculate period VAT as YTD delta
-    const tongThueGTGT = Decimal.max(
-      0,
-      ytdTaxEnd.vatAmount.sub(ytdTaxBefore.vatAmount),
     );
 
     const bookMetadata = await this.generateBookMetadata('S2B', userId);
@@ -468,7 +524,7 @@ export class AccountingBooksService {
       summary: {
         tong_doanh_thu,
         so_luong_don_hang,
-        Tong_So_Thue_GTGT_Phai_Nop: Number(tongThueGTGT),
+        Tong_So_Thue_GTGT_Phai_Nop: Number(periodTax.vatAmount),
       },
     };
   }
@@ -495,13 +551,9 @@ export class AccountingBooksService {
 
   async getCashFlowBookSummary(
     userId: string,
-    timeFrame: string,
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
+    periodPublicId: string,
   ) {
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+    const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const syncCode = await this.generateCashFlowSyncCode(
       userId,
@@ -590,17 +642,13 @@ export class AccountingBooksService {
 
   async getCashFlowBookRecords(
     userId: string,
-    timeFrame: string,
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
+    periodPublicId: string,
     bookKey: string = 'S03',
     page: number = 1,
     limit: number = 20,
     clientSyncCode?: string,
   ) {
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+    const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const currentSyncCode = await this.generateCashFlowSyncCode(
       userId,
@@ -719,13 +767,9 @@ export class AccountingBooksService {
 
   async getExpenseBookSummary(
     userId: string,
-    timeFrame: string,
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
+    periodPublicId: string,
   ) {
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+    const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const [dbResult, bookMetadata, syncCode] = await Promise.all([
       this.prisma.$queryRaw<ExpenseSummaryRow[]>`
@@ -800,16 +844,12 @@ export class AccountingBooksService {
 
   async getExpenseBookRecords(
     userId: string,
-    timeFrame: string,
-    customRange?: {
-      year?: number;
-      quarter?: number;
-    },
+    periodPublicId: string,
     page: number = 1,
     limit: number = 20,
     currentSyncCode?: string,
   ) {
-    const { startDate, endDate } = parseDateRange(timeFrame, customRange);
+    const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const skip = (page - 1) * limit;
 

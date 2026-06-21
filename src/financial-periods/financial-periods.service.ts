@@ -52,7 +52,7 @@ export class FinancialPeriodsService {
   ) { }
 
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
-    const now = moment(issueDate).startOf('day');
+    const now = moment(issueDate);
 
     // xác định startDate/endDate
     const unit: 'quarter' | 'month' =
@@ -63,10 +63,10 @@ export class FinancialPeriodsService {
     // tính toán DeadlineDate
     let deadline: Dayjs;
     if (filingPeriod === 'MONTHLY') {
-      deadline = end.clone().add(1, 'month').date(20).startOf('day');
+      deadline = end.clone().add(1, 'month').date(20).endOf('day');
     } else {
       // Ngày cuối cùng của tháng đầu tiên quý sau
-      deadline = end.clone().add(1, 'month').endOf('month').startOf('day');
+      deadline = end.clone().add(1, 'month').endOf('month').endOf('day');
     }
 
     // dời hạn nộp thuế nếu trùng Thứ 7, Chủ nhật
@@ -107,7 +107,7 @@ export class FinancialPeriodsService {
       now,
       filingPeriod,
     );
-
+    console.log('period: ', start, end);
     const period = await tx.financialPeriod.upsert({
       where: {
         userId_periodName_startDate: {
@@ -143,11 +143,16 @@ export class FinancialPeriodsService {
       'Initial financial period setup',
     );
 
+    const p = await tx.financialPeriod.findUnique({
+      where: {id: period.id},
+    });
     this.log.debug(LOG_ACTIONS.CREATE_FINANCIAL_PERIOD, {
       status: LOG_STATUS.SUCCESS,
       userId,
       periodId: period.id,
       detail: 'Initial financial period setup.',
+      startDate: p?.startDate,
+      endDate: p?.endDate,
     });
     return period;
   }
@@ -258,6 +263,7 @@ export class FinancialPeriodsService {
         targetDate,
         taxConfig.vatFilingPeriod,
       );
+      console.log('period: ', start, end);
       period = await tx.financialPeriod.create({
         data: {
           userId,
@@ -360,6 +366,7 @@ export class FinancialPeriodsService {
       LEFT JOIN tax_categories_dictionary tc ON p.tax_category_id = tc.id
       WHERE i.user_id = ${userId}
         AND i.period_id = ${periodId}
+        AND i.status = 'ISSUED'
       GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate
     `
         : await tx.$queryRaw<any[]>`
@@ -375,6 +382,7 @@ export class FinancialPeriodsService {
       WHERE i.user_id = ${userId}
         AND i.issue_date >= ${startDate}
         AND i.issue_date <= ${endDate}
+        AND i.status = 'ISSUED'
       GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate
     `;
 
@@ -386,7 +394,7 @@ export class FinancialPeriodsService {
     }));
   }
 
-  private async calculateYtdTaxForPercentageMethod(
+  private async calculatePeriodTaxDeltaForPercentageMethod(
     userId: string,
     targetFp: { id?: number; startDate: Date; endDate: Date },
     currentTaxConfig: TaxConfiguration,
@@ -394,22 +402,31 @@ export class FinancialPeriodsService {
   ): Promise<{ vatAmount: Decimal; pitAmount: Decimal }> {
     const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
 
-    const aggregateResult = await client.financialPeriod.aggregate({
-      _sum: {
-        vatAmount: true,
-        pitAmount: true,
-      },
-      where: {
-        userId,
-        startDate: { gte: startOfYear },
-        endDate: { lt: targetFp.startDate },
-        status: PeriodStatus.CLOSED,
-      },
-    });
+    // Tính toán số thuế YTD lũy kế trước kỳ này bằng cách truy vấn trực tiếp hóa đơn
+    const ytdBeforeIndustries = await this.getRevenueByIndustry(
+      userId,
+      startOfYear,
+      moment(targetFp.startDate).subtract(1, 'ms').toDate(),
+      client,
+    );
 
-    const prevVatAmount = aggregateResult._sum.vatAmount ?? new Decimal(0);
-    const prevPitAmount = aggregateResult._sum.pitAmount ?? new Decimal(0);
+    const ytdBeforeRevenue = ytdBeforeIndustries.reduce(
+      (sum, ind) => sum.add(ind.revenue),
+      new Decimal(0),
+    );
 
+    const inputBefore =
+      ytdBeforeIndustries.length > 0 ? ytdBeforeIndustries : ytdBeforeRevenue;
+    const prevVatAmount = this.taxEngine.calculateVatAmount(
+      currentTaxConfig,
+      inputBefore,
+    );
+    const prevPitAmount = this.taxEngine.calculatePitPercentage(
+      currentTaxConfig,
+      inputBefore,
+    );
+
+    // Tính toán số thuế YTD lũy kế đến hết kỳ này
     const ytdEndIndustries = await this.getRevenueByIndustry(
       userId,
       startOfYear,
@@ -417,59 +434,68 @@ export class FinancialPeriodsService {
       client,
     );
 
-    const ytdTaxResult = this.taxEngine.calculateTaxForPeriod(
-      currentTaxConfig,
+    const ytdRevenue = ytdEndIndustries.reduce(
+      (sum, ind) => sum.add(ind.revenue),
       new Decimal(0),
-      new Decimal(0),
-      ytdEndIndustries,
     );
 
-    const vatAmount = Decimal.max(0, ytdTaxResult.vatAmount.sub(prevVatAmount));
-    const pitAmount = Decimal.max(0, ytdTaxResult.pitAmount.sub(prevPitAmount));
+    const input = ytdEndIndustries.length > 0 ? ytdEndIndustries : ytdRevenue;
+    const ytdVatAmount = this.taxEngine.calculateVatAmount(
+      currentTaxConfig,
+      input,
+    );
+    const ytdPitAmount = this.taxEngine.calculatePitPercentage(
+      currentTaxConfig,
+      input,
+    );
+
+    const vatAmount = Decimal.max(0, ytdVatAmount.sub(prevVatAmount));
+    const pitAmount = Decimal.max(0, ytdPitAmount.sub(prevPitAmount));
 
     return { vatAmount, pitAmount };
   }
 
-  private async calculatePeriodTax(
+  async calculatePeriodTax(
     userId: string,
     targetFp: { id?: number; startDate: Date; endDate: Date },
     currentTaxConfig: TaxConfiguration,
     inPeriodRevenue: Decimal,
     inPeriodExpense: Decimal,
-    client: Prisma.TransactionClient,
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<{ vatAmount: Decimal; pitAmount: Decimal; totalTax: Decimal }> {
     if (currentTaxConfig.chosenPitMethod === 'PERCENTAGE') {
-      const ytdTax = await this.calculateYtdTaxForPercentageMethod(
+      const periodTaxDelta =
+        await this.calculatePeriodTaxDeltaForPercentageMethod(
+          userId,
+          targetFp,
+          currentTaxConfig,
+          client,
+        );
+      return {
+        vatAmount: periodTaxDelta.vatAmount,
+        pitAmount: periodTaxDelta.pitAmount,
+        totalTax: periodTaxDelta.vatAmount.add(periodTaxDelta.pitAmount),
+      };
+    }
+
+    const periodTaxDeltaForVat =
+      await this.calculatePeriodTaxDeltaForPercentageMethod(
         userId,
         targetFp,
         currentTaxConfig,
         client,
       );
-      return {
-        vatAmount: ytdTax.vatAmount,
-        pitAmount: ytdTax.pitAmount,
-        totalTax: ytdTax.vatAmount.add(ytdTax.pitAmount),
-      };
-    }
+    const vatAmount = periodTaxDeltaForVat.vatAmount;
 
-    // tính lũy kế
-    const periodIndustries = await this.getRevenueByIndustry(
-      userId,
-      targetFp.startDate,
-      targetFp.endDate,
-      client,
-      targetFp.id,
-    );
-    const taxResult = this.taxEngine.calculateTaxForPeriod(
+    const pitAmount = this.taxEngine.calculatePitProfitForPeriod(
       currentTaxConfig,
       inPeriodRevenue,
       inPeriodExpense,
-      periodIndustries,
     );
     return {
-      vatAmount: taxResult.vatAmount,
-      pitAmount: taxResult.pitAmount,
-      totalTax: taxResult.totalTax,
+      vatAmount,
+      pitAmount,
+      totalTax: vatAmount.add(pitAmount),
     };
   }
 
@@ -948,24 +974,47 @@ export class FinancialPeriodsService {
     const inPeriodRevenue = realtimeData.revenue;
     const inPeriodExpense = realtimeData.expense;
 
-    // Tính pitAmount theo phương thức lợi nhuận (Không dùng YTD)
-    const inPeriodTaxResult = this.taxEngine.calculatePitAmount(
+    const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+    const ytdEndIndustries = await this.getRevenueByIndustry(
+      userId,
+      startOfYear,
+      targetFp.endDate,
+      this.prisma,
+    );
+    const ytdRevenue = ytdEndIndustries.reduce(
+      (sum, ind) => sum.add(ind.revenue),
+      new Decimal(0),
+    );
+    const ytdInput =
+      ytdEndIndustries.length > 0 ? ytdEndIndustries : ytdRevenue;
+
+    const compareResult = this.taxEngine.calculatePitAmount(
+      currentTaxConfig,
       inPeriodRevenue,
       inPeriodExpense,
-      currentTaxConfig,
+      ytdInput,
     );
 
-    // Tính pitAmount theo phương thức phần trăm doanh thu (Dùng YTD)
-    const ytdTax = await this.calculateYtdTaxForPercentageMethod(
-      userId,
-      targetFp,
-      currentTaxConfig,
-      this.prisma,
+    const aggregateResult = await this.prisma.financialPeriod.aggregate({
+      _sum: {
+        pitAmount: true,
+      },
+      where: {
+        userId,
+        startDate: { gte: startOfYear },
+        endDate: { lt: targetFp.startDate },
+        status: PeriodStatus.CLOSED,
+      },
+    });
+    const prevPitAmount = aggregateResult._sum.pitAmount ?? new Decimal(0);
+    const percentageMethodPeriodAmount = Decimal.max(
+      0,
+      (compareResult.percentageMethodAmount ?? new Decimal(0)).sub(prevPitAmount),
     );
 
     const pitAmountDetails = {
-      profitMethodAmount: inPeriodTaxResult.profitMethodAmount,
-      percentageMethodAmount: ytdTax.pitAmount,
+      profitMethodAmount: compareResult.profitMethodAmount,
+      percentageMethodAmount: percentageMethodPeriodAmount,
     };
 
     this.log.log(LOG_ACTIONS.CALCULATE_TAX, {
@@ -990,7 +1039,7 @@ export class FinancialPeriodsService {
         SELECT COUNT(*)::bigint AS count
         FROM financial_periods 
         WHERE user_id = ${userId}
-          AND (actual_payment_date IS NULL OR actual_payment_date > deadline_date)
+          AND (actual_payment_date IS NULL AND NOW() > deadline_date)
       `,
       this.prisma.financialPeriod.aggregate({
         _sum: {

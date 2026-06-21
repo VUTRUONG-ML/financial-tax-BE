@@ -232,13 +232,24 @@ export class InvoicesService {
           publicId,
         });
       }
-      await tx.invoice.update({
+      const updated = await tx.invoice.update({
         where: {
           publicId,
         },
         data: {
           status: 'ISSUED',
           cqtCode,
+        },
+        include: {
+          details: {
+            include: {
+              product: {
+                select: {
+                  publicId: true,
+                },
+              },
+            },
+          },
         },
       });
 
@@ -257,7 +268,7 @@ export class InvoicesService {
         userId,
         invoicePublicId: publicId,
       });
-      return { ...invoice, status: 'ISSUED', cqtCode };
+      return updated;
     };
 
     if (txParam) {
@@ -475,6 +486,10 @@ export class InvoicesService {
         applyFromDate: { lte: currentInvoice.issueDate },
         applyToDate: { gte: currentInvoice.issueDate },
       },
+    });
+    this.log.debug('PUBLISH_INVOICE', {
+      userId,
+      activeTaxConfig,
     });
     const taxGroupId = activeTaxConfig?.taxGroupId ?? 1; // 1 là mức miễn thuế
     const needsCqt = taxGroupId !== 1 || !!requestCqtCode;

@@ -209,14 +209,14 @@ export class OnboardingService {
 
       const now = moment().startOf('day').toDate();
 
-      // 3. Tạo cấu hình mới (Mở applyFromDate) và lưu Snapshot của Tỷ lệ thuế
+      // 3. Tạo cấu hình mới (Mở applyFromDate từ đầu quý hiện tại để khớp kì tính thuế đầu tiên) và lưu Snapshot của Tỷ lệ thuế
       const newConfig = await tx.taxConfiguration.create({
         data: {
           userId: userId,
           industryId: finalCategoryId,
           taxGroupId: dto.taxGroupId,
           chosenPitMethod: defaultPitMethod,
-          applyFromDate: now,
+          applyFromDate: moment(now).startOf('quarter').toDate(),
           applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
           pitRateSnapShot: this.mapPitMethodToRate(

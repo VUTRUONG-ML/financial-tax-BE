@@ -39,75 +39,145 @@ export class TaxEngineService {
    * Nhóm 1 (Doanh thu <= 1 tỷ) -> 0
    */
   calculateVatAmount(
-    revenue: Decimal,
     taxConfig: Pick<TaxConfigParams, 'vatRateSnapShot' | 'taxGroupId'>,
-    industries?: { vatRate: Decimal; revenue: Decimal }[],
+    input: Decimal | { vatRate: Decimal; revenue: Decimal }[],
   ): Decimal {
-    if (
-      taxConfig.taxGroupId === 1 &&
-      revenue.lte(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD))
-    ) {
-      return new Decimal(0);
-    }
-    if (industries && industries.length > 0) {
-      return industries.reduce(
+    if (input instanceof Decimal) {
+      if (
+        taxConfig.taxGroupId === 1 &&
+        input.lte(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD))
+      ) {
+        return new Decimal(0);
+      }
+      return input.mul(taxConfig.vatRateSnapShot);
+    } else {
+      const totalRevenue = input.reduce(
+        (sum, ind) => sum.add(ind.revenue),
+        new Decimal(0),
+      );
+      if (
+        taxConfig.taxGroupId === 1 &&
+        totalRevenue.lte(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD))
+      ) {
+        return new Decimal(0);
+      }
+      return input.reduce(
         (sum, ind) => sum.add(ind.revenue.mul(ind.vatRate)),
         new Decimal(0),
       );
     }
-    return revenue.mul(taxConfig.vatRateSnapShot);
   }
 
-  calculatePitAmount(
+  calculatePitPercentage(
+    taxConfig: Pick<TaxConfigParams, 'taxGroupId' | 'pitRateSnapShot'>,
+    input: Decimal | { pitRate: Decimal; revenue: Decimal }[],
+  ): Decimal {
+    if (input instanceof Decimal) {
+      if (
+        taxConfig.taxGroupId === 1 &&
+        input.lte(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD))
+      ) {
+        return new Decimal(0);
+      }
+      if (taxConfig.taxGroupId === 2) {
+        const taxableRevenue = Decimal.max(
+          0,
+          input.sub(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD)),
+        );
+        return taxableRevenue.mul(taxConfig.pitRateSnapShot);
+      }
+    } else {
+      const totalRevenue = input.reduce(
+        (sum, ind) => sum.add(ind.revenue),
+        new Decimal(0),
+      );
+      if (
+        taxConfig.taxGroupId === 1 &&
+        totalRevenue.lte(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD))
+      ) {
+        return new Decimal(0);
+      }
+      if (taxConfig.taxGroupId === 2) {
+        const pitCalc = this.calculatePitPercentageMultipleIndustries(
+          input.map((ind) => ({
+            pitRate: ind.pitRate,
+            ytdRevenue: ind.revenue,
+          })),
+        );
+        return pitCalc.totalPit;
+      }
+    }
+    return new Decimal(0);
+  }
+
+  calculatePitProfitForPeriod(
+    taxConfig: Pick<TaxConfigParams, 'taxGroupId' | 'chosenPitMethod'>,
+    periodRevenue: Decimal,
+    periodExpense: Decimal,
+  ): Decimal {
+    return this.calculatePitProfitCommon(
+      taxConfig,
+      periodRevenue,
+      periodExpense,
+    );
+  }
+
+  calculatePitProfitForYtd(
+    taxConfig: Pick<TaxConfigParams, 'taxGroupId' | 'chosenPitMethod'>,
+    ytdRevenue: Decimal,
+    ytdExpense: Decimal,
+  ): Decimal {
+    return this.calculatePitProfitCommon(taxConfig, ytdRevenue, ytdExpense);
+  }
+
+  private calculatePitProfitCommon(
+    taxConfig: Pick<TaxConfigParams, 'taxGroupId' | 'chosenPitMethod'>,
     revenue: Decimal,
     expense: Decimal,
-    taxConfig: Pick<
-      TaxConfigParams,
-      'taxGroupId' | 'pitRateSnapShot' | 'chosenPitMethod'
-    >,
-    industries?: { pitRate: Decimal; revenue: Decimal }[],
-  ): PitCalculationResult {
-    let profitMethodAmount: Decimal | null = null;
-    let percentageMethodAmount: Decimal | null = null;
-
+  ): Decimal {
     if (
       taxConfig.chosenPitMethod === 'EXEMPT' ||
       (taxConfig.taxGroupId === 1 &&
         revenue.lte(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD)))
     ) {
-      return { profitMethodAmount, percentageMethodAmount };
+      return new Decimal(0);
     }
 
-    // lợi nhuận
     const profit = revenue.sub(expense);
     const profitRate = this.getProfitRateForTaxGroup(
       taxConfig.taxGroupId,
       taxConfig.chosenPitMethod,
     );
+
     if (profit.gt(0) && profitRate.gt(0)) {
-      profitMethodAmount = profit.mul(profitRate);
-    } else {
-      profitMethodAmount = new Decimal(0);
+      return profit.mul(profitRate);
     }
 
-    // % doanh thu
-    if (taxConfig.taxGroupId === 2) {
-      if (industries && industries.length > 0) {
-        const pitCalc = this.calculatePitPercentageMultipleIndustries(
-          industries.map((ind) => ({
-            pitRate: ind.pitRate,
-            ytdRevenue: ind.revenue,
-          })),
-        );
-        percentageMethodAmount = pitCalc.totalPit;
-      } else {
-        const taxableRevenue = Decimal.max(
-          0,
-          revenue.sub(new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD)),
-        );
-        percentageMethodAmount = taxableRevenue.mul(taxConfig.pitRateSnapShot);
-      }
+    return new Decimal(0);
+  }
+
+  calculatePitAmount(
+    taxConfig: Pick<
+      TaxConfigParams,
+      'taxGroupId' | 'pitRateSnapShot' | 'chosenPitMethod'
+    >,
+    inPeriodRevenue: Decimal,
+    inPeriodExpense: Decimal,
+    ytdInput: Decimal | { pitRate: Decimal; revenue: Decimal }[],
+  ): PitCalculationResult {
+    if (taxConfig.chosenPitMethod === 'EXEMPT') {
+      return { profitMethodAmount: null, percentageMethodAmount: null };
     }
+
+    const profitMethodAmount = this.calculatePitProfitForPeriod(
+      taxConfig,
+      inPeriodRevenue,
+      inPeriodExpense,
+    );
+    const percentageMethodAmount = this.calculatePitPercentage(
+      taxConfig,
+      ytdInput,
+    );
 
     return { profitMethodAmount, percentageMethodAmount };
   }
@@ -185,78 +255,5 @@ export class TaxEngineService {
       .mul(new Decimal(numberOfDelayDate));
 
     return { penaltyAmount };
-  }
-
-  /**
-   * Tính tổng hợp Thuế phải nộp cho kỳ
-   */
-  calculateTotalTax(
-    revenue: Decimal,
-    expense: Decimal,
-    taxConfig: TaxConfigParams,
-  ): TaxCalculationResult {
-    const result = this.calculateTaxForPeriod(taxConfig, revenue, expense);
-    const pitAmountDetails = this.calculatePitAmount(
-      revenue,
-      expense,
-      taxConfig,
-    );
-
-    return {
-      vatAmount: result.vatAmount,
-      pitAmountDetails,
-      totalTaxDue: result.totalTax,
-    };
-  }
-
-  // Tính toán toàn bộ Thuế (GTGT & TNCN) cho một kỳ (hoặc lũy kế YTD)
-  calculateTaxForPeriod(
-    taxConfig: TaxConfigParams,
-    revenue?: Decimal,
-    expense?: Decimal,
-    industries?: { vatRate: Decimal; pitRate: Decimal; revenue: Decimal }[],
-  ): {
-    vatAmount: Decimal;
-    pitAmount: Decimal;
-    totalTax: Decimal;
-  } {
-    const totalRevenue =
-      industries && industries.length > 0
-        ? industries.reduce((sum, ind) => sum.add(ind.revenue), new Decimal(0))
-        : (revenue ?? new Decimal(0));
-
-    const totalExpense = expense ?? new Decimal(0);
-
-    // thuế GTGT
-    const vatAmount = this.calculateVatAmount(
-      totalRevenue,
-      taxConfig,
-      industries,
-    );
-
-    // thuế TNCN
-    let pitAmount = new Decimal(0);
-    if (
-      taxConfig.chosenPitMethod &&
-      taxConfig.chosenPitMethod !== PitMethod.EXEMPT
-    ) {
-      const pitAmountDetails = this.calculatePitAmount(
-        totalRevenue,
-        totalExpense,
-        taxConfig,
-        industries,
-      );
-      if (taxConfig.chosenPitMethod === PitMethod.PERCENTAGE) {
-        pitAmount = pitAmountDetails.percentageMethodAmount ?? new Decimal(0);
-      } else if (taxConfig.chosenPitMethod.startsWith('PROFIT_')) {
-        pitAmount = pitAmountDetails.profitMethodAmount ?? new Decimal(0);
-      }
-    }
-
-    return {
-      vatAmount,
-      pitAmount,
-      totalTax: vatAmount.add(pitAmount),
-    };
   }
 }

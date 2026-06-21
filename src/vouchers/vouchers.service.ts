@@ -247,7 +247,7 @@ export class VouchersService {
       const result = await tx.stockReceipt.updateMany({
         where: {
           receiptCode: stockReceiptCode,
-          period: { userId },
+          userId,
           isPaid: false,
         },
         data: {

@@ -10,7 +10,7 @@ import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
-import { LOG_STATUS } from '../common/constants/log-events.constant';
+import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant';
 import { Prisma, ProductType } from '@prisma/client';
 import {
   AuditLogService,
@@ -85,12 +85,12 @@ export class ProductsService {
     if (hasInvoices) return true;
 
     const hasReceipts = await tx.stockReceipt.findFirst({
-      where: { period: { userId } },
+      where: { userId },
     });
     if (hasReceipts) return true;
 
     const hasIssues = await tx.stockIssue.findFirst({
-      where: { period: { userId } },
+      where: { userId },
     });
     if (hasIssues) return true;
 
@@ -187,6 +187,11 @@ export class ProductsService {
       delete (product as any).id;
       return product;
     } catch (dbError) {
+      this.log.warn('CREATE_PRODUCT', {
+        status: LOG_STATUS.FAILED,
+        userId,
+        reason: dbError.message,
+      });
       if (imageData.publicId) {
         this.safeDeleteImage(imageData.publicId);
       }

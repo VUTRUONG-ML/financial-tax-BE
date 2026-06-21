@@ -154,6 +154,9 @@ describe('AccountingBooksService', () => {
               findUnique: jest.fn(),
               findMany: jest.fn(),
             },
+            taxCategory: {
+              findMany: jest.fn(),
+            },
             inventoryMovement: {
               findFirst: jest.fn(),
             },
@@ -178,15 +181,17 @@ describe('AccountingBooksService', () => {
         {
           provide: TaxEngineService,
           useValue: {
-            calculateTotalTax: jest.fn(),
             calculatePitPercentageMultipleIndustries: jest.fn(),
-            calculateTaxForPeriod: jest.fn(),
+            calculateVatAmount: jest.fn(),
+            calculatePitPercentage: jest.fn(),
           },
         },
         {
           provide: FinancialPeriodsService,
           useValue: {
             getRevenueByIndustry: jest.fn(),
+            calculatePeriodTax: jest.fn(),
+            calculateRealtimeTaxData: jest.fn(),
           },
         },
       ],
@@ -230,6 +235,29 @@ describe('AccountingBooksService', () => {
     ];
 
     beforeEach(() => {
+      prisma.financialPeriod.findUnique.mockResolvedValue({
+        id: 1,
+        publicId: 'period-123',
+        userId: 'user-001',
+        startDate: new Date('2026-05-01T00:00:00Z'),
+        endDate: new Date('2026-05-31T23:59:59Z'),
+        status: 'OPEN',
+      } as any);
+      (prisma.taxCategory.findMany as jest.Mock).mockResolvedValue([
+        { id: 11, categoryName: 'Ngành nghề kiểm thử' }
+      ] as any);
+
+      financialPeriodsService.calculatePeriodTax.mockResolvedValue({
+        vatAmount: new Decimal(0),
+        pitAmount: new Decimal(0),
+        totalTax: new Decimal(0),
+      });
+
+      financialPeriodsService.calculateRealtimeTaxData.mockResolvedValue({
+        revenue: new Decimal(30000000),
+        expense: new Decimal(0),
+      });
+
       prisma.invoice.aggregate.mockResolvedValue({
         _sum: { totalPayment: new Decimal(30000000) as any },
         _count: { id: 2 },
@@ -245,13 +273,7 @@ describe('AccountingBooksService', () => {
       prisma.invoice.count.mockResolvedValue(2);
       prisma.invoice.findMany.mockResolvedValue(mockInvoices as any);
 
-      taxEngine.calculateTotalTax.mockImplementation((rev, exp) => {
-        const pitRate = 0.005; // mock 0.5%
-        return {
-          totalTaxDue: new Decimal(Number(rev) * (0.01 + 0.005)),
-          vatAmount: new Decimal(Number(rev) * 0.01),
-        } as any;
-      });
+
     });
 
     it('should generate summary for S1a-HKD only for taxGroupId 1', async () => {
@@ -264,9 +286,9 @@ describe('AccountingBooksService', () => {
       } as any);
 
       const result = await service.getRevenueBookSummary(
-        'user-001',
-        'thang_nay',
-      );
+          'user-001',
+          'period-123',
+        );
 
       expect(result.activeBookKey).toBe('S1a-HKD');
       expect(result.books['S1a-HKD']).toBeDefined();
@@ -308,16 +330,22 @@ describe('AccountingBooksService', () => {
           },
         ]);
 
-      (taxEngine.calculateTaxForPeriod as jest.Mock)
-        .mockReturnValueOnce({ vatAmount: new Decimal(0), pitAmount: new Decimal(0), totalTax: new Decimal(0) })
-        .mockReturnValueOnce({ vatAmount: new Decimal(300000), pitAmount: new Decimal(150000), totalTax: new Decimal(450000) })
-        .mockReturnValueOnce({ vatAmount: new Decimal(0), pitAmount: new Decimal(0), totalTax: new Decimal(0) })
-        .mockReturnValueOnce({ vatAmount: new Decimal(300000), pitAmount: new Decimal(150000), totalTax: new Decimal(450000) });
+      financialPeriodsService.calculatePeriodTax
+        .mockResolvedValueOnce({
+          vatAmount: new Decimal(300000),
+          pitAmount: new Decimal(150000),
+          totalTax: new Decimal(450000),
+        })
+        .mockResolvedValueOnce({
+          vatAmount: new Decimal(300000),
+          pitAmount: new Decimal(0),
+          totalTax: new Decimal(300000),
+        });
 
       const result = await service.getRevenueBookSummary(
-        'user-001',
-        'thang_nay',
-      );
+          'user-001',
+          'period-123',
+        );
 
       expect(result.activeBookKey).toBe('S2a-HKD');
       expect(result.books['S2a-HKD']).toBeDefined();
@@ -344,9 +372,9 @@ describe('AccountingBooksService', () => {
       } as any);
 
       const result = await service.getRevenueBookRecords(
-        'user-001',
-        'thang_nay',
-      );
+          'user-001',
+          'period-123',
+        );
       expect(result.activeBookKey).toBe('S1a-HKD');
       expect(result.rows).toHaveLength(2);
       expect(result.syncCode).toBeDefined();
@@ -356,7 +384,7 @@ describe('AccountingBooksService', () => {
       prisma.taxConfiguration.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.getRevenueBookSummary('user-001', 'thang_nay'),
+        service.getRevenueBookSummary('user-001', 'period-123'),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -416,6 +444,14 @@ describe('AccountingBooksService', () => {
     ];
 
     beforeEach(() => {
+      prisma.financialPeriod.findUnique.mockResolvedValue({
+        id: 1,
+        publicId: 'period-123',
+        userId: 'user-001',
+        startDate: new Date('2026-05-01T00:00:00Z'),
+        endDate: new Date('2026-05-31T23:59:59Z'),
+        status: 'OPEN',
+      } as any);
       prisma.user.findUnique.mockResolvedValue(mockUser as any);
       prisma.taxConfiguration.findFirst.mockResolvedValue({
         taxGroupId: 3,
@@ -475,9 +511,9 @@ describe('AccountingBooksService', () => {
 
     it('should generate summary for S2c-HKD grouped correctly', async () => {
       const result = await service.getExpenseBookSummary(
-        'user-001',
-        'thang_nay',
-      );
+          'user-001',
+          'period-123',
+        );
 
       expect(result.activeBookKey).toBe('S2c-HKD');
       expect(result.books['S2c-HKD']).toBeDefined();
@@ -495,9 +531,9 @@ describe('AccountingBooksService', () => {
 
     it('should retrieve records mapped to ExpenseBookRowDto', async () => {
       const result = await service.getExpenseBookRecords(
-        'user-001',
-        'thang_nay',
-      );
+          'user-001',
+          'period-123',
+        );
 
       expect(result.activeBookKey).toBe('S2c-HKD');
       expect(result.rows).toHaveLength(3);
