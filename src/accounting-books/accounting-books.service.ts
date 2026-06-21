@@ -114,6 +114,7 @@ export class AccountingBooksService {
     return taxConfig;
   }
 
+  // revenue book
   private async generateSyncCode(
     userId: string,
     periodId: number,
@@ -549,10 +550,7 @@ export class AccountingBooksService {
     return `${vCount}-${vMaxTime}`;
   }
 
-  async getCashFlowBookSummary(
-    userId: string,
-    periodPublicId: string,
-  ) {
+  async getCashFlowBookSummary(userId: string, periodPublicId: string) {
     const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const syncCode = await this.generateCashFlowSyncCode(
@@ -561,8 +559,6 @@ export class AccountingBooksService {
       endDate,
     );
 
-    // Lấy thông tin thống kê Thu Chi (Voucher) cho S03 (CASH) và S04 (BANK)
-    // 1. Tổng thu/chi trong kỳ
     const periodStats = await this.prisma.voucher.groupBy({
       by: ['paymentMethod', 'voucherType'],
       where: {
@@ -573,7 +569,6 @@ export class AccountingBooksService {
       _sum: { amount: true },
     });
 
-    // 2. Lấy số dư đầu kỳ (Trước startDate)
     const openingStats = await this.prisma.voucher.groupBy({
       by: ['paymentMethod', 'voucherType'],
       where: {
@@ -584,12 +579,10 @@ export class AccountingBooksService {
       _sum: { amount: true },
     });
 
-    // Helper tính toán cho một phương thức thanh toán
     const calculateBookStats = async (
       bookKey: AccountingBookKey,
       paymentMethod: 'CASH' | 'BANK',
     ) => {
-      // Số dư đầu kỳ = Tổng thu - Tổng chi (trước startDate)
       let openingBalance = 0;
       openingStats.forEach((stat) => {
         if (stat.paymentMethod === paymentMethod) {
@@ -627,14 +620,31 @@ export class AccountingBooksService {
       };
     };
 
-    const s03 = await calculateBookStats('S2E', 'CASH');
-    const s04 = await calculateBookStats('S2E', 'BANK');
+    const cash = await calculateBookStats('S2E', 'CASH');
+    const bank = await calculateBookStats('S2E', 'BANK');
+
+    const combinedMetadata = await this.generateBookMetadata('S2E', userId);
+    const combined = {
+      bookMetadata: {
+        ...combinedMetadata,
+        bookTitle: 'SỔ CHI TIẾT TIỀN (Mẫu S2e-HKD)',
+      },
+      bookKey: 'S2E',
+      timeFrame: { startDate, endDate },
+      summary: {
+        So_Du_Dau_Ky: cash.summary.So_Du_Dau_Ky + bank.summary.So_Du_Dau_Ky,
+        Tong_Thu_Trong_Ky: cash.summary.Tong_Thu_Trong_Ky + bank.summary.Tong_Thu_Trong_Ky,
+        Tong_Chi_Trong_Ky: cash.summary.Tong_Chi_Trong_Ky + bank.summary.Tong_Chi_Trong_Ky,
+        So_Du_Cuoi_Ky: cash.summary.So_Du_Cuoi_Ky + bank.summary.So_Du_Cuoi_Ky,
+      },
+    };
 
     return {
       activeBookKey: 'S2e-HKD', // Main tab UI
       books: {
-        'S03-HKD': s03,
-        'S04-HKD': s04,
+        'S2e-HKD': combined,
+        'S2e-cash': cash,
+        'S2e-bank': bank,
       },
       syncCode,
     };
@@ -648,7 +658,11 @@ export class AccountingBooksService {
     limit: number = 20,
     clientSyncCode?: string,
   ) {
-    const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
+    const {
+      id: periodId,
+      startDate,
+      endDate,
+    } = await this.getPeriodTarget(periodPublicId, userId);
 
     const currentSyncCode = await this.generateCashFlowSyncCode(
       userId,
@@ -748,33 +762,63 @@ export class AccountingBooksService {
     startDate: Date,
     endDate: Date,
   ): Promise<string> {
-    const voucherAgg = await this.prisma.voucher.aggregate({
-      _count: { id: true },
-      _max: { updatedAt: true },
-      where: {
-        userId,
-        transactionAt: { gte: startDate, lte: endDate },
-        voucherType: 'PAYMENT',
-        isDeductibleExpense: true,
-        status: 'ACTIVE',
-      },
-    });
+    const [voucherAgg, stockIssueAgg, invoiceAgg] = await Promise.all([
+      this.prisma.voucher.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          transactionAt: { gte: startDate, lte: endDate },
+          voucherType: 'PAYMENT',
+          isDeductibleExpense: true,
+          status: 'ACTIVE',
+          category: {
+            s2cExpenseMapping: { not: 'ITEM_A' },
+          },
+        },
+      }),
+      this.prisma.stockIssue.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          issueDate: { gte: startDate, lte: endDate },
+          status: 'APPROVED',
+          sourceDocumentType: 'INVOICE',
+        },
+      }),
+      this.prisma.invoice.aggregate({
+        _count: { id: true },
+        _max: { updatedAt: true },
+        where: {
+          userId,
+          status: 'ISSUED',
+          isPaid: true,
+        },
+      }),
+    ]);
+
     const vchCount = voucherAgg._count.id;
     const vchMaxTime = voucherAgg._max.updatedAt?.getTime() || 0;
 
-    return `${vchCount}-${vchMaxTime}`;
+    const siCount = stockIssueAgg._count.id;
+    const siMaxTime = stockIssueAgg._max.updatedAt?.getTime() || 0;
+
+    const invCount = invoiceAgg._count.id;
+    const invMaxTime = invoiceAgg._max.updatedAt?.getTime() || 0;
+
+    const totalCount = vchCount + siCount + invCount;
+    const maxTime = Math.max(vchMaxTime, siMaxTime, invMaxTime);
+
+    return `${totalCount}-${maxTime}`;
   }
 
-  async getExpenseBookSummary(
-    userId: string,
-    periodPublicId: string,
-  ) {
+  async getExpenseBookSummary(userId: string, periodPublicId: string) {
     const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
-    const [dbResult, bookMetadata, syncCode] = await Promise.all([
-      this.prisma.$queryRaw<ExpenseSummaryRow[]>`
+    const [dbResult, rawMaterialsResult, realtimeData, taxConfig, bookMetadata, syncCode] = await Promise.all([
+      this.prisma.$queryRaw<any[]>`
         SELECT 
-          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_A' THEN v.amount ELSE 0 END), 0) as chi_phi_nguyen_vat_lieu,
           COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_B' THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
           COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_C' THEN v.amount ELSE 0 END), 0) as chi_phi_khau_hao,
           COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_D' THEN v.amount ELSE 0 END), 0) as chi_phi_dich_vu_mua_ngoai,
@@ -788,12 +832,35 @@ export class AccountingBooksService {
           AND v.is_deductible_expense = TRUE
           AND v.status = 'ACTIVE';
       `,
+      this.prisma.$queryRaw<{ cost: number }[]>`
+        SELECT COALESCE(SUM(sd.quantity * COALESCE(sd.final_weighted_unit_cost, sd.provisional_unit_cost, 0)), 0)::double precision as cost
+        FROM stock_issue_details sd
+        JOIN stock_issues s ON sd.issue_id = s.id
+        JOIN invoices i ON s.source_document_id = i.id
+        WHERE s.user_id = ${userId}
+          AND s.issue_date BETWEEN ${startDate} AND ${endDate}
+          AND s.status = 'APPROVED'
+          AND s.source_document_type = 'INVOICE'
+          AND i.status = 'ISSUED'
+      `,
+      this.financialPeriodsService.calculateRealtimeTaxData(
+        userId,
+        startDate,
+        endDate,
+      ),
+      this.prisma.taxConfiguration.findFirst({
+        where: {
+          userId,
+          applyFromDate: { lte: endDate },
+          applyToDate: { gte: startDate },
+        },
+        orderBy: { applyFromDate: 'desc' },
+      }),
       this.generateBookMetadata('S2C', userId),
       this.generateExpenseSyncCode(userId, startDate, endDate),
     ]);
 
-    const summaryRow: ExpenseSummaryRow = dbResult[0] || {
-      chi_phi_nguyen_vat_lieu: 0,
+    const summaryRow = dbResult[0] || {
       chi_phi_nhan_cong: 0,
       chi_phi_khau_hao: 0,
       chi_phi_dich_vu_mua_ngoai: 0,
@@ -801,9 +868,7 @@ export class AccountingBooksService {
       chi_phi_khac: 0,
     };
 
-    const chi_phi_nguyen_vat_lieu = Number(
-      summaryRow.chi_phi_nguyen_vat_lieu || 0,
-    );
+    const chi_phi_nguyen_vat_lieu = Number(rawMaterialsResult[0]?.cost || 0);
     const chi_phi_nhan_cong = Number(summaryRow.chi_phi_nhan_cong || 0);
     const chi_phi_khau_hao = Number(summaryRow.chi_phi_khau_hao || 0);
     const chi_phi_dich_vu_mua_ngoai = Number(
@@ -820,6 +885,17 @@ export class AccountingBooksService {
       chi_phi_lai_vay +
       chi_phi_khac;
 
+    const tong_doanh_thu = Number(realtimeData.revenue || 0);
+    const chenh_lech = tong_doanh_thu - tong_chi_phi_hop_le;
+    const pitAmount = taxConfig
+      ? this.taxEngine.calculatePitProfitForPeriod(
+          taxConfig,
+          new Decimal(tong_doanh_thu),
+          new Decimal(tong_chi_phi_hop_le),
+        )
+      : new Decimal(0);
+    const Tong_Thue_TNCN_Phai_Nop = Number(pitAmount);
+
     return {
       activeBookKey: 'S2c-HKD',
       books: {
@@ -828,6 +904,7 @@ export class AccountingBooksService {
           bookKey: 'S2C',
           timeFrame: { startDate, endDate },
           summary: {
+            tong_doanh_thu,
             chi_phi_nguyen_vat_lieu,
             chi_phi_nhan_cong,
             chi_phi_khau_hao,
@@ -835,6 +912,8 @@ export class AccountingBooksService {
             chi_phi_lai_vay,
             chi_phi_khac,
             tong_chi_phi_hop_le,
+            chenh_lech,
+            Tong_Thue_TNCN_Phai_Nop,
           },
         },
       },
@@ -853,7 +932,18 @@ export class AccountingBooksService {
 
     const skip = (page - 1) * limit;
 
-    const [vouchers, totalVouchers, syncCode] = await Promise.all([
+    const [stockIssues, vouchers, syncCode] = await Promise.all([
+      this.prisma.stockIssue.findMany({
+        where: {
+          userId,
+          periodId,
+          status: 'APPROVED',
+          sourceDocumentType: 'INVOICE',
+        },
+        include: {
+          details: true,
+        },
+      }),
       this.prisma.voucher.findMany({
         where: {
           userId,
@@ -861,38 +951,87 @@ export class AccountingBooksService {
           voucherType: 'PAYMENT',
           isDeductibleExpense: true,
           status: 'ACTIVE',
+          category: {
+            s2cExpenseMapping: { not: 'ITEM_A' },
+          },
         },
         include: {
           category: true,
           inboundInvoice: true,
           stockReceipt: true,
         },
-        orderBy: { transactionAt: 'asc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.voucher.count({
-        where: {
-          userId,
-          transactionAt: { gte: startDate, lte: endDate },
-          voucherType: 'PAYMENT',
-          isDeductibleExpense: true,
-          status: 'ACTIVE',
-        },
       }),
       this.generateExpenseSyncCode(userId, startDate, endDate),
     ]);
 
-    const rows = plainToInstance(ExpenseBookRowDto, vouchers, {
+    const invoiceIds = stockIssues
+      .map((si) => si.sourceDocumentId)
+      .filter((id): id is number => id !== null);
+
+    const invoices =
+      invoiceIds.length > 0
+        ? await this.prisma.invoice.findMany({
+            where: {
+              userId,
+              id: { in: invoiceIds },
+              status: 'ISSUED',
+            },
+          })
+        : [];
+
+    const invoiceMap = new Map(invoices.map((inv) => [inv.id, inv]));
+
+    const validStockIssues = stockIssues.filter(
+      (si) => si.sourceDocumentId && invoiceMap.has(si.sourceDocumentId),
+    );
+
+    const stockIssueRows = validStockIssues.map((si) => {
+      const invoice = invoiceMap.get(si.sourceDocumentId!);
+      const totalValue = si.details.reduce((sum, d) => {
+        const qty = Number(d.quantity || 0);
+        const cost = Number(d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? 0);
+        return sum + qty * cost;
+      }, 0);
+
+      return {
+        transactionAt: si.issueDate,
+        voucherCode: si.issueCode,
+        category: {
+          categoryName: 'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.',
+          s2cExpenseMapping: 'ITEM_A',
+        },
+        content: `Xuất kho nguyên vật liệu cho hóa đơn ${invoice?.invoiceSymbol || ''}`,
+        amount: new Decimal(totalValue),
+        inboundInvoice: invoice ? { invoiceNo: invoice.invoiceSymbol } : null,
+        stockReceipt: null,
+      };
+    });
+
+    const allRecords = [...stockIssueRows, ...vouchers].sort((a, b) => {
+      const dateA =
+        a.transactionAt instanceof Date
+          ? a.transactionAt.getTime()
+          : new Date(a.transactionAt).getTime();
+      const dateB =
+        b.transactionAt instanceof Date
+          ? b.transactionAt.getTime()
+          : new Date(b.transactionAt).getTime();
+      return dateA - dateB;
+    });
+
+    const total = allRecords.length;
+    const paginatedRecords = allRecords.slice(skip, skip + limit);
+
+    const rows = plainToInstance(ExpenseBookRowDto, paginatedRecords, {
       excludeExtraneousValues: true,
     });
 
     return {
       rows,
       meta: {
-        total: totalVouchers,
+        total,
         page,
-        lastPage: Math.ceil(totalVouchers / limit) || 1,
+        lastPage: Math.ceil(total / limit) || 1,
       },
       activeBookKey: 'S2c-HKD',
       syncCode,

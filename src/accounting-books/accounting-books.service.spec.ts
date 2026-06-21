@@ -175,6 +175,10 @@ describe('AccountingBooksService', () => {
             productionDetail: {
               count: jest.fn(),
             },
+            stockIssue: {
+              findMany: jest.fn(),
+              aggregate: jest.fn(),
+            },
             $queryRaw: jest.fn(),
           },
         },
@@ -184,6 +188,7 @@ describe('AccountingBooksService', () => {
             calculatePitPercentageMultipleIndustries: jest.fn(),
             calculateVatAmount: jest.fn(),
             calculatePitPercentage: jest.fn(),
+            calculatePitProfitForPeriod: jest.fn(),
           },
         },
         {
@@ -459,6 +464,12 @@ describe('AccountingBooksService', () => {
         pitRateSnapShot: 0.005,
         industry: { categoryName: 'Ngành nghề kiểm thử' },
       } as any);
+      financialPeriodsService.calculateRealtimeTaxData.mockResolvedValue({
+        revenue: new Decimal(3000000),
+        expense: new Decimal(1850000),
+      });
+      taxEngine.calculatePitProfitForPeriod.mockReturnValue(new Decimal(195500));
+
 
       const mockCategories = [
         {
@@ -497,16 +508,56 @@ describe('AccountingBooksService', () => {
         _count: { id: 3 },
         _max: { updatedAt: new Date() },
       } as any);
-      (prisma as any).$queryRaw.mockResolvedValue([
+      prisma.stockIssue.findMany.mockResolvedValue([
         {
-          chi_phi_nguyen_vat_lieu: 0,
-          chi_phi_nhan_cong: 1000000,
-          chi_phi_khau_hao: 0,
-          chi_phi_dich_vu_mua_ngoai: 500000,
-          chi_phi_lai_vay: 0,
-          chi_phi_khac: 200000,
+          id: 10,
+          userId: 'user-001',
+          issueCode: 'XK001',
+          issueDate: new Date('2026-05-08T08:00:00Z'),
+          issueType: 'SALE',
+          sourceDocumentType: 'INVOICE',
+          sourceDocumentId: 55,
+          status: 'APPROVED',
+          details: [
+            {
+              quantity: new Decimal(2),
+              finalWeightedUnitCost: new Decimal(75000),
+            },
+          ],
         },
-      ]);
+      ] as any);
+      prisma.invoice.findMany.mockResolvedValue([
+        {
+          id: 55,
+          invoiceSymbol: '2C26TAA-55',
+          status: 'ISSUED',
+          isPaid: true,
+        },
+      ] as any);
+      prisma.stockIssue.aggregate.mockResolvedValue({
+        _count: { id: 1 },
+        _max: { updatedAt: new Date() },
+      } as any);
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: { id: 1 },
+        _max: { updatedAt: new Date() },
+      } as any);
+
+      (prisma as any).$queryRaw.mockImplementation((queryArr: any) => {
+        const queryStr = Array.isArray(queryArr) ? queryArr.join('') : String(queryArr);
+        if (queryStr.includes('stock_issue_details')) {
+          return [{ cost: 150000 }];
+        }
+        return [
+          {
+            chi_phi_nhan_cong: 1000000,
+            chi_phi_khau_hao: 0,
+            chi_phi_dich_vu_mua_ngoai: 500000,
+            chi_phi_lai_vay: 0,
+            chi_phi_khac: 200000,
+          },
+        ];
+      });
     });
 
     it('should generate summary for S2c-HKD grouped correctly', async () => {
@@ -520,13 +571,16 @@ describe('AccountingBooksService', () => {
 
       const s2c = result.books['S2c-HKD'];
       expect(s2c.bookKey).toBe('S2C');
-      expect(s2c.summary.chi_phi_nguyen_vat_lieu).toBe(0);
+      expect(s2c.summary.tong_doanh_thu).toBe(3000000);
+      expect(s2c.summary.chi_phi_nguyen_vat_lieu).toBe(150000);
       expect(s2c.summary.chi_phi_nhan_cong).toBe(1000000);
       expect(s2c.summary.chi_phi_khau_hao).toBe(0);
       expect(s2c.summary.chi_phi_dich_vu_mua_ngoai).toBe(500000);
       expect(s2c.summary.chi_phi_lai_vay).toBe(0);
       expect(s2c.summary.chi_phi_khac).toBe(200000);
-      expect(s2c.summary.tong_chi_phi_hop_le).toBe(1700000);
+      expect(s2c.summary.tong_chi_phi_hop_le).toBe(1850000);
+      expect(s2c.summary.chenh_lech).toBe(1150000);
+      expect(s2c.summary.Tong_Thue_TNCN_Phai_Nop).toBe(195500);
     });
 
     it('should retrieve records mapped to ExpenseBookRowDto', async () => {
@@ -536,18 +590,25 @@ describe('AccountingBooksService', () => {
         );
 
       expect(result.activeBookKey).toBe('S2c-HKD');
-      expect(result.rows).toHaveLength(3);
+      expect(result.rows).toHaveLength(4);
 
       const firstRow = result.rows[0];
-      expect(firstRow.Ngay_Chi).toEqual(mockVouchers[0].transactionAt);
-      expect(firstRow.So_Phieu_Chi).toBe('PC001');
-      expect(firstRow.Hang_Muc).toBe(mockVouchers[0].category.categoryName);
-      expect(firstRow.Dien_Giai).toBe('Chi tiền lương nhân viên');
-      expect(firstRow.So_Tien).toBe(1000000);
-      expect(firstRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('HD001');
+      expect(firstRow.Ngay_Chi).toEqual(new Date('2026-05-08T08:00:00Z'));
+      expect(firstRow.So_Phieu_Chi).toBe('XK001');
+      expect(firstRow.Hang_Muc).toBe(
+        'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.',
+      );
+      expect(firstRow.Dien_Giai).toBe('Xuất kho nguyên vật liệu cho hóa đơn 2C26TAA-55');
+      expect(firstRow.So_Tien).toBe(150000);
+      expect(firstRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('2C26TAA-55');
 
       const secondRow = result.rows[1];
-      expect(secondRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('');
+      expect(secondRow.Ngay_Chi).toEqual(mockVouchers[0].transactionAt);
+      expect(secondRow.So_Phieu_Chi).toBe('PC001');
+      expect(secondRow.Hang_Muc).toBe(mockVouchers[0].category.categoryName);
+      expect(secondRow.Dien_Giai).toBe('Chi tiền lương nhân viên');
+      expect(secondRow.So_Tien).toBe(1000000);
+      expect(secondRow.Hoa_Don_Chung_Tu_Kem_Theo).toBe('HD001');
     });
   });
 
