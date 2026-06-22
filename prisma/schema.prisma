@@ -38,6 +38,7 @@ model User {
   voucherCategories      VoucherCategory[]
   vouchers               Voucher[]
   taxAuthorityConnection TaxAuthorityConnection?
+  businessBankAccounts   BusinessBankAccount[]
 
   setUpCompletedAt DateTime? @map("setup_completed_at")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -822,4 +823,39 @@ model StockReceiptInvoice {
 
   @@unique([receiptId, invoiceId])
   @@map("stock_receipt_invoices")
+}
+
+enum ProviderType {
+  BANK
+  E_WALLET
+}
+
+enum DeclarationStatus {
+  INITIAL_REGISTRATION // Khai lần đầu
+  INFORMATION_UPDATE // Thay đổi thông tin
+  ACCOUNT_CLOSURE // Đóng tài khoản
+}
+
+model BusinessBankAccount {
+  id       Int    @id @default(autoincrement())
+  publicId String @unique @default(cuid()) @map("public_id")
+  userId   String @map("user_id")
+
+  providerType         ProviderType      @map("provider_type")
+  providerName         String            @map("provider_name")
+  accountNumber        String            @map("account_number")
+  accountHolderName    String            @map("account_holder_name")
+  businessLocationName String            @map("business_location_name")
+  businessLocationCode String            @map("business_location_code")
+  declarationStatus    DeclarationStatus @map("declaration_status")
+
+  isActive Boolean @default(true) @map("is_active")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  registeredAt DateTime @default(now()) @map("registered_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("business_bank_accounts")
 }

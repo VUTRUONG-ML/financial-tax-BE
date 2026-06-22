@@ -3,6 +3,8 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { Prisma, User } from '@prisma/client';
 import { UpdateUserDto } from './dto/update-user.dto';
 
+export type UserPublic = Omit<User, 'passwordHash'>;
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prismaService: PrismaService) {}
@@ -40,5 +42,21 @@ export class UsersService {
       },
       omit: { passwordHash: true },
     });
+  }
+
+  /**
+   * Tìm user theo ID nội bộ.
+   * Dùng để các service khác (vd: TaxFormsService) tái sử dụng
+   * mà không cần query Prisma trực tiếp.
+   * Không trả passwordHash.
+   */
+  async findById(userId: string): Promise<UserPublic | null> {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) return null;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { passwordHash: _, ...userPublic } = user;
+    return userPublic;
   }
 }

@@ -31,6 +31,8 @@ import { StocksModule } from './stocks/stocks.module';
 import { InventoryMovementsModule } from './inventory-movements/inventory-movements.module';
 import { CostEngineModule } from './cost-engine/cost-engine.module';
 import { TaxAuthorityConnectionsModule } from './tax-authority-connections/tax-authority-connections.module';
+import { BusinessBankAccountsModule } from './business-bank-accounts/business-bank-accounts.module';
+import { TaxFormsModule } from './tax-forms/tax-forms.module';
 
 @Module({
   imports: [
@@ -71,6 +73,8 @@ import { TaxAuthorityConnectionsModule } from './tax-authority-connections/tax-a
     InventoryMovementsModule,
     CostEngineModule,
     TaxAuthorityConnectionsModule,
+    BusinessBankAccountsModule,
+    TaxFormsModule,
   ],
   controllers: [AppController],
   providers: [
