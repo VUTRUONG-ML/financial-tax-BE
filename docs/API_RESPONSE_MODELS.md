@@ -108,6 +108,13 @@ This document describes the request and response data structures of the core API
   - [17.2. Upsert Tax Connection](#172-upsert-tax-connection)
 - [18. Mock Tax Authority](#18-mock-tax-authority)
   - [18.1. Verify Mock Tax Account](#181-verify-mock-tax-account)
+- [19. Business Bank Accounts](#19-business-bank-accounts)
+  - [19.1. Get All Business Bank Accounts](#191-get-all-business-bank-accounts)
+  - [19.2. Create Business Bank Account](#192-create-business-bank-account)
+  - [19.3. Update Business Bank Account](#193-update-business-bank-account)
+  - [19.4. Delete Business Bank Account (Soft)](#194-delete-business-bank-account-soft)
+- [20. Tax Forms](#20-tax-forms)
+  - [20.1. Get BK-STK Form Data](#201-get-bk-stk-form-data)
 
 ---
 
@@ -130,8 +137,10 @@ This document describes the request and response data structures of the core API
   "skuCode": "string (Optional)",
   "unit": "string",
   "sellingPrice": "number",
-  "openingStockQuantity": "number",
-  "openingStockUnitCost": "number"
+  "openingStockQuantity": "number (Optional)",
+  "openingStockUnitCost": "number (Optional)",
+  "taxCategoryId": "number (Optional)",
+  "isInventoryTracked": "boolean (Optional)"
 }
 ```
 
@@ -155,6 +164,8 @@ This document describes the request and response data structures of the core API
     "sellingPrice": "number",
     "openingStockUnitCost": "number",
     "openingStockValue": "number",
+    "taxCategoryId": "number | null",
+    "isInventoryTracked": "boolean",
     "createdAt": "Date string"
   },
   "meta": null
@@ -198,6 +209,8 @@ None
       "sellingPrice": "number",
       "openingStockUnitCost": "number",
       "openingStockValue": "number",
+      "taxCategoryId": "number | null",
+      "isInventoryTracked": "boolean",
       "createdAt": "Date string"
     }
   ],
@@ -239,6 +252,8 @@ None
     "sellingPrice": "number",
     "openingStockUnitCost": "number",
     "openingStockValue": "number",
+    "taxCategoryId": "number | null",
+    "isInventoryTracked": "boolean",
     "createdAt": "Date string"
   },
   "meta": null
@@ -263,7 +278,9 @@ None
   "unit": "string (Optional)",
   "sellingPrice": "number (Optional)",
   "openingStockQuantity": "number (Optional)",
-  "openingStockUnitCost": "number (Optional)"
+  "openingStockUnitCost": "number (Optional)",
+  "taxCategoryId": "number (Optional)",
+  "isInventoryTracked": "boolean (Optional)"
 }
 ```
 
@@ -287,6 +304,8 @@ None
     "sellingPrice": "number",
     "openingStockUnitCost": "number",
     "openingStockValue": "number",
+    "taxCategoryId": "number | null",
+    "isInventoryTracked": "boolean",
     "createdAt": "Date string"
   },
   "meta": null
@@ -4293,6 +4312,249 @@ None
   "data": {
     "success": "boolean",
     "businessName": "string"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 19. Business Bank Accounts
+
+Module quản lý tài khoản ngân hàng / ví điện tử của hộ kinh doanh. Phục vụ xuất biểu mẫu 01/BK-STK (frontend tự render PDF/XML).
+
+**Enum `ProviderType`:** `"BANK"` | `"E_WALLET"`
+
+**Enum `DeclarationStatus`:** `"INITIAL_REGISTRATION"` | `"INFORMATION_UPDATE"` | `"ACCOUNT_CLOSURE"`
+
+> **Business Rule:** `isActive` được tự động set theo `declarationStatus`:
+> - `ACCOUNT_CLOSURE` → `isActive = false`
+> - `INITIAL_REGISTRATION` / `INFORMATION_UPDATE` → `isActive = true`
+>
+> DELETE là soft delete: set `isActive = false` và `declarationStatus = ACCOUNT_CLOSURE`.
+
+---
+
+### 19.1. Get All Business Bank Accounts
+
+- **Route:** `/business-bank-accounts`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Business bank accounts retrieved successfully.",
+  "data": [
+    {
+      "publicId": "string",
+      "providerType": "\"BANK\" | \"E_WALLET\"",
+      "providerName": "string",
+      "accountNumber": "string",
+      "accountHolderName": "string",
+      "businessLocationName": "string",
+      "businessLocationCode": "string",
+      "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\"",
+      "isActive": "boolean",
+      "registeredAt": "Date string",
+      "updatedAt": "Date string"
+    }
+  ],
+  "meta": null
+}
+```
+
+---
+
+### 19.2. Create Business Bank Account
+
+- **Route:** `/business-bank-accounts`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "providerType": "\"BANK\" | \"E_WALLET\"",
+  "providerName": "string",
+  "accountNumber": "string",
+  "accountHolderName": "string",
+  "businessLocationName": "string",
+  "businessLocationCode": "string",
+  "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\""
+}
+```
+
+> Tất cả các field đều **bắt buộc**.
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "timestamp": "Date string",
+  "message": "Business bank account created successfully.",
+  "data": {
+    "publicId": "string",
+    "providerType": "\"BANK\" | \"E_WALLET\"",
+    "providerName": "string",
+    "accountNumber": "string",
+    "accountHolderName": "string",
+    "businessLocationName": "string",
+    "businessLocationCode": "string",
+    "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\"",
+    "isActive": "boolean",
+    "registeredAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+---
+
+### 19.3. Update Business Bank Account
+
+- **Route:** `/business-bank-accounts/:publicId`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body (JSON)
+
+```json
+{
+  "providerType": "\"BANK\" | \"E_WALLET\" (Optional)",
+  "providerName": "string (Optional)",
+  "accountNumber": "string (Optional)",
+  "accountHolderName": "string (Optional)",
+  "businessLocationName": "string (Optional)",
+  "businessLocationCode": "string (Optional)",
+  "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\" (Optional)"
+}
+```
+
+> `userId` không được phép thay đổi.
+> Nếu `declarationStatus` được cập nhật, `isActive` sẽ được tự động điều chỉnh theo business rule.
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Business bank account updated successfully.",
+  "data": {
+    "publicId": "string",
+    "providerType": "\"BANK\" | \"E_WALLET\"",
+    "providerName": "string",
+    "accountNumber": "string",
+    "accountHolderName": "string",
+    "businessLocationName": "string",
+    "businessLocationCode": "string",
+    "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\"",
+    "isActive": "boolean",
+    "registeredAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+---
+
+### 19.4. Delete Business Bank Account (Soft)
+
+- **Route:** `/business-bank-accounts/:publicId`
+- **Method:** `DELETE`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+> Không xóa vật lý. Soft delete: set `isActive = false` và `declarationStatus = "ACCOUNT_CLOSURE"`.
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Business bank account closed successfully.",
+  "data": {
+    "publicId": "string",
+    "providerType": "\"BANK\" | \"E_WALLET\"",
+    "providerName": "string",
+    "accountNumber": "string",
+    "accountHolderName": "string",
+    "businessLocationName": "string",
+    "businessLocationCode": "string",
+    "declarationStatus": "\"ACCOUNT_CLOSURE\"",
+    "isActive": false,
+    "registeredAt": "Date string",
+    "updatedAt": "Date string"
+  },
+  "meta": null
+}
+```
+
+---
+
+## 20. Tax Forms
+
+Cung cấp dữ liệu cho frontend render biểu mẫu thuế. Backend **không** generate PDF/XML.
+
+---
+
+### 20.1. Get BK-STK Form Data
+
+- **Route:** `/tax-forms/bk-stk`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+> Chỉ trả các tài khoản có `isActive = true`.
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "BK-STK form data retrieved successfully.",
+  "data": {
+    "businessName": "string",
+    "taxCode": "string",
+    "ownerName": "string",
+    "address": "string (hiện tại luôn trống \"\")",
+    "phone": "string",
+    "accounts": [
+      {
+        "providerType": "\"BANK\" | \"E_WALLET\"",
+        "providerName": "string",
+        "accountNumber": "string",
+        "accountHolderName": "string",
+        "businessLocationName": "string",
+        "businessLocationCode": "string",
+        "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\""
+      }
+    ]
   },
   "meta": null
 }

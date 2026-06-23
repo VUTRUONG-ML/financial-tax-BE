@@ -65,7 +65,7 @@ export class InboundInvoicesService {
           details: {
             include: {
               product: {
-                select: { publicId: true },
+                select: { publicId: true, productName: true },
               },
             },
           },
@@ -88,7 +88,7 @@ export class InboundInvoicesService {
       where: { inboundInvoiceId: inInvoice.id },
       include: {
         product: {
-          select: { publicId: true },
+          select: { publicId: true, productName: true },
         },
       },
     });

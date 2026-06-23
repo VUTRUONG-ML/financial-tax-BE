@@ -66,7 +66,7 @@ export class ProductsService {
     }
   }
 
-  // ─── CREATE ───────────────────────────────────────────────────────────────
+  // Kiểm tra điều kiện này để ép người dùng nhập kho qua stock receipt
   private async hasTransactions(
     userId: string,
     tx: Prisma.TransactionClient,
