@@ -13,10 +13,10 @@ Tất cả các API của module Vouchers đều yêu cầu mã token đăng nh�
 | **Thống kê dòng tiền** | `GET` | `/vouchers/summary` | Query: `fromDate` (bắt buộc) | Trả về tổng thu, tổng chi trong kỳ, và số dư tiền mặt/tiền gửi tích lũy đến hiện tại. |
 | **Lấy danh sách** | `GET` | `/vouchers` | Query: `page`, `limit`, `fromDate` (tùy chọn) | Lấy danh sách phiếu thu/chi có phân trang. Nếu truyền `fromDate`, chỉ lọc danh sách phiếu trong tháng/quý đó. |
 | **Chi tiết phiếu** | `GET` | `/vouchers/:voucherCode` | Tham số đường dẫn `:voucherCode` | Lấy thông tin chi tiết của 1 phiếu (ví dụ: `PT-0526-0001`). |
-| **Tạo phiếu mới** | `POST` | `/vouchers` | Body: `CreateVoucherDto` | Lập phiếu thu/chi mới. Hệ thống tự sinh mã phiếu theo định dạng `PT/PC-MMYY-XXXX`. |
+| Tạo phiếu mới | `POST` | `/vouchers` | Body: `CreateVoucherDto` | Lập phiếu thu/chi mới. Hệ thống tự sinh mã phiếu theo định dạng `PT/PC-MMYY-XXXX`. |
 | **Cập nhật phiếu** | `PATCH` | `/vouchers/:voucherCode` | Body: `UpdateVoucherDto` | Sửa thông tin phiếu thu/chi (chỉ cho phép khi phiếu ở trạng thái `ACTIVE`). |
-| **Hủy phiếu** | `PATCH` | `/vouchers/:voucherCode/cancel` | Không có | Hủy phiếu thu/chi. Hệ thống tự động chuyển trạng thái sang `CANCELED` và hoàn trừ (revert) số tiền đã thanh toán trên hóa đơn liên kết. |
-| **Xóa phiếu** | `DELETE` | `/vouchers/:voucherCode` | Không có | Xóa hoàn toàn phiếu khỏi hệ thống. **Chỉ cho phép khi phiếu chưa liên kết với bất kỳ hóa đơn nào**. |
+| **Hủy phiếu** | `PATCH` | `/vouchers/:voucherCode/cancel` | Không có | Hủy phiếu thu/chi. Hệ thống tự động chuyển trạng thái sang `CANCELED` và hoàn trừ (revert) số tiền đã thanh toán trên hóa đơn hoặc phiếu nhập kho liên kết. |
+| **Xóa phiếu** | `DELETE` | `/vouchers/:voucherCode` | Không có | Xóa hoàn toàn phiếu khỏi hệ thống. **Chỉ cho phép khi phiếu chưa liên kết với bất kỳ hóa đơn bán ra hoặc phiếu nhập kho nào**. |
 
 ---
 
@@ -31,13 +31,13 @@ Tất cả các API của module Vouchers đều yêu cầu mã token đăng nh�
   > Khi lập phiếu thu/chi, Frontend bắt buộc phải truyền trường `transactionAt` (định dạng Date ISO string) trong body request. Hệ thống sẽ sử dụng mốc thời gian này làm ngày giao dịch chính thức của phiếu và dùng nó để trích xuất `MMYY` tự động tạo mã phiếu. Không còn lấy thời gian hiện tại (`new Date()`) trên server.
 * **Lưu ý cho FE:** Trên giao diện, không cho người dùng tự nhập mã phiếu. Mã phiếu sẽ do Backend tự sinh và trả về trong trường `voucherCode` sau khi `POST` tạo thành công.
 
-### 2.2. Quy tắc liên kết Hóa đơn (Invoices Linkage)
+### 2.2. Quy tắc liên kết Hóa đơn và Phiếu Nhập Kho (Document Linkage)
 * Phiếu thu (`RECEIPT`) chỉ được phép liên kết với **Hóa đơn bán ra** (Outbound Invoice) qua trường `outboundInvoicePublicId`.
-* Phiếu chi (`PAYMENT`) chỉ được phép liên kết với **Hóa đơn mua vào** (Inbound Invoice) qua trường `inboundInvoicePublicId`.
+* Phiếu chi (`PAYMENT`) chỉ được phép liên kết với **Phiếu nhập kho** (Stock Receipt) qua trường `stockReceiptCode`. Phiếu chi **không** còn liên kết với **Hóa đơn mua vào** (Inbound Invoice) nữa.
 * **Cơ chế cập nhật trạng thái thanh toán tự động của BE:**
-  * Khi tạo một phiếu thu/chi liên kết với hóa đơn có số tiền $A$, Backend sẽ cộng dồn số tiền này vào trường `paidAmount` của hóa đơn đó.
-  * Nếu tổng số tiền của các phiếu liên kết cộng lại bằng đúng tổng tiền hóa đơn (`totalPayment` / `totalAmount`), hóa đơn sẽ tự động chuyển trạng thái `isPaid` sang `true`.
-  * Nếu tổng số tiền vượt quá giá trị hóa đơn, API sẽ chặn và trả về lỗi `400 Bad Request`.
+  * Khi tạo một phiếu thu liên kết với hóa đơn bán ra (hoặc phiếu chi liên kết với phiếu nhập kho) có số tiền $A$, Backend sẽ cộng dồn số tiền này vào trường `paidAmount` của hóa đơn bán ra (hoặc phiếu nhập kho) đó.
+  * Nếu tổng số tiền của các phiếu liên kết cộng lại bằng đúng tổng tiền của hóa đơn bán ra (`totalPayment`) hoặc phiếu nhập kho (`totalValue`), hóa đơn bán ra hoặc phiếu nhập kho sẽ tự động chuyển trạng thái `isPaid` sang `true`.
+  * Nếu tổng số tiền vượt quá giá trị hóa đơn bán ra hoặc phiếu nhập kho, API sẽ chặn và trả về lỗi `400 Bad Request`.
 
 ### 2.3. Ràng buộc Thuế đối với Chi phí giảm trừ (Deductible Expense Constraint)
 Theo Luật Thuế Việt Nam hiện hành áp dụng cho các hộ kinh doanh:
@@ -51,17 +51,17 @@ Theo Luật Thuế Việt Nam hiện hành áp dụng cho các hộ kinh doanh:
       "errorCode": "INVALID_TAX_DEDUCTIBLE_METHOD"
     }
     ```
-  * **Phải liên kết hóa đơn:** Chi phí giảm trừ bắt buộc phải có hóa đơn chứng từ đi kèm. Vì vậy nếu `isDeductibleExpense: true`, FE bắt buộc phải gửi kèm mã `inboundInvoicePublicId`. Nếu thiếu, BE sẽ trả về mã lỗi `MISSING_INBOUND_INVOICE_DEDUCT`.
+  * **Liên kết chứng từ kho (tùy chọn):** Phiếu chi phí hợp lý được giảm trừ thuế có thể liên kết hoặc không liên kết với Phiếu nhập kho (Stock Receipt) qua trường `stockReceiptCode`. Hệ thống không bắt buộc liên kết chứng từ kho này khi tạo phiếu chi phí hợp lý.
 
 ---
 
 ### 2.4. Phân biệt Cancel (Hủy phiếu) và Delete (Xóa phiếu)
 * **Xóa phiếu (`DELETE /vouchers/:voucherCode`):**
-  * Chỉ khả dụng khi phiếu thu/chi đó **chưa từng được liên kết** với hóa đơn mua/bán nào (cả `inboundInvoiceId` và `outboundInvoiceId` đều bằng `null`).
+  * Chỉ khả dụng khi phiếu thu/chi đó **chưa từng được liên kết** với bất kỳ hóa đơn bán ra hoặc phiếu nhập kho nào (các trường liên kết `outboundInvoiceId` và `stockReceiptId` đều bằng `null`).
   * Giúp dọn dẹp các phiếu thu/chi tự do lập sai thông tin.
 * **Hủy phiếu (`PATCH /vouchers/:voucherCode/cancel`):**
-  * Dành cho các phiếu đã lập và đã liên kết thanh toán cho hóa đơn.
-  * Khi thực hiện hủy phiếu, trạng thái phiếu chuyển sang `CANCELED`, đồng thời Backend tự động **trừ bớt số tiền đã trả** trên hóa đơn liên kết (`paidAmount` giảm tương ứng và chuyển trạng thái `isPaid` về `false`).
+  * Dành cho các phiếu đã lập và đã liên kết thanh toán cho hóa đơn bán ra hoặc phiếu nhập kho.
+  * Khi thực hiện hủy phiếu, trạng thái phiếu chuyển sang `CANCELED`, đồng thời Backend tự động **trừ bớt số tiền đã trả** trên hóa đơn bán ra hoặc phiếu nhập kho liên kết (`paidAmount` giảm tương ứng và chuyển trạng thái `isPaid` về `false`).
 
 ---
 
@@ -123,8 +123,8 @@ Dựa trên tài liệu kế hoạch tích hợp [plan_api_voucher (1).md](file:
   * Trạng thái `ACTIVE` ở BE sẽ được FE map thành `COMPLETED` để hiển thị trên UI.
   * Trạng thái `CANCELED` giữ nguyên là `CANCELED`.
 * **Khóa các trường khi chỉnh sửa phiếu (Update Validation):**
-  * **Trường hợp Phiếu đã liên kết hóa đơn** (khi `inboundInvoiceId !== null` hoặc `outboundInvoiceId !== null`):
-    * Bắt buộc khóa (disable) các trường tránh làm sai lệch đối chiếu thanh toán: `voucherType` (Loại phiếu), `amount` (Số tiền), `inboundInvoicePublicId` (Hóa đơn mua vào), `outboundInvoicePublicId` (Hóa đơn bán ra), và `isDeductibleExpense` (Chi phí hợp lý). Người dùng chỉ được cập nhật các trường thông tin cơ bản (Diễn giải, Danh mục chi phí cùng loại, Phương thức thanh toán, Người liên hệ, Thời gian giao dịch).
-  * **Trường hợp Phiếu chưa liên kết hóa đơn** (chưa thanh toán cho hóa đơn nào):
-    * Cho phép sửa đổi toàn bộ các trường, kể cả `voucherType`, `amount`, `isDeductibleExpense`, và các liên kết hóa đơn.
-    * Đặc biệt: Nếu phiếu chi được đánh dấu là chi phí giảm trừ thuế (`isDeductibleExpense: true`) nhưng **chưa thực hiện liên kết** với hóa đơn mua vào nào, hệ thống **vẫn cho phép lưu trữ và chỉnh sửa toàn bộ bình thường** chứ không chặn lỗi thiếu hóa đơn (`MISSING_INBOUND_INVOICE_DEDUCT` chỉ kiểm soát khi có hành vi liên kết thực tế).
+  * **Trường hợp Phiếu đã liên kết chứng từ** (khi `stockReceiptId !== null` hoặc `outboundInvoiceId !== null`):
+    * Bắt buộc khóa (disable) các trường tránh làm sai lệch đối chiếu thanh toán: `voucherType` (Loại phiếu), `amount` (Số tiền), `stockReceiptCode` (Phiếu nhập kho), `outboundInvoicePublicId` (Hóa đơn bán ra), và `isDeductibleExpense` (Chi phí hợp lý). Người dùng chỉ được cập nhật các trường thông tin cơ bản (Diễn giải, Danh mục chi phí cùng loại, Phương thức thanh toán, Người liên hệ, Thời gian giao dịch).
+  * **Trường hợp Phiếu chưa liên kết chứng từ** (chưa thanh toán cho hóa đơn bán ra hoặc phiếu nhập kho nào):
+    * Cho phép sửa đổi toàn bộ các trường, kể cả `voucherType`, `amount`, `isDeductibleExpense`, và các liên kết chứng từ.
+    * Đặc biệt: Nếu phiếu chi được đánh dấu là chi phí giảm trừ thuế (`isDeductibleExpense: true`), hệ thống vẫn cho phép lưu trữ và chỉnh sửa bình thường mà không bắt buộc phải liên kết với phiếu nhập kho.

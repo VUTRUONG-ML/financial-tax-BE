@@ -10,13 +10,10 @@ Các API chính thức của module Inbound Invoices trên Backend đều đư�
 
 | Chức năng | Method | Endpoint | Content-Type | Điều kiện & Ràng buộc nghiệp vụ |
 | :--- | :---: | :--- | :--- | :--- |
-| **Lấy danh sách** | `GET` | `/inbound-invoices` | `application/json` | Hỗ trợ phân trang (`page`, `limit`) và bộ lọc trạng thái qua query `type` (`CHUA_DONG_BO`, `DA_NHAP_KHO`, `CHUA_THANH_TOAN`). |
+| **Lấy danh sách** | `GET` | `/inbound-invoices` | `application/json` | Hỗ trợ phân trang (`page`, `limit`) và bộ lọc trạng thái qua query `type` (`CHUA_THANH_TOAN`). |
+| **Thống kê tổng quan** | `GET` | `/inbound-invoices/summary` | `application/json` | Trả về tổng số lượng hóa đơn, tổng doanh thu đầu vào và tổng số tiền chưa thanh toán. |
 | **Chi tiết hóa đơn** | `GET` | `/inbound-invoices/:publicId` | `application/json` | Lấy chi tiết thông tin hóa đơn đầu vào và các dòng mặt hàng liên quan. |
-| **Tạo mới hóa đơn** | `POST` | `/inbound-invoices` | `application/json` | Tạo hóa đơn nháp. Nếu truyền `isSyncedToInventory: true`, hệ thống sẽ tự động nhập kho và tính lại giá vốn. |
-| **Cập nhật** | `PATCH` | `/inbound-invoices/:publicId` | `application/json` | Cập nhật thông tin hóa đơn. **Chỉ cho phép khi chưa đồng bộ kho (`isSyncedToInventory: false`)**. |
-| **Xóa hóa đơn** | `DELETE` | `/inbound-invoices/:publicId` | `application/json` | Xóa hoàn toàn hóa đơn khỏi hệ thống. **Chỉ cho phép khi chưa đồng bộ kho (`isSyncedToInventory: false`)**. |
-| **Đồng bộ tồn kho** | `PATCH` | `/inbound-invoices/:publicId/sync-inventory` | `application/json` | Thực hiện nhập kho vật lý cho các sản phẩm trong hóa đơn và tính lại giá vốn bình quân gia quyền. |
-| **Hủy hóa đơn** | `PATCH` | `/inbound-invoices/:publicId/cancel` | `application/json` | Chuyển trạng thái hóa đơn sang `CANCELED`. Tự động hoàn trả (giảm) số lượng tồn kho và hủy tất cả Phiếu Chi liên kết. |
+| **Đồng bộ từ CQT** | `POST` | `/inbound-invoices/trigger-sync` | `application/json` | Kích hoạt đồng bộ hóa đơn mua vào tự động từ hệ thống của Cơ quan Thuế. |
 
 ---
 
@@ -24,25 +21,20 @@ Các API chính thức của module Inbound Invoices trên Backend đều đư�
 
 Dưới đây là câu trả lời chính thức của Backend dành cho 4 câu hỏi thảo luận tại mục 9 trong tài liệu [plan_api_inboundInvoice.md](file:///e:/financial-tax-system_BE/docs-coding-guidelines/plan_api_inboundInvoice.md):
 
-### ❓ Câu hỏi 1: BE chưa có update/delete inbound?
-> **FE hỏi:** Có OK đổi UX sang `create + sync + cancel`, không cho sửa/xóa cứng sau khi record đã lên BE?
+### ❓ Câu hỏi 1: BE chưa có update/delete/create inbound bằng tay?
+> **FE hỏi:** Có OK đổi UX sang tự động đồng bộ và không cho người dùng tạo/sửa/xóa hóa đơn mua vào trực tiếp?
 
-* **Câu trả lời từ BE:** **Không cần thiết phải khóa cứng sớm như vậy.** Hiện tại Backend **ĐÃ bổ sung đầy đủ** hai endpoint cập nhật và xóa hóa đơn:
-  * **Cập nhật:** `PATCH /v1/inbound-invoices/:publicId` (nhận `UpdateInboundInvoiceDto`).
-  * **Xóa (Delete):** `DELETE /v1/inbound-invoices/:publicId`.
-  * **Ràng buộc nghiệp vụ:**
-    * Nếu hóa đơn **chưa đồng bộ kho** (`isSyncedToInventory: false`), người dùng vẫn có quyền **Chỉnh sửa** hoặc **Xóa hoàn toàn (Hard Delete)**.
-    * Khi hóa đơn **đã đồng bộ kho** (`isSyncedToInventory: true`), hệ thống sẽ **khóa cứng** hóa đơn đầu vào đó để đảm bảo tính nhất quán của Sổ kho S05 và Giá vốn. Khi đó, mọi yêu cầu `PATCH` (sửa) hoặc `DELETE` (xóa) sẽ trả về lỗi `400 Bad Request`.
+* **Câu trả lời từ BE:** **Hoàn toàn chính xác.** Theo logic nghiệp vụ mới, **Hóa đơn mua vào (Inbound Invoices)** chỉ được đồng bộ tự động từ hệ thống của Cơ quan Thuế qua endpoint `POST /inbound-invoices/trigger-sync` chứ không cho phép tạo mới, chỉnh sửa, hay xóa thủ công.
+* **Mối liên kết giữa Hóa đơn mua vào và Kho hàng / Phiếu Chi:**
+  * Việc nhập kho vật lý thực tế được thực hiện độc lập tại **Module Kho (`stock-receipts`)** bằng cách lập Phiếu nhập kho và có thể liên kết phiếu nhập kho với hóa đơn mua vào thông qua API liên kết.
+  * Việc thanh toán và lập Phiếu chi (`PAYMENT` voucher) được liên kết trực tiếp với **Phiếu nhập kho (`stock-receipts`)** thay vì Hóa đơn mua vào. Do đó, hóa đơn mua vào không còn liên kết trực tiếp hay kiểm soát vòng đời của Phiếu chi nữa.
 
 ---
 
-### ❓ Câu hỏi 2: Thay thế nút Xóa bằng Hủy hóa đơn (`PATCH /cancel`)?
-> **FE hỏi:** Có OK thay nút “Xóa” bằng “Hủy hóa đơn” dùng `PATCH /cancel`?
+### ❓ Câu hỏi 2: Thay thế nút Xóa/Hủy trên màn hình Hóa đơn mua vào?
+> **FE hỏi:** Có cần cung cấp nút Xóa hoặc Hủy cho hóa đơn mua vào nữa không?
 
-* **Câu trả lời từ BE:** FE nên giữ cả hai tính năng này trên UI để tương ứng với vòng đời hóa đơn:
-  * **Dùng nút "Xóa" (gọi `DELETE` API):** Khi hóa đơn đầu vào mới chỉ là bản nháp/chưa đồng bộ vào kho hàng. Cho phép người dùng dọn sạch dữ liệu nhập sai.
-  * **Dùng nút "Hủy hóa đơn" (gọi `PATCH /:publicId/cancel` API):** Khi hóa đơn **đã được đồng bộ kho** hoặc **đã lập phiếu chi** nhưng phát sinh sai sót/trả hàng.
-    * *Logic xử lý của BE khi hủy:* Tự động giảm trừ số lượng tồn kho tương ứng của các sản phẩm vật lý trong hóa đơn, đồng thời tự động hủy (`CANCELED`) toàn bộ các Phiếu Chi đang liên kết với hóa đơn này.
+* **Câu trả lời từ BE:** **Không cần thiết.** Vì Hóa đơn mua vào là chứng từ được đồng bộ từ Cơ quan Thuế để đối chiếu và giám sát, người dùng không thể can thiệp Xóa/Hủy hóa đơn đầu vào này. Thay vào đó, nếu muốn hủy bỏ nghiệp vụ nhập kho hoặc phiếu chi tương ứng, người dùng sẽ thực hiện Hủy phiếu nhập kho (`PATCH /stock-receipts/:receiptCode/cancel`) hoặc Hủy phiếu chi (`PATCH /vouchers/:voucherCode/cancel`).
 
 ---
 
@@ -82,9 +74,9 @@ $$\text{Đơn giá bình quân mới} = \frac{(\text{Số lượng tồn cũ} \t
 ### 3.2. Ràng buộc Kỳ kế toán (Period Lock)
 Tất cả các API thay đổi dữ liệu (`POST`, `PATCH`, `DELETE` trên Inbound Invoices) đều được kiểm tra thông qua `PeriodLockGuard`. Nếu ngày phát hành hóa đơn (`issueDate`) nằm trong một Kỳ kế toán đã đóng (`CLOSED`), API sẽ chặn và trả về lỗi `400 Bad Request`. Người dùng buộc phải mở lại kỳ kế toán trước nếu muốn thao tác.
 
-### 3.3. Lập Phiếu Chi liên kết Hóa đơn và Ngày giao dịch (`transactionAt`)
-Khi lập Phiếu Chi liên kết với Hóa đơn mua vào để ghi nhận thanh toán (gửi kèm `inboundInvoicePublicId`), Frontend **bắt buộc phải truyền trường `transactionAt`** (định dạng Date ISO string) trong body của API tạo phiếu chi (`POST /vouchers`).
-* Backend sẽ sử dụng ngày giao dịch này để tự động tính toán mã phiếu `PC-MMYY-XXXX` và ghi nhận ngày chi tiền chính xác thay vì dùng thời gian hiện tại (`new Date()`) trên server.
+### 3.3. Lập Phiếu Chi liên kết Phiếu Nhập Kho và Ngày giao dịch (`transactionAt`)
+Khi lập Phiếu Chi để thanh toán cho các đợt nhập hàng, Frontend sẽ liên kết Phiếu Chi với Phiếu nhập kho (Stock Receipt) bằng cách gửi kèm `stockReceiptCode` trong body của API tạo phiếu chi (`POST /vouchers`). Phiếu Chi không còn được liên kết hay gắn trực tiếp với Hóa đơn mua vào (Inbound Invoice) nữa.
+* Frontend **bắt buộc phải truyền trường `transactionAt`** (định dạng Date ISO string) trong body request để Backend sử dụng tự động sinh mã phiếu `PC-MMYY-XXXX` và ghi nhận ngày chi tiền chính xác.
 
 ---
 
