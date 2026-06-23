@@ -96,6 +96,18 @@ export class FinancialPeriodsController {
     return { message: 'Cập nhật kỳ tài chính thành công', data };
   }
 
+  @Get(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lấy chi tiết một kỳ tài chính bằng publicId' })
+  @ApiResponse({ status: 200, type: FinancialPeriodResponseDto })
+  async getDetail(
+    @CurrentUser() user: RequestUser,
+    @Param('id') publicId: string,
+  ): Promise<{ message: string; data: FinancialPeriodResponseDto }> {
+    const data = await this.financialPeriodsService.findOne(user.id, publicId);
+    return { message: 'Lấy chi tiết kỳ tài chính thành công', data };
+  }
+
   @Get()
   @HttpCode(HttpStatus.OK)
   async getAll(

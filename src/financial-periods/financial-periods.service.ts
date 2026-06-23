@@ -203,7 +203,10 @@ export class FinancialPeriodsService {
       updatedFields: Object.keys(updateDto),
     });
 
-    return mapToDto(FinancialPeriodResponseDto, updatedPeriod);
+    return mapToDto(
+      FinancialPeriodResponseDto,
+      this.enrichPeriodWithPenalty(updatedPeriod),
+    );
   }
 
   /**
@@ -719,7 +722,10 @@ export class FinancialPeriodsService {
         financialPeriodId: targetFp.id,
       });
       return {
-        period: mapToDto(FinancialPeriodResponseDto, updatedFp),
+        period: mapToDto(
+          FinancialPeriodResponseDto,
+          this.enrichPeriodWithPenalty(updatedFp),
+        ),
         vatAmount,
         pitAmount,
         ytdRevenue,
@@ -839,7 +845,10 @@ export class FinancialPeriodsService {
         detail: 'OPEN_FINANCIAL_PERIOD',
       });
 
-      return mapToDto(FinancialPeriodResponseDto, updatedFp);
+      return mapToDto(
+        FinancialPeriodResponseDto,
+        this.enrichPeriodWithPenalty(updatedFp),
+      );
     });
   }
 
@@ -918,10 +927,13 @@ export class FinancialPeriodsService {
         { actualPayment: null },
         { actualPayment: paymentDate },
       );
-      return mapToDto(FinancialPeriodResponseDto, {
-        ...period,
-        actualPaymentDate: paymentDate,
-      });
+      return mapToDto(
+        FinancialPeriodResponseDto,
+        this.enrichPeriodWithPenalty({
+          ...period,
+          actualPaymentDate: paymentDate,
+        }),
+      );
     });
   }
 
@@ -1103,13 +1115,49 @@ export class FinancialPeriodsService {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
+    const enriched = periods.map((p) => this.enrichPeriodWithPenalty(p));
     return {
-      data: mapToDto(FinancialPeriodResponseDto, periods),
+      data: mapToDto(FinancialPeriodResponseDto, enriched),
       meta: {
         total,
         page,
         lastPage: Math.ceil(total / limit),
       },
+    };
+  }
+
+  async findOne(
+    userId: string,
+    publicId: string,
+  ): Promise<FinancialPeriodResponseDto> {
+    const period = await this.prisma.financialPeriod.findUnique({
+      where: { publicId },
+    });
+
+    if (!period || period.userId !== userId) {
+      throw new NotFoundException('Financial period not found.');
+    }
+
+    const enriched = this.enrichPeriodWithPenalty(period);
+    return mapToDto(FinancialPeriodResponseDto, enriched);
+  }
+
+  enrichPeriodWithPenalty(period: any) {
+    const countExpireDate = period.actualPaymentDate
+      ? moment(period.actualPaymentDate).diff(period.deadlineDate, 'day')
+      : moment().diff(period.deadlineDate, 'day') > 0
+        ? moment().diff(period.deadlineDate, 'day')
+        : 0;
+
+    const lateDays = Math.max(0, countExpireDate);
+    const penaltyResult = this.taxEngine.calculatePenaltyAmount(
+      new Decimal(period.taxAmount || 0),
+      lateDays,
+    );
+
+    return {
+      ...period,
+      penaltyAmount: penaltyResult.penaltyAmount.toNumber(),
     };
   }
 }

@@ -55,4 +55,8 @@ export class FinancialPeriodResponseDto {
   @Transform(({ obj }) =>
     !obj.actualPaymentDate || moment().isAfter(obj.deadlineDate) ? false : true)
   isFinishedTaxPayment!: boolean;
+
+  @Expose()
+  @Transform(({ value }) => Number(value || 0))
+  penaltyAmount!: number;
 }

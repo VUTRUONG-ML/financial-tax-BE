@@ -1,254 +1,176 @@
-# Hướng dẫn Tích hợp & Giải đáp Mâu thuẫn Module Products (FE ↔ BE)
+# Hướng dẫn Tích hợp API Module Products (Hàng hóa/Dịch vụ)
 
-Tài liệu này nhằm mục đích giải đáp các mâu thuẫn thiết kế giữa Frontend (FE) và Backend (BE), đồng thời hướng dẫn chi tiết cách tích hợp các API mới của module **Products (Hàng hóa/Dịch vụ)**, đặc biệt là endpoint thống kê `/products/summary` và bộ lọc phân loại sản phẩm.
+Tài liệu này được biên soạn để điều chỉnh thiết kế tích hợp giữa Frontend (FE) và Backend (BE), giải quyết các mâu thuẫn trong kế hoạch gọi API của Frontend (file `plan_call_api_product(update).md`), đồng thời hướng dẫn chi tiết luồng nghiệp vụ và cách xử lý lỗi hệ thống liên quan đến Module **Products (Hàng hóa/Dịch vụ)**.
 
 ---
 
-## 1. Bản Đồ API Module Products (BE Contract)
+## 1. Đính chính Thiết kế Hệ thống (BE Real Architecture)
 
-Dưới đây là các API chính thức của module Products trên Backend, được bảo vệ bởi `JwtAuthGuard` và `PeriodLockGuard`:
+> [!IMPORTANT]
+> **ĐÍNH CHÍNH QUAN TRỌNG:**
+> Kế hoạch tích hợp cũ của Frontend giả định rằng tồn kho đầu kỳ đã được tách biệt (Decoupled Stock) hoàn toàn sang một API Inventory riêng biệt (FE gọi API tạo sản phẩm trước, sau đó gọi tiếp API gán số dư đầu kỳ).
+> **Thực tế hệ thống (Backend):**
+>
+> - Dữ liệu số dư đầu kỳ (`openingStockQuantity`, `openingStockUnitCost`) **vẫn được xử lý trực tiếp** trong API tạo (`POST /products`) và cập nhật (`PUT /products/:publicId`).
+> - **Không có API Inventory riêng** để gán số dư đầu kỳ từ client. Backend sẽ **tự động xử lý ngầm** bằng database transaction: Khi sản phẩm hàng hóa được tạo, BE sẽ tự tạo một Phiếu nhập kho đầu kỳ (`StockReceipt` nguồn `OPENING`) tương ứng.
+> - Frontend **chỉ cần gọi duy nhất API Products** kèm theo thông tin tồn kho đầu kỳ.
 
-| Chức năng | Method | Endpoint | Content-Type | Mô tả |
-| :--- | :---: | :--- | :--- | :--- |
-| **Thống kê sản phẩm** | `GET` | `/products/summary` | `application/json` | Trả về tổng sản phẩm, số lượng theo phân loại, tổng giá trị tồn kho, và hàng sắp hết. |
-| **Lấy danh sách** | `GET` | `/products` | `application/json` | Lấy danh sách phân trang. Hỗ trợ query `page`, `limit`, và bộ lọc `productType`. |
-| **Chi tiết sản phẩm** | `GET` | `/products/:publicId` | `application/json` | Lấy chi tiết thông tin của 1 sản phẩm qua mã `publicId`. |
-| **Tạo sản phẩm** | `POST` | `/products` | `multipart/form-data` | Tạo sản phẩm mới kèm tải lên file ảnh (tùy chọn). |
-| **Cập nhật** | `PUT` | `/products/:publicId` | `multipart/form-data` | Cập nhật thông tin và/hoặc ảnh sản phẩm mới. |
-| **Xóa sản phẩm** | `DELETE` | `/products/:publicId` | `application/json` | Xóa sản phẩm ra khỏi hệ thống. |
+---
+
+## 2. Bản Đồ API Module Products
+
+Tất cả các API dưới đây yêu cầu Header `Authorization: Bearer <token>` và chịu sự giám sát của `PeriodLockGuard` (chặn thao tác nếu kỳ tài chính hiện tại đã bị đóng).
+
+| Chức năng             |  Method  | Endpoint              | Content-Type          | Mô tả                                                                                        |
+| :-------------------- | :------: | :-------------------- | :-------------------- | :------------------------------------------------------------------------------------------- |
+| **Thống kê sản phẩm** |  `GET`   | `/products/summary`   | `application/json`    | Lấy tổng sản phẩm, số lượng theo loại, tổng giá trị tồn kho đầu kỳ và số lượng sắp hết hàng. |
+| **Lấy danh sách**     |  `GET`   | `/products`           | `application/json`    | Lấy danh sách phân trang. Hỗ trợ query `page`, `limit`, và bộ lọc `productType`.             |
+| **Chi tiết sản phẩm** |  `GET`   | `/products/:publicId` | `application/json`    | Lấy thông tin chi tiết một sản phẩm qua mã `publicId`.                                       |
+| **Tạo sản phẩm**      |  `POST`  | `/products`           | `multipart/form-data` | Tạo sản phẩm mới kèm ảnh (tùy chọn).                                                         |
+| **Cập nhật sản phẩm** |  `PUT`   | `/products/:publicId` | `multipart/form-data` | Cập nhật thông tin sản phẩm và/hoặc tải ảnh mới.                                             |
+| **Xóa sản phẩm**      | `DELETE` | `/products/:publicId` | `application/json`    | Xóa sản phẩm khỏi danh mục sản phẩm của hộ kinh doanh.                                       |
 
 > [!WARNING]
-> Endpoint `/products/summary` được đặt **trước** endpoint `/products/:publicId` trên hệ thống định tuyến (router) của NestJS để tránh tình trạng từ khóa `summary` bị hiểu nhầm là `publicId` (gây lỗi 404).
+> Router NestJS định tuyến `/products/summary` **trước** `/products/:publicId`. Frontend hãy gọi đúng endpoint để tránh việc `summary` bị hiểu lầm thành một mã `publicId`.
 
 ---
 
-## 2. Giải Đáp & Hướng Dẫn Khắc Phục Mâu Thuẫn BE ↔ FE
+## 3. Luồng Nghiệp Vụ & Logic Flow (Backend)
 
-Để đảm bảo tuân thủ nguyên tắc **"Không tự ý thay đổi TypeScript types của Frontend theo cấu trúc Backend"**, FE cần thiết lập một tầng **Mapper (Chuyển đổi dữ liệu)** để chuyển đổi giữa hai hệ thống.
+### 3.1. Luồng Tạo Mới (POST `/products`)
 
-### 2.1. Bản ánh xạ thuộc tính (Field Mapping Table)
+```mermaid
+graph TD
+    A[Frontend gửi yêu cầu POST /products] --> B{Loại sản phẩm?}
+    B -- SERVICE Dịch vụ --> C[Chỉ lưu thông tin cơ bản vào bảng Product]
+    B -- FINISHED_GOOD Hàng hóa --> D{Tài khoản đã có giao dịch?}
 
-| Trường trên Backend | Loại dữ liệu BE | Trường tương ứng trên Frontend | Quy tắc ánh xạ (Mapper Rule) |
-| :--- | :---: | :--- | :--- |
-| `publicId` | `string` | `id` | `id = dto.publicId` (Khóa ngoại và ID nội bộ hệ thống `id` dạng `number` sẽ bị BE ẩn để bảo mật). |
-| `skuCode` | `string` | `sku_code` | `sku_code = dto.skuCode ?? ''` |
-| `productName` | `string` | `product_name` | `product_name = dto.productName` |
-| `productType` | `enum` | `product_type` | `product_type = dto.productType` |
-| `unit` | `string` | `unit` | Giữ nguyên |
-| `imageUrl` | `string` | `image_url` | `image_url = dto.imageUrl ?? ''` |
-| `currentStock` | `number` | `current_stock` | `current_stock = toSafeNumber(dto.currentStock)` |
-| `openingStockQuantity`| `number` | `opening_stock_quantity` | `opening_stock_quantity = toSafeNumber(dto.openingStockQuantity)` |
-| `sellingPrice` | `number` | `selling_price` | `selling_price = toSafeNumber(dto.sellingPrice)` |
-| `openingStockUnitCost`| `number` | `opening_stock_unit_cost` | `opening_stock_unit_cost = toSafeNumber(dto.openingStockUnitCost)` |
-| `openingStockValue` | `number` | `opening_stock_value` | `opening_stock_value = toSafeNumber(dto.openingStockValue)` |
-| `createdAt` | `string` | `created_at` | `created_at = dto.createdAt` |
-| _Không có_ | _N/A_ | `user_id` | **Fallback:** Gán giá trị mặc định là `'current-user'` hoặc ID người dùng hiện tại từ Auth Store. |
-| _Không có_ | _N/A_ | `current_avg_cost` | **Fallback:** Gán bằng giá trị đầu kỳ `openingStockUnitCost ?? 0` (vì BE tính toán giá vốn trung bình động theo thời gian thực tại các Sổ Kế Toán, không lưu cache tĩnh trong bảng Product). |
+    D -- Có giao dịch --> E{Nhập số lượng hoặc đơn giá đầu kỳ > 0?}
+    E -- Có --> F[Trả lỗi HAS_TRANSACTION 400]
+    E -- Không --> G[Tạo sản phẩm với tồn kho đầu kỳ = 0]
 
----
+    D -- Chưa có giao dịch --> H[Tạo sản phẩm]
+    H --> I[Tự động tạo Phiếu nhập kho OPENING lùi ngày về đầu kỳ kế toán]
+```
 
-### 2.2. Chi tiết giải đáp các điểm mâu thuẫn lớn
-
-#### 1. Xử lý các từ khóa sai lệch (Typo Tolerance) cho `productType`
-Backend hỗ trợ cơ chế tự động chuyển đổi và sửa lỗi chính tả không phân biệt hoa thường khi nhận query parameter hoặc request body để đưa về các giá trị chuẩn:
-* **`FINISHED_GOOD`** (Hệ thống tự động sửa đổi nếu gửi thiếu chữ "ED" như `FINISH_GOOD`)
-* **`RAW_MATERIAL`** (Hệ thống tự động sửa đổi nếu gửi sai chính tả như `RAW_METARIAL`)
-* **`SERVICE`**
-
-> [!TIP]
-> Frontend có thể gửi các giá trị chính xác (`FINISHED_GOOD`, `RAW_MATERIAL`, `SERVICE`) hoặc các biến thể cũ, BE sẽ tự động phân loại đúng đắn và an toàn mà không ném lỗi.
-
-#### 2. Dữ liệu rỗng đối với Hàng hóa dịch vụ (`SERVICE`)
-* Đối với loại sản phẩm là `SERVICE` (Dịch vụ): Tồn kho không áp dụng.
-* **Quy tắc mapping trên FE:** Nếu `productType === 'SERVICE'`, hãy tự động gán các trường tồn kho (`currentStock`, `openingStockQuantity`, `openingStockUnitCost`, `openingStockValue`) về `null` hoặc `0` trên giao diện người dùng.
-
-#### 3. Cơ chế tải ảnh sản phẩm lên Cloudinary
-* **Tạo mới/Cập nhật:** Khi người dùng tải ảnh lên, FE không gửi chuỗi Base64 hay URL ảnh, mà phải đính kèm file nhị phân vào trường `file` trong đối tượng `FormData`.
-* **Cập nhật không thay đổi ảnh:** Nếu người dùng sửa thông tin sản phẩm nhưng không đổi ảnh $\rightarrow$ **Không truyền** thuộc tính `file` trong `FormData`, BE sẽ giữ nguyên ảnh cũ.
-* **Xóa ảnh:** BE v1 chưa hỗ trợ xóa ảnh hoàn toàn (về trạng thái không có ảnh). Thay vào đó, ảnh cũ sẽ tự động bị dọn dẹp trên Cloudinary khi người dùng tải lên một file ảnh mới thay thế.
-
-#### 4. Quy trình tính toán Giá vốn bình quân gia quyền (`current_avg_cost`)
-Hệ thống áp dụng thuật toán Giá vốn bình quân gia quyền tính lũy kế theo từng đợt biến động kho để cập nhật đơn giá của sản phẩm:
-* **Thuật toán & Ví dụ:**
-  $$\text{Đơn giá bình quân} = \frac{\text{Tổng giá trị tồn kho trước biến động} + \text{Tổng giá trị nhập mới}}{\text{Tổng số lượng tồn kho sau biến động}}$$
-  *Ví dụ:*
-  - Lô 1: Nhập vào 10 sản phẩm có giá 100k = 1.000.000đ.
-  - Lô 2: Nhập thêm 10 sản phẩm có giá 200k = 2.000.000đ.
-  - Giá vốn bình quân hiện tại (`current_avg_cost`) = 3.000.000đ / 20 sản phẩm = 150.000đ.
-
-* **Hoạt động liên kết giữa các Module:**
-  1. **Hóa đơn mua vào (`inbound-invoices`):**
-     - Ở góc giao diện có checkbox `[x] Cập nhật số lượng vào Tồn kho`. Khi lưu hóa đơn có kích hoạt checkbox này, Backend sẽ đồng thời cộng dồn số lượng vào `currentStock` trong bảng `Product`, đồng thời tính toán lại đơn giá tồn kho theo thuật toán Bình quân gia quyền và lưu lại để làm cơ sở tính giá vốn xuất kho sau này.
-  2. **Lệnh sản xuất nội bộ (`internal-production-orders`):**
-     - **Giao diện:** UI tuyệt đối không hiển thị các cột Đơn giá/Thành tiền để tránh người dùng nhập sai lệch.
-     - **Backend Auto-Costing (Giá vốn tự động):** Khi người dùng lưu Lệnh sản xuất, Backend sẽ tự động lấy đơn giá bình quân gia quyền hiện thời của các nguyên liệu xuất đi (Khối 1) $\rightarrow$ Tính tổng giá trị mẻ sản xuất $\rightarrow$ Chia đều cho số lượng thành phẩm thu về (Khối 2) để tự động ra Đơn giá thành phẩm và lưu ngầm vào Database.
+1. **Đối với Dịch vụ (`productType = 'SERVICE'`):**
+   - Hệ thống chỉ lưu thông tin catalog, các trường liên quan đến tồn kho (`openingStockQuantity`, `openingStockUnitCost`, `openingStockValue`, `currentStock`) luôn được ép về `0` hoặc `null` ở DB.
+2. **Đối với Hàng hóa (`productType = 'FINISHED_GOOD'`):**
+   - Nếu tài khoản **chưa phát sinh giao dịch nào** (hóa đơn, phiếu nhập/xuất kho): Cho phép nhập số lượng và đơn giá vốn đầu kỳ tùy ý. BE sẽ tự động tạo một phiếu nhập kho dạng `OPENING` tại ngày bắt đầu của kỳ tài chính hiện hành.
+   - Nếu tài khoản **đã phát sinh bất kỳ giao dịch nào**: Hệ thống cấm tạo sản phẩm có sẵn số lượng đầu kỳ và đơn giá vốn đầu kỳ > 0 để tránh làm sai lệch báo cáo thuế Sổ S2d-HKD. Trả về mã lỗi `HAS_TRANSACTION`.
 
 ---
 
-## 3. Đặc tả Chi tiết API Mới & Cập Nhật
+### 3.2. Luồng Cập Nhật (PUT `/products/:publicId`)
 
-### 3.1. Thống Kê Tổng Quan Sản Phẩm (GET `/products/summary`)
+```mermaid
+graph TD
+    A[Frontend gửi yêu cầu PUT /products/:publicId] --> B[Kiểm tra quyền sở hữu & Sự tồn tại]
+    B --> C{Có thay đổi Số lượng hoặc Đơn giá đầu kỳ?}
 
-Trả về các chỉ số thống kê kho hàng tổng hợp của hộ kinh doanh.
+    C -- Không thay đổi --> D[Tiến hành cập nhật thông tin khác bình thường]
+    C -- Có thay đổi --> E{Tài khoản đã phát sinh giao dịch?}
 
-* **Method:** `GET`
-* **Route:** `/products/summary`
-* **Response Body (JSON):**
+    E -- Có giao dịch --> F[Trả lỗi HAS_TRANSACTION 400]
+    E -- Chưa có giao dịch --> G[Cập nhật số liệu đầu kỳ trên bảng Product]
+```
+
+1. **Không thay đổi số liệu đầu kỳ:**
+   - Người dùng chỉ sửa đổi tên sản phẩm, đơn vị tính, giá bán, thuế suất, hoặc tải lên ảnh mới. Hệ thống xử lý cập nhật thành công.
+2. **Có thay đổi số liệu đầu kỳ:**
+   - Hệ thống so sánh giá trị gửi lên với dữ liệu hiện có trong Database.
+   - Nếu tài khoản đã phát sinh giao dịch $\rightarrow$ Chặn hành động và trả về lỗi `HAS_TRANSACTION`.
+   - Nếu tài khoản chưa có giao dịch $\rightarrow$ Cập nhật thông tin đầu kỳ và tính toán lại `openingStockValue = Quantity * UnitCost`.
+
+---
+
+## 4. Đặc Tả Lỗi `HAS_TRANSACTION` & Hướng Xử Lý trên Frontend
+
+Khi người dùng cố tình vi phạm nguyên tắc nhập kho đầu kỳ (tạo/sửa số lượng hoặc đơn giá vốn đầu kỳ khi tài khoản đã hoạt động), Backend sẽ phản hồi lỗi `400 Bad Request` với cấu trúc JSON sau:
+
 ```json
 {
-  "success": true,
-  "statusCode": 200,
-  "timestamp": "2026-05-28T07:31:59.000Z",
-  "message": "Product summary retrieved successfully.",
-  "data": {
-    "tong_san_pham": 42,
-    "tong_san_pham_phan_loai": {
-      "FINISHED_GOOD": 25,
-      "RAW_MATERIAL": 0,
-      "SERVICE": 5
-    },
-    "tong_gia_tri_ton_kho": 125000000.5,
-    "sap_het_hang": 4
-  },
-  "meta": null
+  "message": "Transactions have occurred in the account. Please enter the quantity and cost price from the stock receipt instead of entering them directly.",
+  "errorCode": "HAS_TRANSACTION",
+  "statusCode": 400
 }
 ```
 
-#### Ý nghĩa các trường dữ liệu:
-1. `tong_san_pham`: Tổng số lượng tất cả sản phẩm của user hiện tại.
-2. `tong_san_pham_phan_loai`: Số lượng sản phẩm được chia nhóm theo phân loại (`FINISHED_GOOD`, `SERVICE` - `RAW_MATERIAL` hiện đã bị loại bỏ và luôn trả về `0`).
-3. `tong_gia_tri_ton_kho`: Tổng giá trị tồn kho hiện thời của các sản phẩm vật lý (Tính bằng công thức: $\sum (\text{currentStock} \times \text{openingStockUnitCost})$ cho toàn bộ sản phẩm **không phải** `SERVICE`).
-4. `sap_het_hang`: Tổng số lượng sản phẩm vật lý đang ở mức báo động (Số lượng tồn kho `currentStock < 15`, loại trừ `SERVICE`).
+### Frontend nên làm gì để xử lý lỗi này?
+
+1. **Hiển thị thông báo thân thiện (Toast/Alert):**
+   - Khi nhận được phản hồi lỗi có `errorCode === 'HAS_TRANSACTION'`, hãy hiển thị thông báo:
+     _"Tài khoản đã bắt đầu phát sinh các giao dịch xuất/nhập/bán hàng. Bạn không thể tự ý sửa đổi số lượng hoặc đơn giá vốn đầu kỳ trực tiếp tại đây. Vui lòng tạo Phiếu nhập kho để điều chỉnh lượng tồn kho của hàng hóa này."_
+2. **Tối ưu hóa Trải nghiệm Người dùng (UX Khuyến nghị):**
+   - **Khi tạo sản phẩm mới:** Nếu hệ thống của hộ kinh doanh đã hoạt động, FE nên chủ động ẩn hoặc vô hiệu hóa (disable) hai trường `Số lượng đầu kỳ` và `Giá vốn đầu kỳ` trên giao diện, kèm theo dòng chú thích nhỏ để người dùng hiểu luồng nghiệp vụ trước khi bấm gửi.
+   - **Khi sửa sản phẩm:** Disable ô nhập `Số lượng đầu kỳ` và `Giá vốn đầu kỳ` nếu phát hiện sản phẩm/tài khoản đã có giao dịch, tránh để người dùng mất công sửa đổi rồi mới nhận báo lỗi từ API.
 
 ---
 
-### 3.2. Lấy Danh Sách Sản Phẩm (GET `/products`)
+## 5. Quy Tắc Ánh Xạ Dữ Liệu (Field Mapping)
 
-Endpoint này đã được cập nhật thêm bộ lọc theo phân loại sản phẩm.
+Để đảm bảo Frontend không bị lỗi kiểu dữ liệu và giữ nguyên cấu trúc snake_case nội bộ, FE cần áp dụng bảng ánh xạ DTO sau đây:
 
-* **Method:** `GET`
-* **Route:** `/products?page=1&limit=20&productType=FINISHED_GOOD`
-* **Query Parameters:**
-  * `page` (Optional): Số trang hiện tại (Default: `1`).
-  * `limit` (Optional): Số phần tử trên một trang (Default: `20`).
-  * `productType` (Optional): Lọc danh sách theo loại sản phẩm. Sử dụng giá trị chuẩn: `FINISHED_GOOD` và `SERVICE` (hệ thống hỗ trợ sửa lỗi chính tả nếu vô tình gửi `FINISH_GOOD`).
-* **Response Body (JSON):**
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "timestamp": "2026-05-28T07:31:59.000Z",
-  "message": "Products retrieved successfully.",
-  "data": [
-    {
-      "publicId": "prod-abc123xyz",
-      "skuCode": "SKU-FG-001",
-      "productName": "Sản phẩm hoàn thiện A",
-      "productType": "FINISHED_GOOD",
-      "unit": "Cái",
-      "imageUrl": "https://res.cloudinary.com/.../prod-abc123xyz.jpg",
-      "currentStock": 50,
-      "openingStockQuantity": 20,
-      "sellingPrice": 150000,
-      "openingStockUnitCost": 100000,
-      "openingStockValue": 2000000,
-      "createdAt": "2026-05-20T08:00:00.000Z"
-    }
-  ],
-  "meta": {
-    "total": 1,
-    "page": 1,
-    "lastPage": 1
-  }
-}
-```
+### 5.1. Bảng ánh xạ thuộc tính (DTO ↔ FE Entity)
+
+| Trường trên Backend (CamelCase) | Loại dữ liệu BE | Trường tương ứng trên Frontend (Snake_case) | Quy tắc ánh xạ                                               |
+| :------------------------------ | :-------------: | :------------------------------------------ | :----------------------------------------------------------- |
+| `publicId`                      |    `string`     | `id`                                        | Khóa chính của FE. BE ẩn khóa ngoại `id` dạng số để bảo mật. |
+| `skuCode`                       |    `string`     | `sku_code`                                  | `sku_code = dto.skuCode ?? ''`                               |
+| `productName`                   |    `string`     | `product_name`                              | Gán trực tiếp                                                |
+| `productType`                   |     `enum`      | `product_type`                              | Hỗ trợ: `FINISHED_GOOD` (Hàng hóa), `SERVICE` (Dịch vụ)      |
+| `unit`                          |    `string`     | `unit`                                      | Gán trực tiếp                                                |
+| `imageUrl`                      |    `string`     | `image_url`                                 | `image_url = dto.imageUrl ?? ''`                             |
+| `currentStock`                  |    `number`     | `current_stock`                             | Nếu `SERVICE` thì gán `null`. Ngược lại ép kiểu về số.       |
+| `openingStockQuantity`          |    `number`     | `opening_stock_quantity`                    | Nếu `SERVICE` thì gán `null`.                                |
+| `openingStockUnitCost`          |    `number`     | `opening_stock_unit_cost`                   | Nếu `SERVICE` thì gán `null`.                                |
+| `openingStockValue`             |    `number`     | `opening_stock_value`                       | `Quantity * UnitCost` (Nếu `SERVICE` thì gán `null`).        |
+| `sellingPrice`                  |    `number`     | `selling_price`                             | Ép kiểu về số.                                               |
+| `taxCategoryId`                 |    `number`     | `tax_category_id`                           | Nullable. Dùng để map nhóm ngành thuế suất.                  |
+| `createdAt`                     |    `string`     | `created_at`                                | Chuỗi định dạng ISO Date.                                    |
+
+### 5.2. Cách thức gửi dữ liệu ảnh (Multipart/Form-Data)
+
+- Khi tải ảnh sản phẩm lên: Frontend bắt buộc phải đóng gói các trường dữ liệu vào đối tượng `FormData` và gửi đi với header `Content-Type: multipart/form-data`.
+- File ảnh nhị phân phải được đính kèm vào thuộc tính tên là `file`.
+- **Cập nhật không thay đổi ảnh:** Không cần đính kèm thuộc tính `file` trong `FormData`. Backend sẽ tự động giữ nguyên ảnh cũ đang có.
 
 ---
 
-## 4. Hướng Dẫn Viết Mã Mapper Khuyến Nghị trên Frontend
+## 6. Ví Dụ Cấu Trúc Request Payload
 
-Dưới đây là gợi ý viết hàm Mapper bằng TypeScript trên Frontend để đảm bảo dữ liệu chạy mượt mà, đúng chuẩn SRS mà không bị lỗi kiểu dữ liệu:
+### 6.1. Tạo mới Hàng hóa (FINISHED_GOOD)
 
-```typescript
-// 1. Định nghĩa kiểu dữ liệu cho Frontend khớp với SRS / Mock cũ
-export interface ProductFE {
-  id: string;
-  sku_code: string;
-  product_name: string;
-  product_type: 'FINISHED_GOOD' | 'SERVICE';
-  unit: string;
-  image_url: string;
-  current_stock: number | null;
-  opening_stock_quantity: number | null;
-  selling_price: number;
-  opening_stock_unit_cost: number | null;
-  opening_stock_value: number | null;
-  created_at: string;
-  user_id: string;
-  current_avg_cost: number | null;
-}
+- **Method:** `POST`
+- **Route:** `/products`
+- **Content-Type:** `multipart/form-data`
+- **Body:**
 
-// Helper an toàn để chuyển đổi kiểu số
-const toSafeNumber = (val: any): number => {
-  if (val === null || val === undefined) return 0;
-  const num = Number(val);
-  return isNaN(num) ? 0 : num;
-};
-
-// 2. Hàm Mapper chính: Chuyển DTO từ Backend sang Entity Frontend
-export function mapProductBEToFE(dto: any): ProductFE {
-  const isService = dto.productType === 'SERVICE';
-  
-  return {
-    id: dto.publicId,
-    sku_code: dto.skuCode ?? '',
-    product_name: dto.productName,
-    product_type: dto.productType,
-    unit: dto.unit,
-    image_url: dto.imageUrl ?? '',
-    created_at: dto.createdAt,
-    selling_price: toSafeNumber(dto.sellingPrice),
-    
-    // Gán null cho các trường tồn kho nếu là loại Dịch vụ (SERVICE)
-    current_stock: isService ? null : toSafeNumber(dto.currentStock),
-    opening_stock_quantity: isService ? null : toSafeNumber(dto.openingStockQuantity),
-    opening_stock_unit_cost: isService ? null : toSafeNumber(dto.openingStockUnitCost),
-    opening_stock_value: isService ? null : toSafeNumber(dto.openingStockValue),
-    
-    // Fallback cho các trường FE yêu cầu nhưng BE lược bỏ / tính động
-    user_id: 'current-user',
-    current_avg_cost: isService ? null : toSafeNumber(dto.openingStockUnitCost),
-  };
-}
-
-// 3. Hàm Mapper ngược: Chuyển dữ liệu Form sang FormData gửi lên Backend
-export function mapProductFormToFormData(formValues: any): FormData {
-  const formData = new FormData();
-  
-  formData.append('productName', formValues.product_name);
-  formData.append('productType', formValues.product_type);
-  formData.append('unit', formValues.unit);
-  formData.append('sellingPrice', String(toSafeNumber(formValues.selling_price)));
-  
-  if (formValues.sku_code) {
-    formData.append('skuCode', formValues.sku_code);
-  }
-  
-  if (formValues.product_type !== 'SERVICE') {
-    formData.append('openingStockQuantity', String(toSafeNumber(formValues.opening_stock_quantity)));
-    formData.append('openingStockUnitCost', String(toSafeNumber(formValues.opening_stock_unit_cost)));
-  } else {
-    formData.append('openingStockQuantity', '0');
-    formData.append('openingStockUnitCost', '0');
-  }
-  
-  // Đính kèm file nhị phân nếu người dùng chọn ảnh mới
-  if (formValues.image_file instanceof File) {
-    formData.append('file', formValues.image_file);
-  }
-  
-  return formData;
-}
+```ini
+productName: "Giày Thể Thao Sneaker"
+productType: "FINISHED_GOOD"
+skuCode: "SP-GI-001"
+unit: "Đôi"
+sellingPrice: "450000"
+openingStockQuantity: "10"
+openingStockUnitCost: "250000"
+taxCategoryId: "11"
+file: [Binary File]
 ```
 
-Bằng cách áp dụng cấu trúc trên, Frontend hoàn toàn có thể yên tâm đồng bộ dữ liệu với Backend mà không sợ phát sinh lỗi không tương thích.
+### 6.2. Tạo mới Dịch vụ (SERVICE)
+
+- **Method:** `POST`
+- **Route:** `/products`
+- **Content-Type:** `multipart/form-data` (hoặc `application/json` nếu không truyền file)
+- **Body:**
+
+```ini
+productName: "Dịch vụ Bảo Trì Phần Mềm"
+productType: "SERVICE"
+unit: "Lần"
+sellingPrice: "1000000"
+taxCategoryId: "13"
+```
+
+_(Đối với Dịch vụ, không truyền `openingStockQuantity` và `openingStockUnitCost`, BE mặc định gán bằng `0`)_

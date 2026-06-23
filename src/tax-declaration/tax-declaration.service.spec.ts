@@ -152,8 +152,8 @@ describe('TaxDeclarationService', () => {
 
       expect(result.periodName).toBe('Tháng 05/2026');
       expect(result.confirmedRevenue).toBe(250000000);
-      expect(result.footer.estimatedVat).toBe(2500000);
-      expect(result.footer.transactionCount).toBe(15);
+      expect(result.estimatedVat).toBe(2500000);
+      expect(result.transactionCount).toBe(15);
       expect(result.industries).toHaveLength(1);
       expect(result.industries[0]).toEqual({
         categoryName: 'Buôn bán, bán lẻ',

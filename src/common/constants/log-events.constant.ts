@@ -52,6 +52,8 @@ export const LOG_ACTIONS = {
   ACC_BOOK: 'ACCOUNTING_BOOK',
   ACC_BOOK_S2d_VERSION: 'ACCOUNTING_BOOK_S2d_VERSION',
   ACC_BOOK_S2d_SUMMARY: 'ACC_BOOK_S2d_SUMMARY',
+
+  CREATE_PRODUCT: 'CREATE_PRODUCT',
 } as const;
 
 // 2. Định nghĩa Trạng thái chuẩn chung cho toàn bộ App

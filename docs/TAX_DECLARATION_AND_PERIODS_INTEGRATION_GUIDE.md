@@ -15,6 +15,7 @@ Các API chính thức phục vụ quản lý kỳ tài chính (yêu cầu Beare
 | Chức năng | Method | Endpoint | Payload / Query | Ràng buộc nghiệp vụ |
 | :--- | :---: | :--- | :--- | :--- |
 | **Lấy danh sách kỳ** | `GET` | `/financial-periods` | Query: `page`, `limit`, `status` | Trả về danh sách các kỳ kế khai của HKD kèm trạng thái và thời gian. |
+| **Chi tiết kỳ** | `GET` | `/financial-periods/:id` | Tham số `:id` (publicId của kỳ) | Trả về chi tiết 1 kỳ kế khai gồm số thuế phải nộp, số ngày chậm nộp (`countExpireDate`) và số tiền chậm nộp phạt (`penaltyAmount`). |
 | **Thống kê tổng quan** | `GET` | `/financial-periods/summary` | Không có | Lấy số lượng kỳ đang mở, kỳ quá hạn chưa nộp thuế, và tổng số tiền thuế đã nộp. |
 | **So sánh thuế PIT** | `GET` | `/financial-periods/:id/compare-pit` | Tham số `:id` (publicId của kỳ) | Đối chiếu mức thuế PIT thu nhập cá nhân ở các cấu hình khác nhau. |
 | **Mở lại kỳ kế toán** | `PATCH` | `/financial-periods/:id/reopen` | Tham số `:id` (publicId của kỳ) | Mở khóa kỳ kế toán đã đóng để cho phép chỉnh sửa lại chứng từ (Yêu cầu chưa nộp tiền thuế). |

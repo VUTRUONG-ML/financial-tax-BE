@@ -158,7 +158,7 @@ export class InvoicesController {
   ) {
     const data = await this.invoicesService.delete(invPublicId, userId);
     return {
-      message: 'Invoice updated successfully.',
+      message: 'Invoice deleted successfully.',
       data,
     };
   }

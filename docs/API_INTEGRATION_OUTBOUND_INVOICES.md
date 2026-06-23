@@ -140,6 +140,7 @@ interface CreateInvoiceRequestDTO {
 
   // === Thanh toán (bắt buộc) ===
   paymentMethod: "CASH" | "BANK";
+  issueDate: string;               // Bắt buộc: Ngày phát hành hóa đơn (ISO 8601)
 
   // === Chi tiết hóa đơn (bắt buộc) ===
   details: Array<{
@@ -150,7 +151,8 @@ interface CreateInvoiceRequestDTO {
 ```
 
 **Lưu ý quan trọng:**
-- ❌ **KHÔNG gửi:** `unitPrice`, `totalAmount`, `taxPayable`, `issueDate`
+- ❌ **KHÔNG gửi:** `unitPrice`, `totalAmount`, `taxPayable`
+- ✅ **BẮT BUỘC gửi:** `issueDate` (dạng chuỗi ngày ISO 8601 để BE áp thuế suất cấu hình đúng kỳ)
 - ✅ **Backend sẽ:** Tự tính toán từ giá bán hiện tại
 - ❌ **Không bao gồm:** Trừ kho (chỉ trừ khi publish)
 
@@ -166,6 +168,7 @@ interface UpdateInvoiceRequestDTO {
   buyerEmail?: string;
   buyerIdNumber?: string;
   paymentMethod?: "CASH" | "BANK";
+  issueDate?: string;              // Ngày phát hành hóa đơn (ISO 8601)
   
   // Cập nhật chi tiết hóa đơn (optional)
   // Nếu có -> xóa chi tiết cũ, tạo chi tiết mới
@@ -324,11 +327,16 @@ interface CancelInvoiceRequestDTO {
 **Auth:** ✅ Required  
 **Query Parameters:**
 - `page`: `number` (default: 1)
-- `limit`: `number` (default: 10)
+- `limit`: `number` (default: 20)
+- `status`: `string` (Optional) - Lọc danh sách theo trạng thái hóa đơn. Hỗ trợ cả mã chuẩn của DB lẫn chuỗi tiếng Việt không dấu/có dấu:
+  - Trạng thái Nháp: `DRAFT`, `BAN_NHAP`, `BẢN NHÁP`
+  - Trạng thái Đã phát hành: `ISSUED`, `DA_PHAT_HANH`, `ĐÃ PHÁT HÀNH`
+  - Trạng thái Lỗi đồng bộ: `SYNC_FAILED`, `LOI_DONG_BO`, `LỖI ĐỒNG BỘ`
+  - Trạng thái Đã hủy: `CANCELED`, `DA_HUY`, `ĐÃ HỦY`
 
 #### Request
 ```http
-GET /invoices?page=1&limit=20
+GET /invoices?page=1&limit=20&status=ISSUED
 Authorization: Bearer {token}
 ```
 
@@ -522,11 +530,12 @@ Authorization: Bearer {token}
 **Auth:** ✅ Required  
 **Period Lock:** ✅ Checked  
 **Allowed Status:** `DRAFT`, `SYNC_FAILED`  
-**Returns:** `201 Created`
+**Query Parameters:**
+- `requestCqtCode`: `string` (Optional) - Truyền `"true"` để ép buộc gửi yêu cầu xin cấp mã cơ quan thuế ngay cả khi hộ kinh doanh thuộc nhóm miễn thuế (Tax Group 1).
 
 #### Request
 ```http
-POST /invoices/inv-uuid-001/publish
+POST /invoices/inv-uuid-001/publish?requestCqtCode=true
 Authorization: Bearer {token}
 ```
 
@@ -713,6 +722,38 @@ Authorization: Bearer {token}
   "message": "Can only delete DRAFT invoices",
   "data": {
     "currentStatus": "ISSUED"
+  },
+  "meta": null
+}
+```
+
+---
+
+### 8. Get Invoice Summary (Thống kê hóa đơn bán ra)
+
+**Endpoint:** `GET /invoices/summary`  
+**Auth:** ✅ Required  
+**Returns:** `200 OK`
+
+Trả về thống kê động về số lượng hóa đơn, doanh thu và thuế của hộ kinh doanh. Doanh thu và thuế được cộng dồn từ các hóa đơn đã được phát hành thành công (`status = 'ISSUED'`).
+
+#### Request
+```http
+GET /invoices/summary
+Authorization: Bearer {token}
+```
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "2026-05-28T11:45:00Z",
+  "message": "Invoice summary retrieved successfully.",
+  "data": {
+    "tong_hoa_don": 42,
+    "tong_doanh_thu": 125000000,
+    "tong_thue": 12500000
   },
   "meta": null
 }

@@ -11,7 +11,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { LOG_ACTIONS, LOG_STATUS } from '../common/constants/log-events.constant';
-import { Prisma, ProductType } from '@prisma/client';
+import { Prisma, ProductType, StockReceiptSourceType } from '@prisma/client';
 import {
   AuditLogService,
   tableWrite,
@@ -66,7 +66,7 @@ export class ProductsService {
     }
   }
 
-  // Kiểm tra điều kiện này để ép người dùng nhập kho qua stock receipt
+  // Mới setup tài khoản thì được nhập số lượng đã có trong kho, còn khi đã có giao dịch thì phải nhập qua phiếu nhập kho.
   private async hasTransactions(
     userId: string,
     tx: Prisma.TransactionClient,
@@ -82,17 +82,43 @@ export class ProductsService {
     const hasInvoices = await tx.invoice.findFirst({
       where: { userId },
     });
-    if (hasInvoices) return true;
+    if (hasInvoices) {
+      this.log.warn('CHECK_TRANSACTION_IN_PRODUCT', {
+        reason: 'HAS_INVOICE',
+        userId,
+      });
+      return true;
+    }
 
-    const hasReceipts = await tx.stockReceipt.findFirst({
-      where: { userId },
+    const countReceipt = await tx.stockReceipt.count({
+      where: {
+        userId,
+        sourceType: {
+          notIn: [
+            StockReceiptSourceType.OPENING,
+            StockReceiptSourceType.ADJUSTMENT,
+          ],
+        },
+      },
     });
-    if (hasReceipts) return true;
+    if (countReceipt > 0) {
+      this.log.warn('CHECK_TRANSACTION_IN_PRODUCT', {
+        reason: 'HAS_RECEIPT',
+        userId,
+      });
+      return true;
+    }
 
     const hasIssues = await tx.stockIssue.findFirst({
       where: { userId },
     });
-    if (hasIssues) return true;
+    if (hasIssues){
+      this.log.warn('CHECK_TRANSACTION_IN_PRODUCT', {
+        reason: 'HAS_INVOICE',
+        userId,
+      });
+      return true;
+    }
 
     return false;
   }
@@ -291,6 +317,25 @@ export class ProductsService {
 
     // Spread DTO fields (currentStock không có trong UpdateProductDto)
     const { openingStockQuantity, openingStockUnitCost } = dto;
+
+    const isQtyChanging =
+      openingStockQuantity !== undefined &&
+      openingStockQuantity !== current.openingStockQuantity;
+
+    const isCostChanging =
+      openingStockUnitCost !== undefined &&
+      Number(openingStockUnitCost) !== current.openingStockUnitCost;
+
+    if (isQtyChanging || isCostChanging) {
+      const hasTx = await this.hasTransactions(userId, this.prisma);
+      if (hasTx) {
+        throw new BadRequestException({
+          message:
+            'Transactions have occurred in the account. Please enter the quantity and cost price from the stock receipt instead of entering them directly.',
+          errorCode: 'HAS_TRANSACTION',
+        });
+      }
+    }
 
     // Tính lại openingStockValue nếu user cập nhật số lượng hoặc đơn giá vốn
     const finalQty =

@@ -13,6 +13,21 @@ export class RevenueProgressDto {
 
   @Expose()
   percentage!: number;
+
+  @Expose()
+  growthRate!: number;
+
+  @Expose()
+  forecastRevenue!: number;
+
+  @Expose()
+  forecastLabel!: string;
+
+  @Expose()
+  alertLabel!: string | null;
+
+  @Expose()
+  alertMessage!: string | null;
 }
 
 @Exclude()
@@ -27,6 +42,9 @@ export class TaxDeclarationCardDto {
   status!: string;
 
   @Expose()
+  statusLabel!: string;
+
+  @Expose()
   deadlineDate!: string;
 
   @Expose()
@@ -37,6 +55,12 @@ export class TaxDeclarationCardDto {
 
   @Expose()
   estimatedPenalty!: number;
+
+  @Expose()
+  description!: string;
+
+  @Expose()
+  actualPaymentDate!: string | null;
 }
 
 @Exclude()
