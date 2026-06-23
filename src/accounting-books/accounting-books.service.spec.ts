@@ -7,6 +7,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { Decimal } from '@prisma/client/runtime/client';
+import { StocksService } from '../stocks/stocks.service';
 
 describe('DateRangeParser', () => {
   beforeAll(() => {
@@ -109,6 +110,7 @@ describe('AccountingBooksService', () => {
   let prisma: jest.Mocked<PrismaService>;
   let taxEngine: jest.Mocked<TaxEngineService>;
   let financialPeriodsService: jest.Mocked<FinancialPeriodsService>;
+  let stocksService: any;
 
   beforeAll(() => {
     jest.useFakeTimers();
@@ -199,6 +201,12 @@ describe('AccountingBooksService', () => {
             calculateRealtimeTaxData: jest.fn(),
           },
         },
+        {
+          provide: StocksService,
+          useValue: {
+            getProductPeriodInventorySummary: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -206,6 +214,7 @@ describe('AccountingBooksService', () => {
     prisma = module.get(PrismaService);
     taxEngine = module.get(TaxEngineService);
     financialPeriodsService = module.get(FinancialPeriodsService);
+    stocksService = module.get(StocksService);
   });
 
   it('should be defined', () => {
@@ -659,18 +668,16 @@ describe('AccountingBooksService', () => {
         unit: 'Kg',
       });
 
-      (prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([
-        {
-          stockStartPeriod: 15,
-          valueStartPeriod: new Decimal(150000),
-          stockToEndPeriod: 23,
-          valueToEndPeriod: new Decimal(230000),
-          receiptQuantity: 25,
-          receiptValue: new Decimal(200000),
-          issueQuantity: 17,
-          issueValue: new Decimal(150000),
-        },
-      ]);
+      stocksService.getProductPeriodInventorySummary.mockResolvedValue({
+        stockStartPeriod: 15,
+        valueStartPeriod: new Decimal(150000),
+        stockToEndPeriod: 23,
+        valueToEndPeriod: new Decimal(230000),
+        receiptQuantity: 25,
+        receiptValue: new Decimal(200000),
+        issueQuantity: 17,
+        issueValue: new Decimal(150000),
+      });
 
       const result = await service.getInventoryBookSummary(
         'user-001',

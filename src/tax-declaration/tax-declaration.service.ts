@@ -9,9 +9,9 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
-import { SaveStep3Dto } from './dto/save-step-3.dto';
+import { StocksService } from '../stocks/stocks.service';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
-import { Prisma, PeriodStatus, PitMethod } from '@prisma/client';
+import { Prisma, PeriodStatus, PitMethod, FinancialPeriod } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
   AuditLogService,
@@ -33,14 +33,9 @@ export class TaxDeclarationService {
     private readonly financialPeriodsService: FinancialPeriodsService,
     private readonly taxEngineService: TaxEngineService,
     private readonly auditLogService: AuditLogService,
+    private readonly stocksService: StocksService,
   ) {}
 
-  // ─── Helper ──────────────────────────────────────────────────────────────────
-
-  /**
-   * Tìm period theo publicId và kiểm tra ownership userId.
-   * Ném lỗi nếu không tìm thấy hoặc không phải của userId.
-   */
   private async findPeriodAndCheckOwnership(
     userId: string,
     publicId: string,
@@ -55,9 +50,6 @@ export class TaxDeclarationService {
     return period;
   }
 
-  /**
-   * Tìm draft theo periodId.
-   */
   private async findDraftByPeriodId(
     periodId: number,
     tx: Prisma.TransactionClient = this.prisma,
@@ -67,8 +59,7 @@ export class TaxDeclarationService {
     });
   }
 
-  // ─── APIs ─────────────────────────────────────────────────────────────────────
-
+  // kiểm tra trạng thái nút lập tờ khai
   async init(userId: string) {
     const availablePeriods = await this.prisma.financialPeriod.findMany({
       where: { userId, status: PeriodStatus.OPEN },
@@ -88,6 +79,7 @@ export class TaxDeclarationService {
     };
   }
 
+  // khi nhấn vào nút bắt đầu
   async startSession(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
 
@@ -109,11 +101,20 @@ export class TaxDeclarationService {
     });
   }
 
-  // ── Step 1 ──────────────────────────────────────────────────────────────────
-
+  // Step 1
   async getStep1(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
     const draft = await this.findDraftByPeriodId(period.id);
+    const currentTaxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+      include: {
+        industry: true,
+      },
+    });
 
     // Ưu tiên trả về dữ liệu đã lưu trong draft
     if (draft?.step1Data) return draft.step1Data as unknown as Step1Data;
@@ -121,10 +122,14 @@ export class TaxDeclarationService {
     // Auto-fill từ User profile
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const step1: Step1Data = {
-      taxCode: user?.taxCode ?? '',
       businessName: user?.businessName ?? '',
-      ownerName: user?.ownerName ?? '',
+      taxCode: user?.taxCode ?? '',
       cccdNumber: user?.cccdNumber ?? '',
+      industry: currentTaxConfig?.industry.categoryName ?? '',
+      ownerName: user?.ownerName ?? '',
+      phone: user?.phoneNumber ?? '',
+      address:
+        'Số 123, Đường Lý Thường Kiệt, Phường Trần Hưng Đạo, Quận Hoàn Kiếm, TP. Hà Nội',
       provinceCity: user?.provinceCity ?? '',
     };
     return step1;
@@ -147,8 +152,96 @@ export class TaxDeclarationService {
     });
   }
 
-  // ── Step 2 ──────────────────────────────────────────────────────────────────
+  private async checkIfExempt(userId: string, period: any): Promise<boolean> {
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+      orderBy: { applyFromDate: 'desc' },
+    });
+    return taxConfig?.taxGroupId === 1;
+  }
 
+  private async buildStep2Data(
+    userId: string,
+    period: FinancialPeriod,
+  ): Promise<Step2Data> {
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+      orderBy: { applyFromDate: 'desc' },
+    });
+
+    if (!taxConfig) {
+      throw new BadRequestException(
+        'You have not set up the tax configuration for this tax period.',
+      );
+    }
+
+    const [realtimeData, industriesData, transactionCount] = await Promise.all([
+      this.financialPeriodsService.calculateRealtimeTaxData(
+        userId,
+        period.startDate,
+        period.endDate,
+        period.id,
+      ),
+      this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        period.startDate,
+        period.endDate,
+      ),
+      this.prisma.invoice.count({
+        where: {
+          userId,
+          status: 'ISSUED',
+          periodId: period.id,
+        },
+      }),
+    ]);
+
+    const periodTax = await this.financialPeriodsService.calculatePeriodTax(
+      userId,
+      { startDate: period.startDate, endDate: period.endDate },
+      taxConfig,
+      realtimeData.revenue,
+      realtimeData.expense,
+    );
+
+    const categoryIds = industriesData.map((i) => i.taxCategoryId);
+    const categories = await this.prisma.taxCategory.findMany({
+      where: { id: { in: categoryIds } },
+      select: { id: true, categoryName: true },
+    });
+    const categoryMap = new Map(categories.map((c) => [c.id, c.categoryName]));
+
+    const industriesList = industriesData.map((ind) => {
+      const rev = ind.revenue.toNumber();
+      const vatRateVal = ind.vatRate.toNumber();
+      const pitRateVal = ind.pitRate.toNumber();
+
+      return {
+        categoryName: categoryMap.get(ind.taxCategoryId) || 'Ngành nghề khác',
+        vatRate: vatRateVal,
+        pitRate: pitRateVal,
+        revenue: rev,
+      };
+    });
+
+    return {
+      periodName: period.periodName,
+      industries: industriesList,
+      estimatedVat: periodTax.vatAmount ? periodTax.vatAmount.toNumber() : 0,
+      transactionCount,
+      confirmedRevenue: realtimeData.revenue.toNumber(),
+    };
+  }
+
+  // step 2
   async getStep2(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
     const draft = await this.findDraftByPeriodId(period.id);
@@ -156,34 +249,13 @@ export class TaxDeclarationService {
     if (draft?.step2Data) return draft.step2Data as unknown as Step2Data;
 
     // Tính realtime
-    const realtimeData =
-      await this.financialPeriodsService.calculateRealtimeTaxData(
-        userId,
-        period.startDate,
-        period.endDate,
-      );
-    const step2: Step2Data = {
-      confirmedRevenue: realtimeData.revenue.toNumber(),
-    };
-    return step2;
+    return await this.buildStep2Data(userId, period);
   }
 
-  /**
-   * Step 2 POST: Không nhận body từ client.
-   * Backend tự query realtime và snapshot vào draft để tránh client giả mạo số liệu.
-   */
   async saveStep2(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
 
-    const realtimeData =
-      await this.financialPeriodsService.calculateRealtimeTaxData(
-        userId,
-        period.startDate,
-        period.endDate,
-      );
-    const step2: Step2Data = {
-      confirmedRevenue: realtimeData.revenue.toNumber(),
-    };
+    const step2 = await this.buildStep2Data(userId, period);
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
@@ -191,37 +263,45 @@ export class TaxDeclarationService {
     });
   }
 
-  // ── Step 3 ──────────────────────────────────────────────────────────────────
-
-  async getStep3(userId: string, publicId: string) {
-    const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const draft = await this.findDraftByPeriodId(period.id);
-
-    // Ưu tiên trả về dữ liệu đã lưu trong draft
-    if (draft?.step3Data) return draft.step3Data as unknown as Step3Data;
-
-    // Auto-fill từ product hiện tại
-    const products = await this.prisma.product.findMany({
-      where: { userId, productType: { not: 'SERVICE' } },
-      select: {
-        publicId: true,
-        productName: true,
-        currentStock: true,
-        unit: true,
-      },
-    });
-
-    const step3: Step3Data = products.map((p) => ({
-      productPublicId: p.publicId,
-      productName: p.productName,
-      unit: p.unit,
-      actualClosingQuantity: p.currentStock,
-    }));
-    return step3;
+  private async calculateStep3RealtimeData(
+    userId: string,
+    periodId: number,
+  ): Promise<Step3Data> {
+    return await this.stocksService.calculatePeriodInventorySummary(
+      userId,
+      periodId,
+    );
   }
 
-  async saveStep3(userId: string, publicId: string, dto: SaveStep3Dto) {
+  // step 3
+  async getStep3(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
+    if (isExempt) {
+      throw new BadRequestException({
+        message:
+          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        errorCode: 'STEP_NOT_APPLICABLE',
+      });
+    }
+
+    const draft = await this.findDraftByPeriodId(period.id);
+
+    if (draft?.step3Data) return draft.step3Data as unknown as Step3Data;
+
+    return await this.calculateStep3RealtimeData(userId, period.id);
+  }
+
+  async saveStep3(userId: string, publicId: string) {
+    const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
+    if (isExempt) {
+      throw new BadRequestException({
+        message:
+          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        errorCode: 'STEP_NOT_APPLICABLE',
+      });
+    }
 
     const draft = await this.findDraftByPeriodId(period.id);
     if (!draft?.step2Data)
@@ -229,27 +309,6 @@ export class TaxDeclarationService {
         message: 'Please complete Step 2 first.',
         errorCode: 'STEP_2_NOT_COMPLETED',
       });
-
-    // Validate: tất cả productPublicId phải thuộc về userId này
-    const incomingPublicIds = dto.inventoryItems.map((i) => i.productPublicId);
-    const ownedProducts = await this.prisma.product.findMany({
-      where: {
-        publicId: { in: incomingPublicIds },
-        userId,
-        productType: { not: 'SERVICE' },
-      },
-      select: { publicId: true },
-    });
-    const ownedPublicIds = new Set(ownedProducts.map((p) => p.publicId));
-    const invalidIds = incomingPublicIds.filter(
-      (id) => !ownedPublicIds.has(id),
-    );
-    if (invalidIds.length > 0) {
-      throw new BadRequestException({
-        message: `Invalid product IDs: ${invalidIds.join(', ')}. Products do not belong to this user or are SERVICE type.`,
-        errorCode: 'INVALID_PRODUCT_IDS',
-      });
-    }
 
     // Đánh chặn: kiểm tra doanh thu realtime có khớp với step2 đã snapshot không
     const step2Data = draft.step2Data as unknown as Step2Data;
@@ -266,10 +325,7 @@ export class TaxDeclarationService {
       });
     }
 
-    const step3: Step3Data = dto.inventoryItems.map((item) => ({
-      productPublicId: item.productPublicId,
-      actualClosingQuantity: item.actualClosingQuantity,
-    }));
+    const step3 = await this.calculateStep3RealtimeData(userId, period.id);
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
@@ -277,10 +333,18 @@ export class TaxDeclarationService {
     });
   }
 
-  // ── Step 4 ──────────────────────────────────────────────────────────────────
-
+  // step 4
   async getStep4(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
+    if (isExempt) {
+      throw new BadRequestException({
+        message:
+          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        errorCode: 'STEP_NOT_APPLICABLE',
+      });
+    }
+
     const draft = await this.findDraftByPeriodId(period.id);
 
     // Ưu tiên trả về dữ liệu đã lưu trong draft
@@ -297,12 +361,16 @@ export class TaxDeclarationService {
     return step4;
   }
 
-  /**
-   * Step 4 POST: Không nhận body từ client.
-   * Backend tự query realtime và snapshot vào draft để tránh client giả mạo số liệu.
-   */
   async saveStep4(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
+    if (isExempt) {
+      throw new BadRequestException({
+        message:
+          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        errorCode: 'STEP_NOT_APPLICABLE',
+      });
+    }
 
     const draft = await this.findDraftByPeriodId(period.id);
     if (!draft?.step2Data)
@@ -340,8 +408,7 @@ export class TaxDeclarationService {
     });
   }
 
-  // ── Step 5 Preview ──────────────────────────────────────────────────────────
-
+  // step 5
   async getStep5Preview(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
     const draft = await this.findDraftByPeriodId(period.id);
@@ -356,22 +423,32 @@ export class TaxDeclarationService {
     };
   }
 
-  // ── Submission ──────────────────────────────────────────────────────────────
-
+  // nộp tờ khai
   async submit(userId: string, publicId: string, dto: SubmitDeclarationDto) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
 
     const draft = await this.findDraftByPeriodId(period.id);
-    if (!draft?.step2Data || !draft?.step4Data) {
-      throw new BadRequestException({
-        message:
-          'Incomplete draft data. Please complete all steps before submitting.',
-        errorCode: 'DRAFT_INCOMPLETE',
-      });
+    if (isExempt) {
+      if (!draft?.step2Data) {
+        throw new BadRequestException({
+          message:
+            'Incomplete draft data. Please complete Step 2 before submitting.',
+          errorCode: 'DRAFT_INCOMPLETE',
+        });
+      }
+    } else {
+      if (!draft?.step2Data || !draft?.step4Data) {
+        throw new BadRequestException({
+          message:
+            'Incomplete draft data. Please complete all steps before submitting.',
+          errorCode: 'DRAFT_INCOMPLETE',
+        });
+      }
     }
 
     const step2Data = draft.step2Data as unknown as Step2Data;
-    const step4Data = draft.step4Data as unknown as Step4Data;
+    const step4Data = (draft.step4Data as unknown as Step4Data) || { totalExpense: 0 };
 
     // Chốt chặn: so sánh realtime với số tĩnh trong draft
     const realtimeData =
@@ -383,8 +460,9 @@ export class TaxDeclarationService {
 
     const isRevenueChanged =
       realtimeData.revenue.toNumber() !== step2Data.confirmedRevenue;
-    const isExpenseChanged =
-      realtimeData.expense.toNumber() !== step4Data.totalExpense;
+    const isExpenseChanged = isExempt
+      ? false
+      : realtimeData.expense.toNumber() !== step4Data.totalExpense;
 
     if (isRevenueChanged || isExpenseChanged) {
       throw new ConflictException({
@@ -393,11 +471,11 @@ export class TaxDeclarationService {
         isDataChanged: true,
         draftData: {
           revenue: step2Data.confirmedRevenue,
-          expense: step4Data.totalExpense,
+          expense: isExempt ? 0 : step4Data.totalExpense,
         },
         realTimeData: {
           revenue: realtimeData.revenue.toNumber(),
-          expense: realtimeData.expense.toNumber(),
+          expense: isExempt ? 0 : realtimeData.expense.toNumber(),
         },
       });
     }
@@ -408,7 +486,7 @@ export class TaxDeclarationService {
       period.id,
       dto.chosenPitMethod,
       step2Data.confirmedRevenue,
-      step4Data.totalExpense,
+      isExempt ? 0 : step4Data.totalExpense,
     );
   }
 
@@ -418,6 +496,7 @@ export class TaxDeclarationService {
     dto: SubmitDeclarationDto,
   ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
 
     // Tự động đồng bộ với số realtime mới nhất
     const realtimeData =
@@ -433,7 +512,7 @@ export class TaxDeclarationService {
       period.id,
       dto.chosenPitMethod,
       realtimeData.revenue.toNumber(),
-      realtimeData.expense.toNumber(),
+      isExempt ? 0 : realtimeData.expense.toNumber(),
     );
   }
 
@@ -443,18 +522,31 @@ export class TaxDeclarationService {
     dto: SubmitDeclarationDto,
   ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const isExempt = await this.checkIfExempt(userId, period);
 
     const draft = await this.findDraftByPeriodId(period.id);
-    if (!draft?.step2Data || !draft?.step4Data) {
-      throw new BadRequestException({
-        message:
-          'Incomplete draft data. Please complete all steps before submitting.',
-        errorCode: 'DRAFT_INCOMPLETE',
-      });
+    if (isExempt) {
+      if (!draft?.step2Data) {
+        throw new BadRequestException({
+          message:
+            'Incomplete draft data. Please complete Step 2 before submitting.',
+          errorCode: 'DRAFT_INCOMPLETE',
+        });
+      }
+    } else {
+      if (!draft?.step2Data || !draft?.step4Data) {
+        throw new BadRequestException({
+          message:
+            'Incomplete draft data. Please complete all steps before submitting.',
+          errorCode: 'DRAFT_INCOMPLETE',
+        });
+      }
     }
 
     const step2Data = draft.step2Data as unknown as Step2Data;
-    const step4Data = draft.step4Data as unknown as Step4Data;
+    const step4Data = (draft.step4Data as unknown as Step4Data) || {
+      totalExpense: 0,
+    };
 
     // Bỏ qua kiểm tra realtime, dùng số cũ trong draft
     const result = await this.processSubmission(
@@ -463,7 +555,7 @@ export class TaxDeclarationService {
       period.id,
       dto.chosenPitMethod,
       step2Data.confirmedRevenue,
-      step4Data.totalExpense,
+      isExempt ? 0 : step4Data.totalExpense,
     );
 
     // Ghi Audit Log ghi nhận việc user chủ động bỏ qua cảnh báo

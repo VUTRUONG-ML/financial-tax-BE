@@ -12,7 +12,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/interface/request-user.interface';
 import { StartSessionDto } from './dto/start-session.dto';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
-import { SaveStep3Dto } from './dto/save-step-3.dto';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 
@@ -23,14 +22,16 @@ export class TaxDeclarationController {
   constructor(private readonly taxDeclarationService: TaxDeclarationService) {}
 
   @Get('init')
-  @ApiOperation({ summary: 'Khởi tạo & Kiểm tra Kỳ (Pre-steps)' })
+  @ApiOperation({ summary: 'Khởi tạo & hiển thị trạng thái nút lập tờ khai' })
   async init(@CurrentUser() user: RequestUser) {
     return await this.taxDeclarationService.init(user.id);
   }
 
   @Post('start')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Bắt đầu Kê khai (Start Session)' })
+  @ApiOperation({
+    summary: 'Bắt đầu Kê khai (Start Session) - Nhấn nút lập tờ khai',
+  })
   async startSession(
     @CurrentUser() user: RequestUser,
     @Body() dto: StartSessionDto,
@@ -97,9 +98,8 @@ export class TaxDeclarationController {
   async saveStep3(
     @CurrentUser() user: RequestUser,
     @Param('publicId') publicId: string,
-    @Body() dto: SaveStep3Dto,
   ) {
-    return await this.taxDeclarationService.saveStep3(user.id, publicId, dto);
+    return await this.taxDeclarationService.saveStep3(user.id, publicId);
   }
 
   @Get('step-4/:publicId')

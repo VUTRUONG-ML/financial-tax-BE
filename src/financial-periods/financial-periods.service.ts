@@ -402,7 +402,6 @@ export class FinancialPeriodsService {
   ): Promise<{ vatAmount: Decimal; pitAmount: Decimal }> {
     const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
 
-    // Tính toán số thuế YTD lũy kế trước kỳ này bằng cách truy vấn trực tiếp hóa đơn
     const ytdBeforeIndustries = await this.getRevenueByIndustry(
       userId,
       startOfYear,
@@ -417,6 +416,7 @@ export class FinancialPeriodsService {
 
     const inputBefore =
       ytdBeforeIndustries.length > 0 ? ytdBeforeIndustries : ytdBeforeRevenue;
+
     const prevVatAmount = this.taxEngine.calculateVatAmount(
       currentTaxConfig,
       inputBefore,

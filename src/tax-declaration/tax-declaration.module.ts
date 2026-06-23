@@ -5,6 +5,7 @@ import { PrismaModule } from '../core/prisma/prisma.module';
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { UsersModule } from '../users/users.module';
 import { AuditLogModule } from '../core/audit-log/audit-log.module';
+import { StocksModule } from '../stocks/stocks.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { AuditLogModule } from '../core/audit-log/audit-log.module';
     TaxEngineModule,
     UsersModule,
     AuditLogModule,
+    StocksModule,
   ],
   controllers: [TaxDeclarationController],
   providers: [TaxDeclarationService],

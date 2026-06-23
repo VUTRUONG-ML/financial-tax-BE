@@ -12,6 +12,7 @@ import {
 import { TaxConfiguration, Prisma } from '@prisma/client';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
+import { StocksService } from '../stocks/stocks.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from 'src/common/utils/time.util';
 import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
@@ -41,6 +42,7 @@ export class AccountingBooksService {
     private readonly prisma: PrismaService,
     private readonly taxEngine: TaxEngineService,
     private readonly financialPeriodsService: FinancialPeriodsService,
+    private readonly stocksService: StocksService,
   ) { }
 
   private async getPeriodTarget(
@@ -816,7 +818,14 @@ export class AccountingBooksService {
   async getExpenseBookSummary(userId: string, periodPublicId: string) {
     const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
-    const [dbResult, rawMaterialsResult, realtimeData, taxConfig, bookMetadata, syncCode] = await Promise.all([
+    const [
+      dbResult,
+      rawMaterialsResult,
+      realtimeData,
+      taxConfig,
+      bookMetadata,
+      syncCode,
+    ] = await Promise.all([
       this.prisma.$queryRaw<any[]>`
         SELECT 
           COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_B' THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
@@ -1039,146 +1048,7 @@ export class AccountingBooksService {
     };
   }
 
-  // s2d
-  private async getInventorySummary(productId: number, periodId: number) {
-    const res = await this.prisma.$queryRaw<
-      {
-        stockStartPeriod: number;
-        valueStartPeriod: Decimal;
-        stockToEndPeriod: number;
-        valueToEndPeriod: Decimal;
-        receiptQuantity: number;
-        receiptValue: Decimal;
-        issueQuantity: number;
-        issueValue: Decimal;
-      }[]
-    >`
-    SELECT
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type = 'OPENING'
-            THEN quantity
-            ELSE 0
-          END
-        ),
-        0
-      ) as "stockStartPeriod",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type = 'OPENING'
-            THEN total_value
-            ELSE 0
-          END
-        ),
-        0
-      ) as "valueStartPeriod",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type IN (
-              'OPENING',
-              'PURCHASE_IN',
-              'PRODUCTION_IN',
-              'ADJUST_IN'
-              )
-            THEN quantity
-            ELSE -quantity
-          END
-        ),
-        0
-      ) as "stockToEndPeriod",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type IN (
-              'OPENING',
-              'PURCHASE_IN',
-              'PRODUCTION_IN',
-              'ADJUST_IN'
-              )
-            THEN total_value
-            ELSE -total_value
-          END
-        ),
-        0
-      ) as "valueToEndPeriod",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type IN (
-                'PURCHASE_IN',
-                'PRODUCTION_IN',
-                'ADJUST_IN'
-              )
-            THEN quantity
-            ELSE 0
-          END
-        ),
-        0
-      ) as "receiptQuantity",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type IN (
-                'PURCHASE_IN',
-                'PRODUCTION_IN',
-                'ADJUST_IN'
-              )
-            THEN total_value
-            ELSE 0
-          END
-        ),
-        0
-      ) as "receiptValue",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type IN (
-                'SALE_OUT',
-                'PRODUCTION_OUT',
-                'ADJUST_OUT'
-              )
-            THEN quantity
-            ELSE 0
-          END
-        ),
-        0
-      ) as "issueQuantity",
-      COALESCE(
-        SUM(
-          CASE
-            WHEN movement_type IN (
-                'SALE_OUT',
-                'PRODUCTION_OUT',
-                'ADJUST_OUT'
-              )
-            THEN total_value
-            ELSE 0
-          END
-        ),
-        0
-      ) as "issueValue"
-    FROM inventory_movements
-    WHERE product_id = ${productId}
-      AND period_id = ${periodId}
-  `;
-    const row = res[0];
-    return {
-      stockStartPeriod: Number(row?.stockStartPeriod ?? 0),
-      valueStartPeriod: new Decimal(row?.valueStartPeriod ?? 0),
 
-      stockToEndPeriod: Number(row?.stockToEndPeriod ?? 0),
-      valueToEndPeriod: new Decimal(row?.valueToEndPeriod ?? 0),
-
-      receiptQuantity: Number(row?.receiptQuantity ?? 0),
-      receiptValue: new Decimal(row?.receiptValue ?? 0),
-
-      issueQuantity: Number(row?.issueQuantity ?? 0),
-      issueValue: new Decimal(row?.issueValue ?? 0),
-    };
-  }
   async generateInventorySyncCode(
     userId: string,
     startDate: Date,
@@ -1250,7 +1120,11 @@ export class AccountingBooksService {
       receiptValue,
       issueQuantity,
       issueValue,
-    } = await this.getInventorySummary(product.id, periodTarget.id);
+    } = await this.stocksService.getProductPeriodInventorySummary(
+      userId,
+      periodTarget.id,
+      product.id,
+    );
     return {
       activeBookKey: 'S2d-HKD',
       books: {
