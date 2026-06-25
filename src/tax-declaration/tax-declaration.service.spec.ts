@@ -6,6 +6,7 @@ import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { AuditLogService } from '../core/audit-log/audit-log.service';
 import { BadRequestException } from '@nestjs/common';
 import { StocksService } from '../stocks/stocks.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 import { Decimal } from '@prisma/client/runtime/client';
 
 describe('TaxDeclarationService', () => {
@@ -14,6 +15,7 @@ describe('TaxDeclarationService', () => {
   let financialPeriodsService: any;
   let taxEngineService: any;
   let stocksService: any;
+  let vouchersService: any;
 
   const mockPeriod = {
     id: 1,
@@ -105,6 +107,13 @@ describe('TaxDeclarationService', () => {
           provide: StocksService,
           useValue: {
             calculatePeriodInventorySummary: jest.fn(),
+            calculateTotalMaterialCost: jest.fn(),
+          },
+        },
+        {
+          provide: VouchersService,
+          useValue: {
+            calculateVoucherExpensesGrouped: jest.fn(),
           },
         },
       ],
@@ -115,6 +124,16 @@ describe('TaxDeclarationService', () => {
     financialPeriodsService = module.get<FinancialPeriodsService>(FinancialPeriodsService);
     taxEngineService = module.get<TaxEngineService>(TaxEngineService);
     stocksService = module.get<StocksService>(StocksService);
+    vouchersService = module.get<VouchersService>(VouchersService);
+
+    stocksService.calculateTotalMaterialCost.mockResolvedValue(new Decimal(0));
+    vouchersService.calculateVoucherExpensesGrouped.mockResolvedValue({
+      chi_phi_nhan_cong: 0,
+      chi_phi_khau_hao: 0,
+      chi_phi_dich_vu_mua_ngoai: 0,
+      chi_phi_lai_vay: 0,
+      chi_phi_khac: 0,
+    });
   });
 
   describe('getStep2 and saveStep2', () => {

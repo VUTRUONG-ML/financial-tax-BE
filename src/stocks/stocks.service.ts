@@ -932,8 +932,8 @@ export class StocksService {
     exportedValue: number;
     closingValue: number;
   }> {
-    const [openingDetails, importedDetails, exportedResult] = await Promise.all(
-      [
+    const [openingDetails, importedDetails, exportedValueDecimal] =
+      await Promise.all([
         this.prisma.stockReceiptDetail.aggregate({
           where: {
             receipt: {
@@ -966,26 +966,12 @@ export class StocksService {
             totalValue: true,
           },
         }),
-        this.prisma.$queryRaw<{ exportedValue: number | null }[]>`
-          SELECT COALESCE(
-            SUM(
-              sd.quantity * COALESCE(sd.final_weighted_unit_cost, sd.provisional_unit_cost, 0)
-            ), 0
-          )::double precision as "exportedValue"
-          FROM stock_issue_details sd
-          JOIN stock_issues s ON sd.issue_id = s.id
-          JOIN products p ON sd.product_id = p.id
-          WHERE s.period_id = ${periodId}
-            AND s.user_id = ${userId}
-            AND s.status = 'APPROVED'
-            AND p.product_type != 'SERVICE'
-        `,
-      ],
-    );
+        this.calculateExportedCost(userId, { periodId }),
+      ]);
 
     const openingValue = openingDetails._sum.totalValue?.toNumber() ?? 0;
     const importedValue = importedDetails._sum.totalValue?.toNumber() ?? 0;
-    const exportedValue = exportedResult[0]?.exportedValue ?? 0;
+    const exportedValue = exportedValueDecimal.toNumber();
 
     const closingValue = openingValue + importedValue - exportedValue;
 
@@ -1011,7 +997,7 @@ export class StocksService {
     stockToEndPeriod: number;
     valueToEndPeriod: number;
   }> {
-    const [openingResult, receiptResult, issueResult] = await Promise.all([
+    const [openingResult, receiptResult, issueDetails] = await Promise.all([
       this.prisma.stockReceiptDetail.aggregate({
         where: {
           productId,
@@ -1042,19 +1028,21 @@ export class StocksService {
           totalValue: true,
         },
       }),
-      this.prisma.$queryRaw<
-        { issueQuantity: number | null; issueValue: number | null }[]
-      >`
-        SELECT 
-          COALESCE(SUM(sid.quantity), 0)::double precision as "issueQuantity",
-          COALESCE(SUM(sid.quantity * COALESCE(sid.final_weighted_unit_cost, sid.provisional_unit_cost, 0)), 0)::double precision as "issueValue"
-        FROM stock_issue_details sid
-        JOIN stock_issues si ON sid.issue_id = si.id
-        WHERE si.period_id = ${periodId}
-          AND si.user_id = ${userId}
-          AND sid.product_id = ${productId}
-          AND si.status = 'APPROVED'
-      `,
+      this.prisma.stockIssueDetail.findMany({
+        where: {
+          productId,
+          issue: {
+            periodId,
+            userId,
+            status: 'APPROVED',
+          },
+        },
+        select: {
+          quantity: true,
+          finalWeightedUnitCost: true,
+          provisionalUnitCost: true,
+        },
+      }),
     ]);
 
     const stockStartPeriod = openingResult._sum.quantity?.toNumber() ?? 0;
@@ -1062,11 +1050,16 @@ export class StocksService {
     const receiptQuantity = receiptResult._sum.quantity?.toNumber() ?? 0;
     const receiptValue = receiptResult._sum.totalValue?.toNumber() ?? 0;
 
-    const issueQuantity = issueResult[0]?.issueQuantity ?? 0;
-    const issueValue = issueResult[0]?.issueValue ?? 0;
+    let issueQuantity = 0;
+    let issueValue = new Decimal(0);
+    for (const d of issueDetails) {
+      issueQuantity += Number(d.quantity);
+      const unitCost = d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? new Decimal(0);
+      issueValue = issueValue.add(d.quantity.mul(unitCost));
+    }
 
     const stockToEndPeriod = stockStartPeriod + receiptQuantity - issueQuantity;
-    const valueToEndPeriod = valueStartPeriod + receiptValue - issueValue;
+    const valueToEndPeriod = valueStartPeriod + receiptValue - issueValue.toNumber();
 
     return {
       stockStartPeriod,
@@ -1074,7 +1067,7 @@ export class StocksService {
       receiptQuantity,
       receiptValue,
       issueQuantity,
-      issueValue,
+      issueValue: issueValue.toNumber(),
       stockToEndPeriod,
       valueToEndPeriod,
     };
@@ -1645,7 +1638,6 @@ export class StocksService {
 
   /**
    * Lấy tổng số lượng xuất kho hợp lệ theo từng sản phẩm trong kỳ.
-   * Phiếu xuất bán hàng (SALE) bắt buộc hóa đơn liên kết phải ở trạng thái ISSUED.
    */
   async getIssueAggregatesByProduct(
     periodId: number,
@@ -1656,34 +1648,12 @@ export class StocksService {
     const result = new Map<number, number>();
     if (productIds.length === 0) return result;
 
-    // Lấy danh sách ID hóa đơn đã phát hành thành công
-    const issuedInvoices = await client.invoice.findMany({
-      where: { status: 'ISSUED' },
-      select: { id: true },
-    });
-    const issuedInvoiceIds = issuedInvoices.map((i) => i.id);
-
     const details = await client.stockIssueDetail.findMany({
       where: {
         productId: { in: productIds },
         issue: {
           periodId,
           status: StockIssueStatus.APPROVED,
-          issueType: {
-            in: [
-              StockIssueType.SALE,
-              StockIssueType.PRODUCTION,
-              StockIssueType.ADJUSTMENT,
-            ],
-          },
-          OR: [
-            { issueType: { in: [StockIssueType.PRODUCTION, StockIssueType.ADJUSTMENT] } },
-            {
-              issueType: StockIssueType.SALE,
-              sourceDocumentType: StockIssueDocument.INVOICE,
-              sourceDocumentId: { in: issuedInvoiceIds },
-            },
-          ],
         },
       },
       select: {
@@ -1699,39 +1669,47 @@ export class StocksService {
     return result;
   }
 
-  async calculateTotalMaterialCost(
+  async calculateExportedCost(
     userId: string,
-    startDate: Date,
-    endDate: Date,
+    filter: { periodId?: number; startDate?: Date; endDate?: Date },
     tx?: Prisma.TransactionClient,
   ): Promise<Decimal> {
     const client = tx || this.prisma;
+    let periodId = filter.periodId;
 
-    // 1. Lấy danh sách ID hóa đơn bán ra đã phát hành thành công
-    const issuedInvoices = await client.invoice.findMany({
-      where: {
-        userId,
-        status: 'ISSUED',
-        issueDate: { gte: startDate, lte: endDate } },
-      select: { id: true },
-    });
-    const issuedInvoiceIds = issuedInvoices.map((i) => i.id);
+    if (!periodId && filter.startDate && filter.endDate) {
+      const period = await client.financialPeriod.findFirst({
+        where: {
+          userId,
+          startDate: { lte: filter.startDate },
+          endDate: { gte: filter.endDate },
+        },
+        select: { id: true },
+      });
+      if (period) {
+        periodId = period.id;
+      }
+    }
 
-    // 2. Lấy chi tiết phiếu xuất kho hợp lệ trong kỳ
+    const issueWhere: Prisma.StockIssueWhereInput = {
+      userId,
+      status: StockIssueStatus.APPROVED,
+    };
+
+    if (periodId !== undefined) {
+      issueWhere.periodId = periodId;
+    } else if (filter.startDate && filter.endDate) {
+      issueWhere.issueDate = {
+        gte: filter.startDate,
+        lte: filter.endDate,
+      };
+    }
+
     const details = await client.stockIssueDetail.findMany({
       where: {
-        issue: {
-          userId,
-          issueDate: { gte: startDate, lte: endDate },
-          status: StockIssueStatus.APPROVED,
-          OR: [
-            { issueType: { in: [StockIssueType.PRODUCTION, StockIssueType.ADJUSTMENT] } },
-            {
-              issueType: StockIssueType.SALE,
-              sourceDocumentType: StockIssueDocument.INVOICE,
-              sourceDocumentId: { in: issuedInvoiceIds },
-            },
-          ],
+        issue: issueWhere,
+        product: {
+          productType: { not: ProductType.SERVICE },
         },
       },
       select: {
@@ -1741,10 +1719,19 @@ export class StocksService {
       },
     });
 
-    // 3. Tính tổng chi phí nguyên vật liệu
     return details.reduce((sum, d) => {
-      const unitCost = d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? new Decimal(0);
+      const unitCost =
+        d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? new Decimal(0);
       return sum.add(d.quantity.mul(unitCost));
     }, new Decimal(0));
+  }
+
+  async calculateTotalMaterialCost(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+    tx?: Prisma.TransactionClient,
+  ): Promise<Decimal> {
+    return this.calculateExportedCost(userId, { startDate, endDate }, tx);
   }
 }

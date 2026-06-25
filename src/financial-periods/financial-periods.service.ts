@@ -38,6 +38,8 @@ import { Decimal } from '@prisma/client/runtime/client';
 import { ConfirmTaxPaymentDto } from './dto/confirm-financial-period.dto';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { CostEngineService } from '../cost-engine/cost-engine.service';
+import { StocksService } from '../stocks/stocks.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 @Injectable()
 export class FinancialPeriodsService {
@@ -49,6 +51,8 @@ export class FinancialPeriodsService {
     private readonly taxEngine: TaxEngineService,
     @Inject(forwardRef(() => CostEngineService))
     private readonly costEngine: CostEngineService,
+    private readonly stocksService: StocksService,
+    private readonly vouchersService: VouchersService,
   ) { }
 
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
@@ -326,17 +330,19 @@ export class FinancialPeriodsService {
     });
     const revenue = aggregateInvoice._sum.totalPayment || new Decimal(0);
 
-    const aggregateVoucher = await tx.voucher.aggregate({
-      _sum: { amount: true },
-      where: {
-        userId,
-        transactionAt: { gte: startDate, lte: endDate },
-        voucherType: VoucherType.PAYMENT,
-        isDeductibleExpense: true,
-        status: VoucherStatus.ACTIVE,
-      },
-    });
-    const expense = aggregateVoucher._sum.amount || new Decimal(0);
+    const [materialCost, voucherExpenses] = await Promise.all([
+      this.stocksService.calculateTotalMaterialCost(userId, startDate, endDate, tx),
+      this.vouchersService.calculateVoucherExpensesGrouped(userId, startDate, endDate, tx),
+    ]);
+
+    const totalExpense = materialCost.toNumber() +
+      voucherExpenses.chi_phi_nhan_cong +
+      voucherExpenses.chi_phi_khau_hao +
+      voucherExpenses.chi_phi_dich_vu_mua_ngoai +
+      voucherExpenses.chi_phi_lai_vay +
+      voucherExpenses.chi_phi_khac;
+
+    const expense = new Decimal(totalExpense);
 
     return { revenue, expense };
   }

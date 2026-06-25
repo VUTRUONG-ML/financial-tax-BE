@@ -46,4 +46,10 @@ export interface Step3Data {
 
 export interface Step4Data {
   totalExpense: number;
+  chiPhiNguyenVatLieu: number; // ITEM_A
+  chiPhiNhanCong: number;       // ITEM_B
+  chiPhiKhauHao: number;        // ITEM_C
+  chiPhiDichVuMuaNgoai: number; // ITEM_D
+  chiPhiLaiVay: number;         // ITEM_E
+  chiPhiKhac: number;           // ITEM_F
 }

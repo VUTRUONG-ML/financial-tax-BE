@@ -1104,4 +1104,43 @@ export class VouchersService {
 
     return result.count;
   }
+
+  async calculateVoucherExpensesGrouped(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{
+    chi_phi_nhan_cong: number;          // ITEM_B
+    chi_phi_khau_hao: number;           // ITEM_C
+    chi_phi_dich_vu_mua_ngoai: number;  // ITEM_D
+    chi_phi_lai_vay: number;            // ITEM_E
+    chi_phi_khac: number;               // ITEM_F
+  }> {
+    const client = tx || this.prisma;
+    const dbResult = await client.$queryRaw<any[]>`
+      SELECT 
+        COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_B' THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
+        COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_C' THEN v.amount ELSE 0 END), 0) as chi_phi_khau_hao,
+        COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_D' THEN v.amount ELSE 0 END), 0) as chi_phi_dich_vu_mua_ngoai,
+        COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_E' THEN v.amount ELSE 0 END), 0) as chi_phi_lai_vay,
+        COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_F' THEN v.amount ELSE 0 END), 0) as chi_phi_khac
+      FROM vouchers v
+      JOIN voucher_categories vc ON v.category_id = vc.id
+      WHERE v.user_id = ${userId}
+        AND v.transaction_at BETWEEN ${startDate} AND ${endDate}
+        AND v.voucher_type = 'PAYMENT'
+        AND v.is_deductible_expense = TRUE
+        AND v.status = 'ACTIVE';
+    `;
+
+    const row = dbResult[0] || {};
+    return {
+      chi_phi_nhan_cong: Number(row.chi_phi_nhan_cong || 0),
+      chi_phi_khau_hao: Number(row.chi_phi_khau_hao || 0),
+      chi_phi_dich_vu_mua_ngoai: Number(row.chi_phi_dich_vu_mua_ngoai || 0),
+      chi_phi_lai_vay: Number(row.chi_phi_lai_vay || 0),
+      chi_phi_khac: Number(row.chi_phi_khac || 0),
+    };
+  }
 }

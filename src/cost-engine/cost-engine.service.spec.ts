@@ -20,6 +20,30 @@ describe('CostEngineService', () => {
     };
     stocksServiceMock = {
       createStockReceipt: jest.fn(),
+      getReceiptAggregatesByProduct: jest.fn().mockImplementation(
+        async (periodId, sourceTypes, productIds) => {
+          const map = new Map<number, { qty: number; val: Decimal }>();
+          if (productIds.includes(1)) {
+            map.set(1, { qty: 20, val: new Decimal('300.00') });
+          }
+          if (productIds.includes(2)) {
+            map.set(2, { qty: 2, val: new Decimal('200.00') });
+          }
+          return map;
+        }
+      ),
+      getIssueAggregatesByProduct: jest.fn().mockImplementation(
+        async (periodId, productIds) => {
+          const map = new Map<number, number>();
+          if (productIds.includes(1)) {
+            map.set(1, 15);
+          }
+          if (productIds.includes(2)) {
+            map.set(2, 1);
+          }
+          return map;
+        }
+      ),
     };
 
     txMock = {

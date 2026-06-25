@@ -10,6 +10,7 @@ import { FinancialPeriodsService } from '../financial-periods/financial-periods.
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
 import { StocksService } from '../stocks/stocks.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
 import {
   TAXPAYER_OPTIONS,
@@ -39,6 +40,7 @@ export class TaxDeclarationService {
     private readonly taxEngineService: TaxEngineService,
     private readonly auditLogService: AuditLogService,
     private readonly stocksService: StocksService,
+    private readonly vouchersService: VouchersService,
   ) {}
 
   private async findPeriodAndCheckOwnership(
@@ -345,16 +347,6 @@ export class TaxDeclarationService {
     });
   }
 
-  private async calculateStep3RealtimeData(
-    userId: string,
-    periodId: number,
-  ): Promise<Step3Data> {
-    return await this.stocksService.calculatePeriodInventorySummary(
-      userId,
-      periodId,
-    );
-  }
-
   // step 3
   async getStep3(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
@@ -371,7 +363,10 @@ export class TaxDeclarationService {
 
     if (draft?.step3Data) return draft.step3Data as unknown as Step3Data;
 
-    return await this.calculateStep3RealtimeData(userId, period.id);
+    return await this.stocksService.calculatePeriodInventorySummary(
+      userId,
+      period.id,
+    );
   }
 
   async saveStep3(userId: string, publicId: string) {
@@ -407,7 +402,10 @@ export class TaxDeclarationService {
       });
     }
 
-    const step3 = await this.calculateStep3RealtimeData(userId, period.id);
+    const step3 = await this.stocksService.calculatePeriodInventorySummary(
+      userId,
+      period.id,
+    );
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
@@ -429,17 +427,30 @@ export class TaxDeclarationService {
 
     const draft = await this.findDraftByPeriodId(period.id);
 
-    // Ưu tiên trả về dữ liệu đã lưu trong draft
     if (draft?.step4Data) return draft.step4Data as unknown as Step4Data;
 
     // Tính realtime
-    const realtimeData =
-      await this.financialPeriodsService.calculateRealtimeTaxData(
-        userId,
-        period.startDate,
-        period.endDate,
-      );
-    const step4: Step4Data = { totalExpense: realtimeData.expense.toNumber() };
+    const [materialCost, voucherExpenses] = await Promise.all([
+      this.stocksService.calculateTotalMaterialCost(userId, period.startDate, period.endDate),
+      this.vouchersService.calculateVoucherExpensesGrouped(userId, period.startDate, period.endDate),
+    ]);
+
+    const totalExpense = materialCost.toNumber() +
+      voucherExpenses.chi_phi_nhan_cong +
+      voucherExpenses.chi_phi_khau_hao +
+      voucherExpenses.chi_phi_dich_vu_mua_ngoai +
+      voucherExpenses.chi_phi_lai_vay +
+      voucherExpenses.chi_phi_khac;
+
+    const step4: Step4Data = {
+      totalExpense,
+      chiPhiNguyenVatLieu: materialCost.toNumber(),
+      chiPhiNhanCong: voucherExpenses.chi_phi_nhan_cong,
+      chiPhiKhauHao: voucherExpenses.chi_phi_khau_hao,
+      chiPhiDichVuMuaNgoai: voucherExpenses.chi_phi_dich_vu_mua_ngoai,
+      chiPhiLaiVay: voucherExpenses.chi_phi_lai_vay,
+      chiPhiKhac: voucherExpenses.chi_phi_khac,
+    };
     return step4;
   }
 
@@ -482,7 +493,27 @@ export class TaxDeclarationService {
     }
 
     // Snapshot chi phí thực tế từ DB vào draft
-    const step4: Step4Data = { totalExpense: realtimeData.expense.toNumber() };
+    const [materialCost, voucherExpenses] = await Promise.all([
+      this.stocksService.calculateTotalMaterialCost(userId, period.startDate, period.endDate),
+      this.vouchersService.calculateVoucherExpensesGrouped(userId, period.startDate, period.endDate),
+    ]);
+
+    const totalExpense = materialCost.toNumber() +
+      voucherExpenses.chi_phi_nhan_cong +
+      voucherExpenses.chi_phi_khau_hao +
+      voucherExpenses.chi_phi_dich_vu_mua_ngoai +
+      voucherExpenses.chi_phi_lai_vay +
+      voucherExpenses.chi_phi_khac;
+
+    const step4: Step4Data = {
+      totalExpense,
+      chiPhiNguyenVatLieu: materialCost.toNumber(),
+      chiPhiNhanCong: voucherExpenses.chi_phi_nhan_cong,
+      chiPhiKhauHao: voucherExpenses.chi_phi_khau_hao,
+      chiPhiDichVuMuaNgoai: voucherExpenses.chi_phi_dich_vu_mua_ngoai,
+      chiPhiLaiVay: voucherExpenses.chi_phi_lai_vay,
+      chiPhiKhac: voucherExpenses.chi_phi_khac,
+    };
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },

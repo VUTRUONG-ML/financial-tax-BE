@@ -8,6 +8,7 @@ import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { StocksService } from '../stocks/stocks.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 
 describe('DateRangeParser', () => {
   beforeAll(() => {
@@ -111,6 +112,7 @@ describe('AccountingBooksService', () => {
   let taxEngine: jest.Mocked<TaxEngineService>;
   let financialPeriodsService: jest.Mocked<FinancialPeriodsService>;
   let stocksService: any;
+  let vouchersService: any;
 
   beforeAll(() => {
     jest.useFakeTimers();
@@ -208,6 +210,12 @@ describe('AccountingBooksService', () => {
             calculateTotalMaterialCost: jest.fn(),
           },
         },
+        {
+          provide: VouchersService,
+          useValue: {
+            calculateVoucherExpensesGrouped: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -216,6 +224,7 @@ describe('AccountingBooksService', () => {
     taxEngine = module.get(TaxEngineService);
     financialPeriodsService = module.get(FinancialPeriodsService);
     stocksService = module.get(StocksService);
+    vouchersService = module.get(VouchersService);
   });
 
   it('should be defined', () => {
@@ -480,6 +489,13 @@ describe('AccountingBooksService', () => {
       });
       taxEngine.calculatePitProfitForPeriod.mockReturnValue(new Decimal(195500));
       stocksService.calculateTotalMaterialCost.mockResolvedValue(new Decimal(150000));
+      vouchersService.calculateVoucherExpensesGrouped.mockResolvedValue({
+        chi_phi_nhan_cong: 1000000,
+        chi_phi_khau_hao: 0,
+        chi_phi_dich_vu_mua_ngoai: 500000,
+        chi_phi_lai_vay: 0,
+        chi_phi_khac: 200000,
+      });
 
 
       const mockCategories = [

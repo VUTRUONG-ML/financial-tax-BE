@@ -13,6 +13,7 @@ import { TaxConfiguration, Prisma } from '@prisma/client';
 import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { StocksService } from '../stocks/stocks.service';
+import { VouchersService } from '../vouchers/vouchers.service';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from 'src/common/utils/time.util';
 import { S1ARowDto, S2ARowDto, S2BRowDto } from './dto/revenue-book-row.dto';
@@ -43,6 +44,7 @@ export class AccountingBooksService {
     private readonly taxEngine: TaxEngineService,
     private readonly financialPeriodsService: FinancialPeriodsService,
     private readonly stocksService: StocksService,
+    private readonly vouchersService: VouchersService,
   ) { }
 
   private async getPeriodTarget(
@@ -818,28 +820,14 @@ export class AccountingBooksService {
     const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const [
-      dbResult,
+      summaryRow,
       materialCostDecimal,
       realtimeData,
       taxConfig,
       bookMetadata,
       syncCode,
     ] = await Promise.all([
-      this.prisma.$queryRaw<any[]>`
-        SELECT 
-          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_B' THEN v.amount ELSE 0 END), 0) as chi_phi_nhan_cong,
-          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_C' THEN v.amount ELSE 0 END), 0) as chi_phi_khau_hao,
-          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_D' THEN v.amount ELSE 0 END), 0) as chi_phi_dich_vu_mua_ngoai,
-          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_E' THEN v.amount ELSE 0 END), 0) as chi_phi_lai_vay,
-          COALESCE(SUM(CASE WHEN vc.s2c_expense_mapping = 'ITEM_F' THEN v.amount ELSE 0 END), 0) as chi_phi_khac
-        FROM vouchers v
-        JOIN voucher_categories vc ON v.category_id = vc.id
-        WHERE v.user_id = ${userId}
-          AND v.transaction_at BETWEEN ${startDate} AND ${endDate}
-          AND v.voucher_type = 'PAYMENT'
-          AND v.is_deductible_expense = TRUE
-          AND v.status = 'ACTIVE';
-      `,
+      this.vouchersService.calculateVoucherExpensesGrouped(userId, startDate, endDate),
       this.stocksService.calculateTotalMaterialCost(userId, startDate, endDate),
       this.financialPeriodsService.calculateRealtimeTaxData(
         userId,
@@ -857,14 +845,6 @@ export class AccountingBooksService {
       this.generateBookMetadata('S2C', userId),
       this.generateExpenseSyncCode(userId, startDate, endDate),
     ]);
-
-    const summaryRow = dbResult[0] || {
-      chi_phi_nhan_cong: 0,
-      chi_phi_khau_hao: 0,
-      chi_phi_dich_vu_mua_ngoai: 0,
-      chi_phi_lai_vay: 0,
-      chi_phi_khac: 0,
-    };
 
     const chi_phi_nguyen_vat_lieu = materialCostDecimal.toNumber();
     const chi_phi_nhan_cong = Number(summaryRow.chi_phi_nhan_cong || 0);
