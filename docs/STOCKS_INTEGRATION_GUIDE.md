@@ -70,11 +70,8 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
   - Khi hủy liên kết (`DELETE`), Backend chỉ gỡ bỏ bản ghi liên kết, không hoàn trả lại đơn giá cũ trước khi liên kết.
 
 ### 2.5. Đối Chiếu Chứng Từ & Cảnh Báo Lệch (Document Reconciliation warnings)
-- FE có thể gọi API `GET /stock-receipts/:receiptCode` để hiển thị màn hình đối chiếu phiếu nhập kho với hóa đơn liên kết. API này sẽ thực hiện kiểm tra và trả về mảng cảnh báo `validation.warnings`:
-  - **`TOTAL_AMOUNT_MISMATCH`:** Tổng trị giá phiếu nhập lệch so với hóa đơn (mức `WARNING`).
-  - **`PRODUCT_MISSING`:** Sản phẩm trên hóa đơn mua vào không có trong phiếu nhập kho (mức `WARNING`).
-  - **`QUANTITY_MISMATCH`:** Số lượng sản phẩm trên hóa đơn lệch so với phiếu nhập (mức `WARNING`).
-  - **`UNIT_COST_MISMATCH`:** Đơn giá lệch giữa hóa đơn và phiếu nhập (mức `WARNING` nếu lệch > 100 VNĐ, mức `INFO` nếu lệch dưới 100 VNĐ).
+- Nhằm tối giản hóa luồng nghiệp vụ và cho phép người dùng liên kết hóa đơn tự do, Backend đã loại bỏ hoàn toàn các cảnh báo chênh lệch đơn giá, số lượng và tổng tiền.
+- API đối chiếu `GET /stock-receipts/:receiptCode` sẽ luôn trả về mảng cảnh báo `validation.warnings` là mảng rỗng và trạng thái `validation.status` là `"SUCCESS"`. Khác biệt về mặt giá trị hay số lượng giữa hóa đơn đầu vào và phiếu nhập kho được chấp nhận bình thường mà không gây ra bất kỳ cảnh báo nào.
 
 ### 2.6. Quy tắc Hủy Phiếu & Domino Effect lên Vouchers
 - **Hủy phiếu nhập kho (`cancelReceipt`):**
@@ -145,19 +142,8 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
     ]
   },
   "validation": {
-    "status": "WARNING",
-    "warnings": [
-      {
-        "code": "TOTAL_AMOUNT_MISMATCH",
-        "severity": "WARNING",
-        "message": "Receipt total differs from linked invoice total."
-      },
-      {
-        "code": "UNIT_COST_MISMATCH",
-        "severity": "WARNING",
-        "message": "Receipt unit cost differs from invoice unit cost."
-      }
-    ]
+    "status": "SUCCESS",
+    "warnings": []
   }
 }
 ```

@@ -38,19 +38,26 @@ Các API chính thức phục vụ quản lý kỳ tài chính (yêu cầu Beare
 
 Hệ thống hỗ trợ kê khai thuế tự động theo từng bước dưới dạng bản nháp (Draft). Bản nháp này lưu lại số liệu chụp nhanh (Snapshot) từ DB tại thời điểm xác nhận để tránh việc số liệu trên tờ khai bị thay đổi liên tục khi người dùng sửa chứng từ.
 
-### 2.1. Phân Luồng Kê Khai Theo Nhóm Thuế
+### 2.1. Phân Luồng Kê Khai Theo Loại Tờ Khai (declarationFormType)
 
-Quy trình kê khai thuế tự động phân làm hai luồng tùy thuộc vào nhóm thuế suất của kỳ kế khai (`taxGroupId`):
+Quy trình kê khai thuế tự động phân chia theo loại tờ khai mà người dùng chọn khi bắt đầu lập tờ khai, phụ thuộc vào nhóm thuế suất của kỳ kế khai (`taxGroupId`):
 
-#### 1. Luồng 3 Bước (Nhóm Miễn Thuế - `taxGroupId === 1`)
-Hộ kinh doanh thuộc nhóm miễn thuế chỉ cần thực hiện 3 bước:
+#### 1. Lấy danh sách tùy chọn tờ khai (`GET /tax-declaration/options/:publicId`)
+Trước khi bắt đầu, FE gọi API để lấy danh sách các tờ khai được phép sử dụng trong kỳ kế khai:
+* **Nhóm Miễn Thuế (`taxGroupId === 1`)**: Chỉ được chọn tờ khai `01_TKN_CNKD` (Tờ khai thuế năm).
+* **Các Nhóm Khác (`taxGroupId !== 1`)**: Được chọn một trong hai loại:
+  - `01_CNKD`: Tờ khai thuế theo phương pháp doanh thu (3 bước).
+  - `02_CNKD_TNCN_QTT`: Tờ khai quyết toán thuế TNCN theo phương pháp lợi nhuận (5 bước).
+
+#### 2. Luồng 3 Bước (Dành cho Form `01_CNKD` & `01_TKN_CNKD`)
 * **Bước 1**: Xác nhận thông tin Hộ kinh doanh.
 * **Bước 2**: Xác nhận doanh thu chịu thuế (Kèm bảng thống kê ngành nghề và giao dịch).
-* **Bước 3**: Xem trước tờ khai & Ký nộp (Bỏ qua Bước 3 về Tồn kho và Bước 4 về Chi phí).
-* *Ràng buộc:* Nếu FE cố tình gọi API lấy hoặc lưu Bước 3/Bước 4, Backend sẽ chặn lại và ném lỗi `400 Bad Request` (`INVALID_TAX_DECLARATION_STEP`).
+* **Bước 5**: Xem trước tờ khai & Ký nộp (Bỏ qua Bước 3 về Tồn kho và Bước 4 về Chi phí).
+* > [!IMPORTANT]
+  > Nếu FE gọi API lấy dữ liệu (`GET`) hoặc lưu dữ liệu (`POST`) của Bước 3 hoặc Bước 4 đối với luồng này, Backend sẽ chặn lại và ném lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE` và thông điệp `"Steps 3 and 4 are not applicable for this declaration form type."`.
 
-#### 2. Luồng 5 Bước Đầy Đủ (Nhóm Nộp Thuế - `taxGroupId !== 1`)
-Hộ kinh doanh thuộc nhóm nộp thuế thực hiện đầy đủ 5 bước:
+#### 3. Luồng 5 Bước Đầy Đủ (Dành cho Form `02_CNKD_TNCN_QTT`)
+Thực hiện đầy đủ cả 5 bước:
 * **Bước 1**: Xác nhận thông tin Hộ kinh doanh.
 * **Bước 2**: Xác nhận doanh thu chịu thuế.
 * **Bước 3**: Xác nhận tổng hợp giá trị Tồn kho.
@@ -61,21 +68,22 @@ Hộ kinh doanh thuộc nhóm nộp thuế thực hiện đầy đủ 5 bước:
 
 ### 2.2. Bản Đồ API Tiến Trình Kê Khai Thuế
 
-| Bước | Method | Endpoint | Request Body | Mô tả & Ràng buộc nghiệp vụ |
+| Bước | Method | Endpoint | Request Body / Param | Mô tả & Ràng buộc nghiệp vụ |
 | :---: | :---: | :--- | :--- | :--- |
 | **Khởi tạo** | `GET` | `/tax-declaration/init` | Không có | Lấy kỳ thuế hiện tại cần kê khai và trạng thái nút bấm "Lập tờ khai". |
-| **Bắt đầu** | `POST` | `/tax-declaration/start` | `{ "periodIdPublicId": "fp-public-id" }` | Tạo phiên làm việc mới (Khởi tạo bản nháp tờ khai trong DB). |
-| **B1: Lấy** | `GET` | `/tax-declaration/step-1/:publicId` | Không có | Lấy thông tin cá nhân/HKD đại diện kê khai. |
+| **Tùy chọn** | `GET` | `/tax-declaration/options/:publicId` | Tham số `:publicId` (kỳ) | Lấy danh sách các loại tờ khai được phép chọn cho kỳ này. |
+| **Bắt đầu** | `POST` | `/tax-declaration/start` | `{ "periodIdPublicId": "fp-public-id", "declarationFormType": "01_CNKD" \| "01_TKN_CNKD" \| "02_CNKD_TNCN_QTT" }` | Tạo phiên làm việc mới (Khởi tạo bản nháp tờ khai trong DB với formType đã chọn). |
+| **B1: Lấy** | `GET` | `/tax-declaration/step-1/:publicId` | Không có | Lấy thông tin cá nhân/HKD đại diện kê khai và các giá trị mặc định được gợi ý. |
 | **B1: Lưu** | `POST` | `/tax-declaration/step-1/save/:publicId` | `SaveStep1Dto` (Thông tin HKD) | Lưu thông tin HKD vào bản nháp tờ khai. |
 | **B2: Lấy** | `GET` | `/tax-declaration/step-2/:publicId` | Không có | Trả về thông tin doanh thu, danh sách ngành nghề và số giao dịch thực tế trong kỳ. |
 | **B2: Lưu** | `POST` | `/tax-declaration/step-2/save/:publicId` | Không có (Lưu tự động) | **Snapshot doanh thu**: BE tự tính và chụp nhanh doanh thu từ DB lưu vào nháp. |
-| **B3: Lấy** | `GET` | `/tax-declaration/step-3/:publicId` | Không có | Trả về tổng hợp tồn kho: đầu kỳ, nhập trong kỳ, xuất trong kỳ, cuối kỳ. |
-| **B3: Lưu** | `POST` | `/tax-declaration/step-3/save/:publicId` | Không có (Lưu tự động) | **Snapshot tồn kho**: BE tự chụp nhanh giá trị kho lưu vào nháp (Chặn đối với Nhóm Miễn Thuế `taxGroupId === 1`). |
-| **B4: Lấy** | `GET` | `/tax-declaration/step-4/:publicId` | Không có | Trả về thống kê các chi phí hợp lệ (theo 6 nhóm của Thông tư 152/2025/TT-BTC). |
-| **B4: Lưu** | `POST` | `/tax-declaration/step-4/save/:publicId` | Không có (Lưu tự động) | **Snapshot chi phí**: BE tự chụp nhanh chi phí từ DB lưu vào nháp (Chặn đối với Nhóm Miễn Thuế `taxGroupId === 1`). |
-| **B5: Lấy** | `GET` | `/tax-declaration/step-5/preview/:publicId`| Không có | Xem trước tờ khai mẫu (PDF/HTML layout) và chọn phương thức tính thuế PIT. |
+| **B3: Lấy** | `GET` | `/tax-declaration/step-3/:publicId` | Không có | Trả về tổng hợp tồn kho: đầu kỳ, nhập trong kỳ, xuất trong kỳ, cuối kỳ. (Chỉ cho Form `02_CNKD_TNCN_QTT`). |
+| **B3: Lưu** | `POST` | `/tax-declaration/step-3/save/:publicId` | Không có (Lưu tự động) | **Snapshot tồn kho**: BE tự chụp nhanh giá trị kho lưu vào nháp. (Chỉ cho Form `02_CNKD_TNCN_QTT`). |
+| **B4: Lấy** | `GET` | `/tax-declaration/step-4/:publicId` | Không có | Trả về thống kê các chi phí hợp lệ theo Thông tư 152/2025/TT-BTC. (Chỉ cho Form `02_CNKD_TNCN_QTT`). |
+| **B4: Lưu** | `POST` | `/tax-declaration/step-4/save/:publicId` | Không có (Lưu tự động) | **Snapshot chi phí**: BE tự chụp nhanh chi phí từ DB lưu vào nháp. (Chỉ cho Form `02_CNKD_TNCN_QTT`). |
+| **B5: Lấy** | `GET` | `/tax-declaration/step-5/preview/:publicId`| Không có | Xem trước thông tin tổng hợp tờ khai bao gồm: đối chiếu so sánh PIT, tổng hợp YTD và danh sách ngành nghề lũy kế YTD. |
 | **Nộp** | `POST` | `/tax-declaration/submit/:publicId` | `SubmitDeclarationDto` | **Ký nộp**: Kiểm tra biến động dữ liệu DB và tiến hành khóa kỳ kế toán. |
-| **Nộp đè** | `POST` | `/tax-declaration/submit-force/:publicId` | `SubmitDeclarationDto` | Chụp lại snapshot mới và tiến hành ký nộp đè. |
+| **Nộp đè** | `POST` | `/tax-declaration/submit-force/:publicId` | `SubmitDeclarationDto` | Chụp lại snapshot mới từ DB và tiến hành ký nộp đè. |
 | **Nộp cũ** | `POST` | `/tax-declaration/submit-ignore-warning/:publicId`| `SubmitDeclarationDto`| Bỏ qua cảnh báo biến động, nộp tờ khai theo số liệu snapshot cũ (Ghi Audit Log). |
 
 ---
@@ -142,40 +150,150 @@ Dữ liệu trả về từ API `GET /tax-declaration/step-2/:publicId` chứa c
       "revenue": 250000000.00
     }
   ],
-  "footer": {
-    "estimatedVat": 2500000.00,
-    "transactionCount": 42
-  },
+  "estimatedVat": 2500000.00,
+  "transactionCount": 42,
   "confirmedRevenue": 250000000.00
 }
 ```
 * **`estimatedVat`**: Thuế GTGT ước tính được tính toán đồng bộ qua dịch vụ tính thuế của kỳ kế toán (`calculatePeriodTax`).
 * **`transactionCount`**: Số lượng hóa đơn bán ra có trạng thái `ISSUED` trong kỳ kế toán hiện tại.
+* **`confirmedRevenue`**: Tổng doanh thu thực tế được chụp tại kỳ kế khai.
 
 ---
 
 ### 2.5. Chi Tiết Kỹ Thuật Bước 3 - Thống Kê Tồn Kho Tổng Hợp
 
-Để tránh trùng lặp code và tính toán sai lệch, logic tính toán tồn kho tổng hợp đã được chuyển dịch tập trung về module `stocks`.
+Để tránh trùng lặp code và tính toán sai lệch, logic tính toán tồn kho tổng hợp đã được tập trung về module `stocks`.
 * **Cơ chế tính toán**:
   * **Giá trị đầu kỳ (`openingValue`)**: Tính tổng giá trị từ các chi tiết phiếu nhập kho (`StockReceiptDetail`) có trạng thái `APPROVED` và loại `sourceType = 'OPENING'`.
   * **Giá trị nhập trong kỳ (`importedValue`)**: Tính tổng giá trị từ các chi tiết phiếu nhập kho có trạng thái `APPROVED` và loại khác `OPENING`.
   * **Giá trị xuất trong kỳ (`exportedValue`)**: Tính tổng giá trị từ các phiếu xuất kho (`StockIssueDetail`) có trạng thái `APPROVED` (sử dụng phép tính nhân ở cơ sở dữ liệu `sd.quantity * COALESCE(sd.final_weighted_unit_cost, sd.provisional_unit_cost, 0)`).
   * **Giá trị cuối kỳ (`closingValue`)**: Bằng `openingValue + importedValue - exportedValue`.
-* *Lưu ý cho FE:* API `POST /tax-declaration/step-3/save/:publicId` không yêu cầu body gửi lên. Hệ thống sẽ tự động thực hiện snapshot dữ liệu tồn kho tổng hợp thực tế.
+* > [!NOTE]
+  > API `POST /tax-declaration/step-3/save/:publicId` không yêu cầu body gửi lên. Hệ thống sẽ tự động thực hiện snapshot dữ liệu tồn kho tổng hợp thực tế.
 
 ---
 
-### 2.6. Luồng Ký Nộp & Xử Lý Biến Động Số Liệu (Submit Flow)
+### 2.6. Chi Tiết Kỹ Thuật Bước 4 - Chi Tiết Chi Phí Kinh Doanh
 
-Khi người dùng nhấn nút "Ký nộp" ở bước cuối cùng, hệ thống kiểm tra sự sai lệch giữa số liệu thực tế trong DB hiện tại và số liệu snapshot đã lưu trong bản nháp tờ khai:
+Đối với loại tờ khai `02_CNKD_TNCN_QTT`, người dùng bắt buộc thực hiện Bước 4 để xác nhận chi tiết chi phí kinh doanh hợp lệ. Dữ liệu chi phí được tập hợp từ module kho hàng (giá vốn xuất kho nguyên vật liệu) và module chứng từ (chi phí nhân công, khấu hao, dịch vụ mua ngoài, lãi vay, chi phí khác).
 
-1. **Không có biến động**: Kỳ kế toán được chuyển sang trạng thái `CLOSED`. Tờ khai chính thức được tạo lập và lưu trữ.
-2. **Có biến động dữ liệu** (Doanh thu hoặc chi phí thực tế trong DB đã bị thay đổi sau khi snapshot):
-   * Backend chặn lại và trả về cảnh báo kèm mã lỗi `TAX_DECLARATION_DATA_CHANGED`.
-   * Frontend hiển thị hộp thoại cảnh báo với 2 lựa chọn dành cho người dùng:
-     * **Lựa chọn A (Đồng bộ số liệu mới - Nộp đè)**: Gọi API `POST /submit-force/:publicId`. Backend sẽ cập nhật snapshot mới nhất từ DB và tiến hành nộp.
-     * **Lựa chọn B (Giữ nguyên số liệu cũ - Nộp cũ)**: Gọi API `POST /submit-ignore-warning/:publicId`. Backend sẽ lưu trữ tờ khai theo dữ liệu cũ đã chụp và ghi lại lịch sử ghi đè cảnh báo này vào Audit Log.
+Dữ liệu trả về từ API `GET /tax-declaration/step-4/:publicId`:
+```json
+{
+  "totalExpense": 150000000.00,
+  "chiPhiNguyenVatLieu": 90000000.00,
+  "chiPhiNhanCong": 30000000.00,
+  "chiPhiKhauHao": 10000000.00,
+  "chiPhiDichVuMuaNgoai": 15000000.00,
+  "chiPhiLaiVay": 2000000.00,
+  "chiPhiKhac": 3000000.00
+}
+```
+
+* > [!NOTE]
+  > Tương tự như các bước trước, `POST /tax-declaration/step-4/save/:publicId` không yêu cầu body gửi lên. Hệ thống tự động snapshot chi phí từ DB thực tế và lưu vào bản nháp.
+
+---
+
+### 2.7. Chi Tiết Kỹ Thuật Bước 5 - Xem Trước Tờ Khai (Step 5 Preview)
+
+Tại Bước 5, FE gọi API `GET /tax-declaration/step-5/preview/:publicId` để nhận thông tin xem trước tờ khai chi tiết. 
+
+Payload trả về từ API:
+```json
+{
+  "period": { ... }, // Thông tin kỳ tài chính
+  "step1Data": { ... }, // Dữ liệu thông tin HKD đã lưu ở Bước 1
+  "step2Data": { ... }, // Dữ liệu doanh thu đã lưu ở Bước 2
+  "step3Data": { ... }, // Dữ liệu tồn kho (null đối với luồng 3 bước)
+  "step4Data": { ... }, // Dữ liệu chi phí (null đối với luồng 3 bước)
+  "pitComparison": {
+    "profitMethodAmount": 22500000.00, // Thuế TNCN tính theo phương pháp lợi nhuận (Profit Method)
+    "percentageMethodAmount": 12500000.00 // Thuế TNCN tính theo phương pháp doanh thu (Percentage Method)
+  },
+  "vatAmount": 2500000.00, // Thuế GTGT ước tính ở Bước 2
+  "ytdRevenue": 1250000000.00, // Doanh thu lũy kế đầu năm đến kỳ hiện tại (YTD)
+  "ytdExpense": 750000000.00, // Chi phí lũy kế đầu năm đến kỳ hiện tại (YTD)
+  "operatedIndustries": [
+    {
+      "categoryName": "Phân phối, cung cấp hàng hóa",
+      "revenue": 250000000.00, // Doanh thu trong kỳ hiện tại của ngành này
+      "ytdRevenue": 1250000000.00, // Doanh thu lũy kế YTD của ngành này
+      "pitRate": 0.5, // Thuế suất thuế TNCN tương ứng
+      "ytdExemption": 1000000000.00, // Mức giảm trừ doanh thu tính thuế YTD (ngưỡng 1 tỷ đồng) được phân bổ cho ngành này
+      "ytdTaxableRevenue": 250000000.00 // Doanh thu tính thuế TNCN lũy kế YTD sau giảm trừ
+    }
+  ]
+}
+```
+
+#### Các thành phần dữ liệu cốt lõi:
+1. **So Sánh Thuế TNCN (`pitComparison`)**:
+   - `profitMethodAmount`: Thuế TNCN được tính dựa trên thu nhập chịu thuế (Lợi nhuận = Doanh thu - Chi phí) nhân với thuế suất của HKD (15%, 17% hoặc 20%).
+   - `percentageMethodAmount`: Thuế TNCN được tính trực tiếp trên doanh thu chịu thuế nhân với thuế suất từng nhóm ngành nghề kinh doanh.
+   - *Mục đích:* Giúp người dùng so sánh trực quan hai phương án tính thuế để lựa chọn phương án tối ưu nhất trước khi nộp tờ khai.
+2. **Giá Trị Lũy Kế (`ytdRevenue`, `ytdExpense`)**:
+   - Lấy tổng số lũy kế từ tờ khai đã chốt của kỳ trước liền kề gần nhất thuộc năm tài chính đó (`ytdRevenue`, `ytdExpense` của tờ khai gần nhất) cộng thêm doanh thu/chi phí của kỳ hiện tại.
+   - Đối với chi phí kỳ hiện tại:
+     - Form `02_CNKD_TNCN_QTT` sử dụng chi phí chụp nhanh từ **Bước 4**.
+     - Form `01_CNKD` / `01_TKN_CNKD` sử dụng chi phí tính toán **realtime** tại thời điểm gọi API.
+3. **Danh Sách Ngành Nghề Kinh Doanh YTD (`operatedIndustries`)**:
+   - Trả về danh sách ngành nghề HKD đã có doanh thu phát sinh tính từ đầu năm đến nay.
+   - `ytdExemption`: Thuật toán phân bổ giảm trừ doanh thu tính thuế (ngưỡng 1 tỷ đồng) dựa trên hàm `calculatePitPercentageMultipleIndustries` trong `TaxEngineService`.
+   - `ytdTaxableRevenue`: Phần doanh thu chịu thuế TNCN thực tế lũy kế sau khi áp dụng ngưỡng giảm trừ 1 tỷ đồng.
+
+---
+
+### 2.8. Luồng Ký Nộp & Xử Lý Biến Động Số Liệu (Submit Flow)
+
+Khi người dùng chọn phương thức tính thuế và nhấn nút "Ký nộp" ở Bước 5, hệ thống sẽ thực hiện đối chiếu dữ liệu để đảm bảo tính nhất quán:
+
+```mermaid
+graph TD
+    A[Nhấn nút Ký nộp] --> B(Kiểm tra biến động: So sánh realtime DB vs Draft Snapshot)
+    B -->|Không có thay đổi| C[Gọi POST /submit/:publicId]
+    C --> D[Chốt sổ Period & Sinh Tờ khai chính thức & Xóa Draft]
+    
+    B -->|Có thay đổi doanh thu hoặc chi phí| E[Lỗi 409 Conflict - DATA_CHANGED]
+    E --> F{Hiển thị Popup cảnh báo lệch số liệu}
+    
+    F -->|Đồng bộ số liệu mới| G[Gọi POST /submit-force/:publicId]
+    G --> H[Cập nhật snapshot mới nhất từ DB & Chốt sổ & Ký nộp]
+    
+    F -->|Giữ nguyên số liệu cũ| I[Gọi POST /submit-ignore-warning/:publicId]
+    I --> J[Chốt sổ & Ký nộp bằng số nháp cũ & Ghi nhận Audit Log]
+```
+
+#### Chi tiết cơ chế chốt chặn:
+* **Khi gọi `POST /submit/:publicId`**:
+  - Hệ thống so sánh doanh thu thực tế hiện tại trong DB với `confirmedRevenue` đã snapshot ở Bước 2.
+  - Đối với loại tờ khai `02_CNKD_TNCN_QTT`, hệ thống cũng so sánh chi phí thực tế hiện tại trong DB với `totalExpense` đã snapshot ở Bước 4.
+  - Nếu phát hiện bất kỳ sự sai lệch nào, API sẽ trả về mã trạng thái `409 Conflict` kèm thông tin chi tiết:
+    ```json
+    {
+      "statusCode": 409,
+      "message": "Data has changed since last confirmed.",
+      "errorCode": "DATA_CHANGED",
+      "isDataChanged": true,
+      "draftData": {
+        "revenue": 250000000,
+        "expense": 150000000
+      },
+      "realTimeData": {
+        "revenue": 260000000,
+        "expense": 155000000
+      }
+    }
+    ```
+* **Lựa chọn xử lý của FE**:
+  - **Nộp đè (`submit-force`)**: Hệ thống tự động lấy số liệu realtime mới nhất để cập nhật kỳ kế toán và sinh tờ khai.
+  - **Nộp số cũ (`submit-ignore-warning`)**: Chấp nhận tờ khai đi theo số liệu cũ đã snapshot trong draft. Hành động này sẽ được ghi dấu vết riêng vào Audit Log nhằm phục vụ công tác hậu kiểm.
+
+#### Cơ chế đông băng chi phí khi chốt kỳ (Freeze Expense):
+Khi hoàn tất giao dịch nộp tờ khai (gọi hàm `processSubmission` nội bộ), hệ thống sẽ đóng kỳ tài chính (`closeFinancialPeriod`):
+- Đối với tờ khai **5 bước** (`02_CNKD_TNCN_QTT`): Số liệu chi phí của kỳ được chốt cứng theo đúng **bản nháp đã lưu ở Bước 4**.
+- Đối với tờ khai **3 bước** (`01_CNKD` và `01_TKN_CNKD`): Số liệu chi phí của kỳ được chốt cứng theo số **tính toán realtime** tại thời điểm chốt sổ.
 
 ---
 

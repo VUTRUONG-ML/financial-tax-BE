@@ -14,6 +14,7 @@ import { StartSessionDto } from './dto/start-session.dto';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
+import type { DeclarationFormType } from './interfaces/tax-declaration-step.interface';
 
 @ApiTags('Tax Declaration')
 @ApiBearerAuth()
@@ -25,6 +26,15 @@ export class TaxDeclarationController {
   @ApiOperation({ summary: 'Khởi tạo & hiển thị trạng thái nút lập tờ khai' })
   async init(@CurrentUser() user: RequestUser) {
     return await this.taxDeclarationService.init(user.id);
+  }
+
+  @Get('options/:publicId')
+  @ApiOperation({ summary: 'Lấy các tùy chọn loại tờ khai của người dùng theo kỳ tài chính' })
+  async getDeclarationOptions(
+    @CurrentUser() user: RequestUser,
+    @Param('publicId') publicId: string,
+  ) {
+    return await this.taxDeclarationService.getDeclarationOptions(user.id, publicId);
   }
 
   @Post('start')
@@ -39,6 +49,7 @@ export class TaxDeclarationController {
     return await this.taxDeclarationService.startSession(
       user.id,
       dto.periodIdPublicId,
+      dto.declarationFormType as DeclarationFormType,
     );
   }
 

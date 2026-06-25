@@ -512,7 +512,7 @@ describe('StocksService', () => {
       expect(result.validation.warnings).toHaveLength(0);
     });
 
-    it('should flag TOTAL_AMOUNT_MISMATCH and QUANTITY_MISMATCH', async () => {
+    it('should not flag TOTAL_AMOUNT_MISMATCH and QUANTITY_MISMATCH anymore', async () => {
       prismaMock.stockReceipt.findUnique.mockResolvedValue({
         id: mockReceiptId,
         receiptCode: mockReceiptCode,
@@ -535,12 +535,11 @@ describe('StocksService', () => {
 
       const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
 
-      expect(result.validation.status).toBe('WARNING');
-      expect(result.validation.warnings).toContainEqual(expect.objectContaining({ code: 'TOTAL_AMOUNT_MISMATCH' }));
-      expect(result.validation.warnings).toContainEqual(expect.objectContaining({ code: 'QUANTITY_MISMATCH' }));
+      expect(result.validation.status).toBe('SUCCESS');
+      expect(result.validation.warnings).toHaveLength(0);
     });
 
-    it('should flag PRODUCT_MISSING', async () => {
+    it('should not flag PRODUCT_MISSING anymore', async () => {
       prismaMock.stockReceipt.findUnique.mockResolvedValue({
         id: mockReceiptId,
         receiptCode: mockReceiptCode,
@@ -563,11 +562,11 @@ describe('StocksService', () => {
 
       const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
 
-      expect(result.validation.status).toBe('WARNING');
-      expect(result.validation.warnings).toContainEqual(expect.objectContaining({ code: 'PRODUCT_MISSING' }));
+      expect(result.validation.status).toBe('SUCCESS');
+      expect(result.validation.warnings).toHaveLength(0);
     });
 
-    it('should flag UNIT_COST_MISMATCH as WARNING if diff > 100', async () => {
+    it('should not flag UNIT_COST_MISMATCH as WARNING anymore', async () => {
       prismaMock.stockReceipt.findUnique.mockResolvedValue({
         id: mockReceiptId,
         receiptCode: mockReceiptCode,
@@ -590,12 +589,11 @@ describe('StocksService', () => {
 
       const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
 
-      expect(result.validation.status).toBe('WARNING');
-      const unitCostWarning = result.validation.warnings.find((w) => w.code === 'UNIT_COST_MISMATCH');
-      expect(unitCostWarning.severity).toBe('WARNING');
+      expect(result.validation.status).toBe('SUCCESS');
+      expect(result.validation.warnings).toHaveLength(0);
     });
 
-    it('should flag UNIT_COST_MISMATCH as INFO if diff <= 100', async () => {
+    it('should not flag UNIT_COST_MISMATCH as INFO anymore', async () => {
       prismaMock.stockReceipt.findUnique.mockResolvedValue({
         id: mockReceiptId,
         receiptCode: mockReceiptCode,
@@ -618,9 +616,8 @@ describe('StocksService', () => {
 
       const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
 
-      expect(result.validation.status).toBe('WARNING');
-      const unitCostWarning = result.validation.warnings.find((w) => w.code === 'UNIT_COST_MISMATCH');
-      expect(unitCostWarning.severity).toBe('INFO');
+      expect(result.validation.status).toBe('SUCCESS');
+      expect(result.validation.warnings).toHaveLength(0);
     });
   });
 });

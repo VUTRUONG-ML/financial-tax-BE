@@ -184,7 +184,7 @@ export class TaxEngineService {
 
   // thuế TNCN cho nhiều ngành nghề
   calculatePitPercentageMultipleIndustries(
-    industries: { pitRate: Decimal; ytdRevenue: Decimal }[],
+    industries: { pitRate: Decimal; ytdRevenue: Decimal; taxCategoryId?: number }[],
     threshold: Decimal = new Decimal(TAX_EXEMPT_REVENUE_THRESHOLD),
   ): {
     totalPit: Decimal;
@@ -193,6 +193,7 @@ export class TaxEngineService {
       ytdRevenue: Decimal;
       taxableRevenue: Decimal;
       pitAmount: Decimal;
+      taxCategoryId?: number;
     }[];
   } {
     // tổng doanh thu YTD
@@ -210,6 +211,7 @@ export class TaxEngineService {
           ytdRevenue: ind.ytdRevenue,
           taxableRevenue: new Decimal(0),
           pitAmount: new Decimal(0),
+          taxCategoryId: ind.taxCategoryId,
         })),
       };
     }
@@ -236,6 +238,7 @@ export class TaxEngineService {
         ytdRevenue: ind.ytdRevenue,
         taxableRevenue,
         pitAmount,
+        taxCategoryId: ind.taxCategoryId,
       });
     }
 

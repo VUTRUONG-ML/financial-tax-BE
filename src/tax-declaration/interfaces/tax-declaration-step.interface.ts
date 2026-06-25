@@ -2,6 +2,8 @@
  * Interfaces typed for each step's JSON data stored in TaxDeclarationDraft
  */
 
+export type DeclarationFormType = '01_TKN_CNKD' | '01_CNKD' | '02_CNKD_TNCN_QTT';
+
 export interface Step1Data {
   taxCode: string;
   businessName: string;
@@ -13,6 +15,7 @@ export interface Step1Data {
   provinceCity: string;
 
   // Tùy chọn bổ sung tờ khai
+  declarationFormType?: DeclarationFormType;
   taxpayerOption?: string;
   taxPeriodOption?: string;
   declarationTypeOption?: string;

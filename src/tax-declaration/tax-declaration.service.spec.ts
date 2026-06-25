@@ -77,6 +77,7 @@ describe('TaxDeclarationService', () => {
             taxDeclaration: {
               create: jest.fn(),
               count: jest.fn(),
+              findFirst: jest.fn(),
             },
             $transaction: jest.fn((cb) => cb(prisma)),
             $queryRaw: jest.fn(),
@@ -89,12 +90,14 @@ describe('TaxDeclarationService', () => {
             getRevenueByIndustry: jest.fn(),
             calculatePeriodTax: jest.fn(),
             closeFinancialPeriod: jest.fn(),
+            comparePit: jest.fn(),
           },
         },
         {
           provide: TaxEngineService,
           useValue: {
             calculatePitProfitForPeriod: jest.fn(),
+            calculatePitPercentageMultipleIndustries: jest.fn(),
           },
         },
         {
@@ -183,22 +186,87 @@ describe('TaxDeclarationService', () => {
     });
   });
 
+  describe('getStep5Preview', () => {
+    it('should return detailed step 5 preview data including PIT comparison, VAT, YTD and operated industries', async () => {
+      prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
+      prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
+      prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '02_CNKD_TNCN_QTT' },
+        step2Data: { confirmedRevenue: 250000000, estimatedVat: 2500000 },
+        step4Data: { totalExpense: 100000000 },
+      });
+
+      financialPeriodsService.comparePit.mockResolvedValue({
+        profitMethodAmount: new Decimal(5000000),
+        percentageMethodAmount: new Decimal(1250000),
+      });
+
+      prisma.taxDeclaration.findFirst.mockResolvedValue({
+        ytdRevenue: new Decimal(500000000),
+        ytdExpense: new Decimal(200000000),
+      });
+
+      financialPeriodsService.getRevenueByIndustry.mockResolvedValue([
+        {
+          taxCategoryId: 10,
+          vatRate: new Decimal(0.01),
+          pitRate: new Decimal(0.005),
+          revenue: new Decimal(250000000),
+        },
+      ]);
+
+      prisma.taxCategory.findMany.mockResolvedValue([
+        { id: 10, categoryName: 'Buôn bán, bán lẻ' },
+      ]);
+
+      taxEngineService.calculatePitPercentageMultipleIndustries.mockReturnValue({
+        totalPit: new Decimal(1250000),
+        details: [
+          {
+            taxCategoryId: 10,
+            pitRate: new Decimal(0.005),
+            ytdRevenue: new Decimal(250000000),
+            taxableRevenue: new Decimal(250000000),
+            pitAmount: new Decimal(1250000),
+          },
+        ],
+      });
+
+      const result = await service.getStep5Preview('user-01', 'period-01');
+
+      expect(result.vatAmount).toBe(2500000);
+      expect(result.ytdRevenue).toBe(750000000); // 500M (prev) + 250M (period)
+      expect(result.ytdExpense).toBe(300000000); // 200M (prev) + 100M (period)
+      expect(result.pitComparison.profitMethodAmount).toBe(5000000);
+      expect(result.pitComparison.percentageMethodAmount).toBe(1250000);
+      expect(result.operatedIndustries).toHaveLength(1);
+      expect(result.operatedIndustries[0].categoryName).toBe('Buôn bán, bán lẻ');
+      expect(result.operatedIndustries[0].revenue).toBe(250000000);
+    });
+  });
+
   describe('Step 3 and Step 4 applicability', () => {
-    it('should throw BadRequestException for Step 3 if business is exempt (revenue <= 1B)', async () => {
+    it('should throw BadRequestException for Step 3 if formType is not 02_CNKD_TNCN_QTT', async () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigExempt);
+      prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '01_TKN_CNKD' },
+      });
 
       await expect(service.getStep3('user-01', 'period-01')).rejects.toThrow(
         BadRequestException,
       );
-      await expect(service.saveStep3('user-01', 'period-01', { inventoryItems: [] })).rejects.toThrow(
+      await expect(service.saveStep3('user-01', 'period-01')).rejects.toThrow(
         BadRequestException,
       );
     });
 
-    it('should throw BadRequestException for Step 4 if business is exempt (revenue <= 1B)', async () => {
+    it('should throw BadRequestException for Step 4 if formType is not 02_CNKD_TNCN_QTT', async () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigExempt);
+      prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '01_TKN_CNKD' },
+      });
 
       await expect(service.getStep4('user-01', 'period-01')).rejects.toThrow(
         BadRequestException,
@@ -208,9 +276,12 @@ describe('TaxDeclarationService', () => {
       );
     });
 
-    it('should allow Step 3 & 4 if business is not exempt', async () => {
+    it('should allow Step 3 & 4 if formType is 02_CNKD_TNCN_QTT', async () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
+      prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '02_CNKD_TNCN_QTT' },
+      });
       stocksService.calculatePeriodInventorySummary.mockResolvedValue({
         openingValue: 10000000,
         importedValue: 5000000,
@@ -229,12 +300,13 @@ describe('TaxDeclarationService', () => {
   });
 
   describe('Submission validation', () => {
-    it('should only require Step 2 data to submit if exempt', async () => {
+    it('should only require Step 2 data to submit if formType is 01_TKN_CNKD', async () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '01_TKN_CNKD' },
         step2Data: { confirmedRevenue: 250000000 },
-        step4Data: null, // Step 4 is skipped for exempt
+        step4Data: null, // Step 4 is skipped
       });
 
       financialPeriodsService.calculateRealtimeTaxData.mockResolvedValue({
@@ -259,12 +331,44 @@ describe('TaxDeclarationService', () => {
       expect(res.declaration).toBeDefined();
     });
 
-    it('should require Step 4 data to submit if not exempt', async () => {
+    it('should only require Step 2 data to submit if formType is 01_CNKD', async () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '01_CNKD' },
         step2Data: { confirmedRevenue: 250000000 },
-        step4Data: null, // Step 4 is missing for non-exempt
+        step4Data: null, // Step 4 is skipped
+      });
+
+      financialPeriodsService.calculateRealtimeTaxData.mockResolvedValue({
+        revenue: new Decimal(250000000),
+        expense: new Decimal(100000000),
+      });
+
+      financialPeriodsService.closeFinancialPeriod.mockResolvedValue({
+        period: { taxAmount: new Decimal(0) },
+        vatAmount: new Decimal(0),
+        pitAmount: new Decimal(0),
+        ytdRevenue: new Decimal(250000000),
+        ytdExpense: new Decimal(0),
+      });
+
+      prisma.taxDeclaration.create.mockResolvedValue({ id: 99 });
+
+      const res = await service.submit('user-01', 'period-01', {
+        chosenPitMethod: 'PERCENTAGE',
+      });
+
+      expect(res.declaration).toBeDefined();
+    });
+
+    it('should require Step 4 data to submit if formType is 02_CNKD_TNCN_QTT', async () => {
+      prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
+      prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
+      prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
+        step1Data: { declarationFormType: '02_CNKD_TNCN_QTT' },
+        step2Data: { confirmedRevenue: 250000000 },
+        step4Data: null, // Step 4 is missing
       });
 
       await expect(

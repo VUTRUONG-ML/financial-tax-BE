@@ -19,7 +19,7 @@ export class InvoiceSyncService implements OnModuleInit {
       } catch (err: any) {
         this.log.error('Error during scheduled invoice sync: ' + err.message);
       }
-    }, 12000000);
+    }, 60000);
   }
 
   async syncAllUsers(): Promise<void> {

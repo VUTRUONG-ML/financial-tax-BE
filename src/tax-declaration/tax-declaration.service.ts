@@ -16,8 +16,11 @@ import {
   TAXPAYER_OPTIONS,
   TAX_PERIOD_OPTIONS,
   DECLARATION_TYPE_OPTIONS,
+  DECLARATION_FORM_OPTIONS,
 } from './constants/tax-declaration.constant';
 import { Prisma, PeriodStatus, PitMethod, FinancialPeriod } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/client';
+import { moment } from '../common/utils/time.util';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
   AuditLogService,
@@ -28,6 +31,7 @@ import type {
   Step2Data,
   Step3Data,
   Step4Data,
+  DeclarationFormType,
 } from './interfaces/tax-declaration-step.interface';
 
 @Injectable()
@@ -86,8 +90,41 @@ export class TaxDeclarationService {
     };
   }
 
+  async getDeclarationOptions(userId: string, publicId: string) {
+    const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+
+    if (taxGroupId === 1) {
+      return [DECLARATION_FORM_OPTIONS.FORM_01_TKN_CNKD];
+    } else {
+      return [
+        DECLARATION_FORM_OPTIONS.FORM_01_CNKD,
+        DECLARATION_FORM_OPTIONS.FORM_02_CNKD_TNCN_QTT,
+      ];
+    }
+  }
+
+  getDeclarationFormType(draft: any, taxGroupId?: number): DeclarationFormType {
+    const step1 = draft?.step1Data as unknown as Step1Data;
+    if (step1?.declarationFormType) {
+      return step1.declarationFormType;
+    }
+    return taxGroupId === 1 ? '01_TKN_CNKD' : '01_CNKD';
+  }
+
   // khi nhấn vào nút bắt đầu
-  async startSession(userId: string, publicId: string) {
+  async startSession(
+    userId: string,
+    publicId: string,
+    declarationFormType: DeclarationFormType,
+  ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
 
     if (period.status !== PeriodStatus.OPEN) {
@@ -97,13 +134,39 @@ export class TaxDeclarationService {
       });
     }
 
-    // Upsert: nếu đã có draft cũ thì giữ nguyên, chưa có thì tạo mới
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const allowedTypes: DeclarationFormType[] =
+      taxGroupId === 1 ? ['01_TKN_CNKD'] : ['01_CNKD', '02_CNKD_TNCN_QTT'];
+    if (!allowedTypes.includes(declarationFormType)) {
+      throw new BadRequestException({
+        message: `Declaration form type ${declarationFormType} is not allowed for your tax group.`,
+        errorCode: 'INVALID_DECLARATION_TYPE',
+      });
+    }
+
+    const draft = await this.prisma.taxDeclarationDraft.findUnique({
+      where: { financialPeriodId: period.id },
+    });
+
+    const step1 = (draft?.step1Data as unknown as Step1Data) || {};
+    step1.declarationFormType = declarationFormType;
+
     return await this.prisma.taxDeclarationDraft.upsert({
       where: { financialPeriodId: period.id },
-      update: {},
+      update: {
+        step1Data: step1 as unknown as Prisma.InputJsonValue,
+      },
       create: {
         userId,
         financialPeriodId: period.id,
+        step1Data: { declarationFormType } as unknown as Prisma.InputJsonValue,
       },
     });
   }
@@ -124,7 +187,10 @@ export class TaxDeclarationService {
     });
 
     // Xác định formType và check lịch sử kết xuất trong TaxFormExport
-    const targetFormType = currentTaxConfig?.taxGroupId === 1 ? '01_TKN_CNKD' : '01_CNKD';
+    const targetFormType =
+      currentTaxConfig?.taxGroupId === 1
+        ? DECLARATION_FORM_OPTIONS.FORM_01_TKN_CNKD.code
+        : DECLARATION_FORM_OPTIONS.FORM_01_CNKD.code;
     const hasExported = await this.prisma.taxFormExport.findFirst({
       where: {
         periodId: period.id,
@@ -132,12 +198,16 @@ export class TaxDeclarationService {
         exportStatus: 'SUCCESS',
       },
     });
-    const defaultDeclType = hasExported ? DECLARATION_TYPE_OPTIONS.ADDITIONAL : DECLARATION_TYPE_OPTIONS.FIRST_TIME;
+    const defaultDeclType = hasExported
+      ? DECLARATION_TYPE_OPTIONS.ADDITIONAL : DECLARATION_TYPE_OPTIONS.FIRST_TIME;
 
     // Xác định taxpayerOption mặc định dựa trên chosenPitMethod
     let defaultTaxpayerOpt = '';
     if (currentTaxConfig) {
-      if (currentTaxConfig.chosenPitMethod === 'EXEMPT' || currentTaxConfig.taxGroupId === 1) {
+      if (
+        currentTaxConfig.chosenPitMethod === 'EXEMPT' ||
+        currentTaxConfig.taxGroupId === 1
+      ) {
         defaultTaxpayerOpt = TAXPAYER_OPTIONS.HKD_UNDER_1B;
       } else if (currentTaxConfig.chosenPitMethod === 'PERCENTAGE') {
         defaultTaxpayerOpt = TAXPAYER_OPTIONS.HKD_ON_REVENUE;
@@ -150,9 +220,10 @@ export class TaxDeclarationService {
       }
     }
     if (!defaultTaxpayerOpt) {
-      defaultTaxpayerOpt = currentTaxConfig?.taxGroupId === 1
-        ? TAXPAYER_OPTIONS.HKD_UNDER_1B
-        : TAXPAYER_OPTIONS.HKD_ON_REVENUE;
+      defaultTaxpayerOpt =
+        currentTaxConfig?.taxGroupId === 1
+          ? TAXPAYER_OPTIONS.HKD_UNDER_1B
+          : TAXPAYER_OPTIONS.HKD_ON_REVENUE;
     }
 
     // Xác định taxPeriodOption mặc định (Nhóm 1 mặc định là 'Năm', Nhóm 2, 3, 4 ánh xạ từ vatFilingPeriod)
@@ -161,18 +232,23 @@ export class TaxDeclarationService {
       defaultTaxPeriod = TAX_PERIOD_OPTIONS.YEAR;
     } else if (currentTaxConfig) {
       const filingPeriod = currentTaxConfig.vatFilingPeriod;
-      defaultTaxPeriod = filingPeriod === 'MONTHLY'
-        ? TAX_PERIOD_OPTIONS.MONTH
-        : filingPeriod === 'PER_OCCURRENCE'
-        ? TAX_PERIOD_OPTIONS.PER_OCCURRENCE
-        : TAX_PERIOD_OPTIONS.QUARTER;
+      defaultTaxPeriod =
+        filingPeriod === 'MONTHLY'
+          ? TAX_PERIOD_OPTIONS.MONTH
+          : filingPeriod === 'PER_OCCURRENCE'
+            ? TAX_PERIOD_OPTIONS.PER_OCCURRENCE
+            : TAX_PERIOD_OPTIONS.QUARTER;
     }
+
+    const taxGroupId = currentTaxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
 
     // Ưu tiên trả về dữ liệu đã lưu trong draft và merge thêm các giá trị mặc định nếu thiếu
     if (draft?.step1Data) {
       const existing = draft.step1Data as unknown as Step1Data;
       return {
         ...existing,
+        declarationFormType: existing.declarationFormType || formType,
         taxpayerOption: existing.taxpayerOption || defaultTaxpayerOpt,
         taxPeriodOption: existing.taxPeriodOption || defaultTaxPeriod,
         declarationTypeOption: existing.declarationTypeOption || defaultDeclType,
@@ -182,7 +258,7 @@ export class TaxDeclarationService {
         authorizedFilerDocDate: existing.authorizedFilerDocDate ?? null,
         taxAgentName: existing.taxAgentName ?? '',
         taxAgentTaxCode: existing.taxAgentTaxCode ?? '',
-      } as unknown as Step1Data;
+      } as Step1Data;
     }
 
     // Auto-fill từ User profile
@@ -197,6 +273,7 @@ export class TaxDeclarationService {
       address:
         'Số 123, Đường Lý Thường Kiệt, Phường Trần Hưng Đạo, Quận Hoàn Kiếm, TP. Hà Nội',
       provinceCity: user?.provinceCity ?? '',
+
       taxpayerOption: defaultTaxpayerOpt,
       taxPeriodOption: defaultTaxPeriod,
       declarationTypeOption: defaultDeclType,
@@ -206,12 +283,17 @@ export class TaxDeclarationService {
       authorizedFilerDocDate: null,
       taxAgentName: '',
       taxAgentTaxCode: '',
+      declarationFormType: formType,
     };
     return step1;
   }
 
   async saveStep1(userId: string, publicId: string, dto: SaveStep1Dto) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const draft = await this.findDraftByPeriodId(period.id);
+    const currentFormType = draft?.step1Data
+      ? (draft.step1Data as unknown as Step1Data).declarationFormType
+      : undefined;
 
     const step1: Step1Data = {
       taxCode: dto.taxCode ?? '',
@@ -230,22 +312,14 @@ export class TaxDeclarationService {
       taxAgentTaxCode: dto.taxAgentTaxCode ?? '',
     };
 
+    if (currentFormType) {
+      step1.declarationFormType = currentFormType;
+    }
+
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
       data: { step1Data: step1 as unknown as Prisma.InputJsonValue },
     });
-  }
-
-  private async checkIfExempt(userId: string, period: any): Promise<boolean> {
-    const taxConfig = await this.prisma.taxConfiguration.findFirst({
-      where: {
-        userId,
-        applyFromDate: { lte: period.endDate },
-        applyToDate: { gte: period.endDate },
-      },
-      orderBy: { applyFromDate: 'desc' },
-    });
-    return taxConfig?.taxGroupId === 1;
   }
 
   private async buildStep2Data(
@@ -350,16 +424,24 @@ export class TaxDeclarationService {
   // step 3
   async getStep3(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
-    if (isExempt) {
+    const draft = await this.findDraftByPeriodId(period.id);
+
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    if (formType !== '02_CNKD_TNCN_QTT') {
       throw new BadRequestException({
-        message:
-          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        message: 'Steps 3 and 4 are not applicable for this declaration form type.',
         errorCode: 'STEP_NOT_APPLICABLE',
       });
     }
-
-    const draft = await this.findDraftByPeriodId(period.id);
 
     if (draft?.step3Data) return draft.step3Data as unknown as Step3Data;
 
@@ -371,16 +453,25 @@ export class TaxDeclarationService {
 
   async saveStep3(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
-    if (isExempt) {
+    const draft = await this.findDraftByPeriodId(period.id);
+
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    if (formType !== '02_CNKD_TNCN_QTT') {
       throw new BadRequestException({
-        message:
-          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        message: 'Steps 3 and 4 are not applicable for this declaration form type.',
         errorCode: 'STEP_NOT_APPLICABLE',
       });
     }
 
-    const draft = await this.findDraftByPeriodId(period.id);
     if (!draft?.step2Data)
       throw new BadRequestException({
         message: 'Please complete Step 2 first.',
@@ -416,16 +507,25 @@ export class TaxDeclarationService {
   // step 4
   async getStep4(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
-    if (isExempt) {
+    const draft = await this.findDraftByPeriodId(period.id);
+
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    if (formType !== '02_CNKD_TNCN_QTT') {
       throw new BadRequestException({
         message:
-          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+          'Steps 3 and 4 are not applicable for this declaration form type.',
         errorCode: 'STEP_NOT_APPLICABLE',
       });
     }
-
-    const draft = await this.findDraftByPeriodId(period.id);
 
     if (draft?.step4Data) return draft.step4Data as unknown as Step4Data;
 
@@ -456,16 +556,25 @@ export class TaxDeclarationService {
 
   async saveStep4(userId: string, publicId: string) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
-    if (isExempt) {
+    const draft = await this.findDraftByPeriodId(period.id);
+
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    if (formType !== '02_CNKD_TNCN_QTT') {
       throw new BadRequestException({
-        message:
-          'Steps 3 and 4 are not applicable for exempt businesses (revenue <= 1 billion).',
+        message: 'Steps 3 and 4 are not applicable for this declaration form type.',
         errorCode: 'STEP_NOT_APPLICABLE',
       });
     }
 
-    const draft = await this.findDraftByPeriodId(period.id);
     if (!draft?.step2Data)
       throw new BadRequestException({
         message: 'Please complete Step 2 first.',
@@ -527,34 +636,158 @@ export class TaxDeclarationService {
     const draft = await this.findDraftByPeriodId(period.id);
     if (!draft) throw new NotFoundException('Tax declaration draft not found.');
 
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    // 1. So sánh hai mức thuế TNCN (profitMethodAmount và percentageMethodAmount)
+    const pitComparison = await this.financialPeriodsService.comparePit(userId, publicId);
+
+    // 2. Thuế giá trị gia tăng (VAT) từ snapshot của Bước 2
+    const step2Data = draft.step2Data as unknown as Step2Data;
+    const vatAmount = step2Data?.estimatedVat ?? 0;
+
+    // 3. Doanh thu & Chi phí trong kỳ hiện tại
+    const inPeriodRevenue = step2Data ? step2Data.confirmedRevenue : 0;
+    let inPeriodExpense = 0;
+    if (formType === '02_CNKD_TNCN_QTT') {
+      const step4Data = draft.step4Data as unknown as Step4Data;
+      inPeriodExpense = step4Data ? step4Data.totalExpense : 0;
+    } else {
+      const realtimeData = await this.financialPeriodsService.calculateRealtimeTaxData(
+        userId,
+        period.startDate,
+        period.endDate,
+      );
+      inPeriodExpense = realtimeData.expense.toNumber();
+    }
+
+    // Doanh thu & Chi phí lũy kế YTD từ đầu năm tài chính
+    const startOfYear = moment(period.startDate).startOf('year').toDate();
+    const mostRecentDeclaration = await this.prisma.taxDeclaration.findFirst({
+      where: {
+        period: {
+          userId,
+          startDate: { gte: startOfYear },
+          endDate: { lt: period.startDate },
+          status: PeriodStatus.CLOSED,
+        },
+      },
+      orderBy: {
+        period: {
+          endDate: 'desc',
+        },
+      },
+    });
+
+    const ytdRevenue =
+      (mostRecentDeclaration?.ytdRevenue?.toNumber() ?? 0) + inPeriodRevenue;
+    const ytdExpense =
+      (mostRecentDeclaration?.ytdExpense?.toNumber() ?? 0) + inPeriodExpense;
+
+    // 4. Danh sách ngành nghề đã kinh doanh
+    const [periodIndustries, ytdIndustries] = await Promise.all([
+      this.financialPeriodsService.getRevenueByIndustry(userId, period.startDate, period.endDate),
+      this.financialPeriodsService.getRevenueByIndustry(userId, startOfYear, period.endDate),
+    ]);
+
+    const pitCalc =
+      this.taxEngineService.calculatePitPercentageMultipleIndustries(
+        ytdIndustries.map((ind) => ({
+          taxCategoryId: ind.taxCategoryId,
+          pitRate: ind.pitRate,
+          ytdRevenue: ind.revenue,
+        })),
+      );
+
+    const categoryIds = ytdIndustries.map((i) => i.taxCategoryId);
+    const categories = await this.prisma.taxCategory.findMany({
+      where: { id: { in: categoryIds } },
+      select: { id: true, categoryName: true },
+    });
+    const categoryMap = new Map(categories.map((c) => [c.id, c.categoryName]));
+    const periodRevenueMap = new Map(
+      periodIndustries.map((p) => [p.taxCategoryId, p.revenue.toNumber()]),
+    );
+
+    const detailMap = new Map(pitCalc.details.map((d) => [d.taxCategoryId, d]));
+
+    const operatedIndustries = ytdIndustries.map((ytd) => {
+      const detail = detailMap.get(ytd.taxCategoryId);
+      const periodRevenue = periodRevenueMap.get(ytd.taxCategoryId) || 0;
+      const ytdRevenueVal = ytd.revenue.toNumber();
+      const taxableRevenueVal = detail ? detail.taxableRevenue.toNumber() : 0;
+      const exemptionAllocatedVal = detail
+        ? ytdRevenueVal - taxableRevenueVal
+        : ytdRevenueVal;
+
+      return {
+        categoryName: categoryMap.get(ytd.taxCategoryId) || 'Ngành nghề khác',
+        revenue: periodRevenue,
+        ytdRevenue: ytdRevenueVal,
+        pitRate: ytd.pitRate.toNumber(),
+        ytdExemption: exemptionAllocatedVal,
+        ytdTaxableRevenue: taxableRevenueVal,
+      };
+    });
+
     return {
       period,
       step1Data: (draft.step1Data as unknown as Step1Data) ?? null,
       step2Data: (draft.step2Data as unknown as Step2Data) ?? null,
       step3Data: (draft.step3Data as unknown as Step3Data) ?? null,
       step4Data: (draft.step4Data as unknown as Step4Data) ?? null,
+      pitComparison: {
+        profitMethodAmount:
+          pitComparison.profitMethodAmount instanceof Decimal
+            ? pitComparison.profitMethodAmount.toNumber()
+            : pitComparison.profitMethodAmount,
+        percentageMethodAmount:
+          pitComparison.percentageMethodAmount instanceof Decimal
+            ? pitComparison.percentageMethodAmount.toNumber()
+            : pitComparison.percentageMethodAmount,
+      },
+      vatAmount: vatAmount,
+      ytdRevenue,
+      ytdExpense,
+      operatedIndustries,
     };
   }
 
   // nộp tờ khai
   async submit(userId: string, publicId: string, dto: SubmitDeclarationDto) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
-
     const draft = await this.findDraftByPeriodId(period.id);
-    if (isExempt) {
-      if (!draft?.step2Data) {
-        throw new BadRequestException({
-          message:
-            'Incomplete draft data. Please complete Step 2 before submitting.',
-          errorCode: 'DRAFT_INCOMPLETE',
-        });
-      }
-    } else {
+
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    if (formType === '02_CNKD_TNCN_QTT') {
       if (!draft?.step2Data || !draft?.step4Data) {
         throw new BadRequestException({
           message:
             'Incomplete draft data. Please complete all steps before submitting.',
+          errorCode: 'DRAFT_INCOMPLETE',
+        });
+      }
+    } else {
+      if (!draft?.step2Data) {
+        throw new BadRequestException({
+          message:
+            'Incomplete draft data. Please complete Step 2 before submitting.',
           errorCode: 'DRAFT_INCOMPLETE',
         });
       }
@@ -573,9 +806,10 @@ export class TaxDeclarationService {
 
     const isRevenueChanged =
       realtimeData.revenue.toNumber() !== step2Data.confirmedRevenue;
-    const isExpenseChanged = isExempt
-      ? false
-      : realtimeData.expense.toNumber() !== step4Data.totalExpense;
+    const isExpenseChanged =
+      formType !== '02_CNKD_TNCN_QTT'
+        ? false
+        : realtimeData.expense.toNumber() !== step4Data.totalExpense;
 
     if (isRevenueChanged || isExpenseChanged) {
       throw new ConflictException({
@@ -584,14 +818,18 @@ export class TaxDeclarationService {
         isDataChanged: true,
         draftData: {
           revenue: step2Data.confirmedRevenue,
-          expense: isExempt ? 0 : step4Data.totalExpense,
+          expense: formType === '02_CNKD_TNCN_QTT' ? step4Data.totalExpense : realtimeData.expense.toNumber(),
         },
         realTimeData: {
           revenue: realtimeData.revenue.toNumber(),
-          expense: isExempt ? 0 : realtimeData.expense.toNumber(),
+          expense: realtimeData.expense.toNumber(),
         },
       });
     }
+
+    const expense = formType === '02_CNKD_TNCN_QTT'
+      ? step4Data.totalExpense
+      : realtimeData.expense.toNumber();
 
     return await this.processSubmission(
       userId,
@@ -599,7 +837,7 @@ export class TaxDeclarationService {
       period.id,
       dto.chosenPitMethod,
       step2Data.confirmedRevenue,
-      isExempt ? 0 : step4Data.totalExpense,
+      expense,
     );
   }
 
@@ -609,7 +847,6 @@ export class TaxDeclarationService {
     dto: SubmitDeclarationDto,
   ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
 
     // Tự động đồng bộ với số realtime mới nhất
     const realtimeData =
@@ -625,7 +862,7 @@ export class TaxDeclarationService {
       period.id,
       dto.chosenPitMethod,
       realtimeData.revenue.toNumber(),
-      isExempt ? 0 : realtimeData.expense.toNumber(),
+      realtimeData.expense.toNumber(),
     );
   }
 
@@ -635,22 +872,31 @@ export class TaxDeclarationService {
     dto: SubmitDeclarationDto,
   ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
-    const isExempt = await this.checkIfExempt(userId, period);
-
     const draft = await this.findDraftByPeriodId(period.id);
-    if (isExempt) {
-      if (!draft?.step2Data) {
-        throw new BadRequestException({
-          message:
-            'Incomplete draft data. Please complete Step 2 before submitting.',
-          errorCode: 'DRAFT_INCOMPLETE',
-        });
-      }
-    } else {
+
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
+    if (formType === '02_CNKD_TNCN_QTT') {
       if (!draft?.step2Data || !draft?.step4Data) {
         throw new BadRequestException({
           message:
             'Incomplete draft data. Please complete all steps before submitting.',
+          errorCode: 'DRAFT_INCOMPLETE',
+        });
+      }
+    } else {
+      if (!draft?.step2Data) {
+        throw new BadRequestException({
+          message:
+            'Incomplete draft data. Please complete Step 2 before submitting.',
           errorCode: 'DRAFT_INCOMPLETE',
         });
       }
@@ -661,6 +907,19 @@ export class TaxDeclarationService {
       totalExpense: 0,
     };
 
+    let expense = 0;
+    if (formType === '02_CNKD_TNCN_QTT') {
+      expense = step4Data.totalExpense;
+    } else {
+      const realtimeData =
+        await this.financialPeriodsService.calculateRealtimeTaxData(
+          userId,
+          period.startDate,
+          period.endDate,
+        );
+      expense = realtimeData.expense.toNumber();
+    }
+
     // Bỏ qua kiểm tra realtime, dùng số cũ trong draft
     const result = await this.processSubmission(
       userId,
@@ -668,10 +927,9 @@ export class TaxDeclarationService {
       period.id,
       dto.chosenPitMethod,
       step2Data.confirmedRevenue,
-      isExempt ? 0 : step4Data.totalExpense,
+      expense,
     );
 
-    // Ghi Audit Log ghi nhận việc user chủ động bỏ qua cảnh báo
     await this.auditLogService.logChange(
       this.prisma,
       userId,

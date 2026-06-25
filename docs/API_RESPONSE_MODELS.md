@@ -67,19 +67,20 @@ This document describes the request and response data structures of the core API
   - [11.3. Get All Production Orders](#113-get-all-production-orders)
 - [12. Tax Declaration](#12-tax-declaration)
   - [12.1. Init Tax Declaration](#121-init-tax-declaration)
-  - [12.2. Start Session](#122-start-session)
-  - [12.3. Get Step 1](#123-get-step-1)
-  - [12.4. Save Step 1](#124-save-step-1)
-  - [12.5. Get Step 2](#125-get-step-2)
-  - [12.6. Save Step 2](#126-save-step-2)
-  - [12.7. Get Step 3](#127-get-step-3)
-  - [12.8. Save Step 3](#128-save-step-3)
-  - [12.9. Get Step 4](#129-get-step-4)
-  - [12.10. Save Step 4](#1210-save-step-4)
-  - [12.11. Step 5 Preview](#1211-step-5-preview)
-  - [12.12. Submit Declaration](#1212-submit-declaration)
-  - [12.13. Submit Force](#1213-submit-force)
-  - [12.14. Submit Ignore Warning](#1214-submit-ignore-warning)
+  - [12.2. Get Declaration Options](#122-get-declaration-options)
+  - [12.3. Start Session](#123-start-session)
+  - [12.4. Get Step 1](#124-get-step-1)
+  - [12.5. Save Step 1](#125-save-step-1)
+  - [12.6. Get Step 2](#126-get-step-2)
+  - [12.7. Save Step 2](#127-save-step-2)
+  - [12.8. Get Step 3](#128-get-step-3)
+  - [12.9. Save Step 3](#129-save-step-3)
+  - [12.10. Get Step 4](#1210-get-step-4)
+  - [12.11. Save Step 4](#1211-save-step-4)
+  - [12.12. Step 5 Preview](#1212-step-5-preview)
+  - [12.13. Submit Declaration](#1213-submit-declaration)
+  - [12.14. Submit Force](#1214-submit-force)
+  - [12.15. Submit Ignore Warning](#1215-submit-ignore-warning)
 - [13. Accounting Books](#13-accounting-books)
   - [13.1. Get Revenue Book Summary](#131-get-revenue-book-summary)
   - [13.2. Get Revenue Book Records](#132-get-revenue-book-records)
@@ -2535,7 +2536,35 @@ None
 }
 ```
 
-### 12.2. Start Session
+### 12.2. Get Declaration Options
+
+- **Route:** `/tax-declaration/options/:publicId`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "string",
+  "data": [
+    {
+      "code": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\"",
+      "name": "string"
+    }
+  ],
+  "meta": null
+}
+```
+
+### 12.3. Start Session
 
 - **Route:** `/tax-declaration/start`
 - **Method:** `POST`
@@ -2545,7 +2574,8 @@ None
 
 ```json
 {
-  "periodIdPublicId": "string"
+  "periodIdPublicId": "string",
+  "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\""
 }
 ```
 
@@ -2572,7 +2602,7 @@ None
 }
 ```
 
-### 12.3. Get Step 1
+### 12.4. Get Step 1
 
 - **Route:** `/tax-declaration/step-1/:publicId`
 - **Method:** `GET`
@@ -2596,21 +2626,22 @@ None
     "ownerName": "string",
     "cccdNumber": "string",
     "provinceCity": "string",
-    "taxpayerOption": "string (Optional)",
-    "taxPeriodOption": "string (Optional)",
-    "declarationTypeOption": "string (Optional)",
-    "authorizedFilerName": "string (Optional)",
-    "authorizedFilerTaxCode": "string (Optional)",
-    "authorizedFilerDocNumber": "string (Optional)",
-    "authorizedFilerDocDate": "string | null (Optional)",
-    "taxAgentName": "string (Optional)",
-    "taxAgentTaxCode": "string (Optional)"
+    "taxpayerOption": "string",
+    "taxPeriodOption": "string",
+    "declarationTypeOption": "string",
+    "authorizedFilerName": "string",
+    "authorizedFilerTaxCode": "string",
+    "authorizedFilerDocNumber": "string",
+    "authorizedFilerDocDate": "string | null",
+    "taxAgentName": "string",
+    "taxAgentTaxCode": "string",
+    "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\""
   },
   "meta": null
 }
 ```
 
-### 12.4. Save Step 1
+### 12.5. Save Step 1
 
 - **Route:** `/tax-declaration/step-1/save/:publicId`
 - **Method:** `POST`
@@ -2663,7 +2694,8 @@ None
       "authorizedFilerDocNumber": "string",
       "authorizedFilerDocDate": "string | null",
       "taxAgentName": "string",
-      "taxAgentTaxCode": "string"
+      "taxAgentTaxCode": "string",
+      "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\""
     },
     "step2Data": "object | null",
     "step3Data": "object | null",
@@ -2675,7 +2707,7 @@ None
 }
 ```
 
-### 12.5. Get Step 2
+### 12.6. Get Step 2
 
 - **Route:** `/tax-declaration/step-2/:publicId`
 - **Method:** `GET`
@@ -2694,13 +2726,24 @@ None
   "timestamp": "Date string",
   "message": "string",
   "data": {
+    "periodName": "string",
+    "industries": [
+      {
+        "categoryName": "string",
+        "vatRate": "number",
+        "pitRate": "number",
+        "revenue": "number"
+      }
+    ],
+    "estimatedVat": "number",
+    "transactionCount": "number",
     "confirmedRevenue": "number"
   },
   "meta": null
 }
 ```
 
-### 12.6. Save Step 2
+### 12.7. Save Step 2
 
 - **Route:** `/tax-declaration/step-2/save/:publicId`
 - **Method:** `POST`
@@ -2724,6 +2767,17 @@ None
     "financialPeriodId": "number",
     "step1Data": "object | null",
     "step2Data": {
+      "periodName": "string",
+      "industries": [
+        {
+          "categoryName": "string",
+          "vatRate": "number",
+          "pitRate": "number",
+          "revenue": "number"
+        }
+      ],
+      "estimatedVat": "number",
+      "transactionCount": "number",
       "confirmedRevenue": "number"
     },
     "step3Data": "object | null",
@@ -2735,7 +2789,7 @@ None
 }
 ```
 
-### 12.7. Get Step 3
+### 12.8. Get Step 3
 
 - **Route:** `/tax-declaration/step-3/:publicId`
 - **Method:** `GET`
@@ -2753,36 +2807,25 @@ None
   "statusCode": 200,
   "timestamp": "Date string",
   "message": "string",
-  "data": [
-    {
-      "productPublicId": "string",
-      "productName": "string",
-      "unit": "string",
-      "actualClosingQuantity": "number"
-    }
-  ],
+  "data": {
+    "openingValue": "number",
+    "importedValue": "number",
+    "exportedValue": "number",
+    "closingValue": "number"
+  },
   "meta": null
 }
 ```
 
-### 12.8. Save Step 3
+### 12.9. Save Step 3
 
 - **Route:** `/tax-declaration/step-3/save/:publicId`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
-#### Request Body (JSON)
+#### Request Body
 
-```json
-{
-  "inventoryItems": [
-    {
-      "productPublicId": "string",
-      "actualClosingQuantity": "number"
-    }
-  ]
-}
-```
+None
 
 #### Response Data (JSON)
 
@@ -2798,12 +2841,12 @@ None
     "financialPeriodId": "number",
     "step1Data": "object | null",
     "step2Data": "object | null",
-    "step3Data": [
-      {
-        "productPublicId": "string",
-        "actualClosingQuantity": "number"
-      }
-    ],
+    "step3Data": {
+      "openingValue": "number",
+      "importedValue": "number",
+      "exportedValue": "number",
+      "closingValue": "number"
+    },
     "step4Data": "object | null",
     "createdAt": "Date string",
     "updatedAt": "Date string"
@@ -2812,7 +2855,7 @@ None
 }
 ```
 
-### 12.9. Get Step 4
+### 12.10. Get Step 4
 
 - **Route:** `/tax-declaration/step-4/:publicId`
 - **Method:** `GET`
@@ -2831,13 +2874,19 @@ None
   "timestamp": "Date string",
   "message": "string",
   "data": {
-    "totalExpense": "number"
+    "totalExpense": "number",
+    "chiPhiNguyenVatLieu": "number",
+    "chiPhiNhanCong": "number",
+    "chiPhiKhauHao": "number",
+    "chiPhiDichVuMuaNgoai": "number",
+    "chiPhiLaiVay": "number",
+    "chiPhiKhac": "number"
   },
   "meta": null
 }
 ```
 
-### 12.10. Save Step 4
+### 12.11. Save Step 4
 
 - **Route:** `/tax-declaration/step-4/save/:publicId`
 - **Method:** `POST`
@@ -2863,7 +2912,13 @@ None
     "step2Data": "object | null",
     "step3Data": "object | null",
     "step4Data": {
-      "totalExpense": "number"
+      "totalExpense": "number",
+      "chiPhiNguyenVatLieu": "number",
+      "chiPhiNhanCong": "number",
+      "chiPhiKhauHao": "number",
+      "chiPhiDichVuMuaNgoai": "number",
+      "chiPhiLaiVay": "number",
+      "chiPhiKhac": "number"
     },
     "createdAt": "Date string",
     "updatedAt": "Date string"
@@ -2872,7 +2927,7 @@ None
 }
 ```
 
-### 12.11. Step 5 Preview
+### 12.12. Step 5 Preview
 
 - **Route:** `/tax-declaration/step-5/preview/:publicId`
 - **Method:** `GET`
@@ -2908,26 +2963,70 @@ None
       "businessName": "string",
       "ownerName": "string",
       "cccdNumber": "string",
-      "provinceCity": "string"
+      "provinceCity": "string",
+      "taxpayerOption": "string",
+      "taxPeriodOption": "string",
+      "declarationTypeOption": "string",
+      "authorizedFilerName": "string",
+      "authorizedFilerTaxCode": "string",
+      "authorizedFilerDocNumber": "string",
+      "authorizedFilerDocDate": "string | null",
+      "taxAgentName": "string",
+      "taxAgentTaxCode": "string",
+      "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\""
     } | null,
     "step2Data": {
+      "periodName": "string",
+      "industries": [
+        {
+          "categoryName": "string",
+          "vatRate": "number",
+          "pitRate": "number",
+          "revenue": "number"
+        }
+      ],
+      "estimatedVat": "number",
+      "transactionCount": "number",
       "confirmedRevenue": "number"
     } | null,
-    "step3Data": [
-      {
-        "productPublicId": "string",
-        "actualClosingQuantity": "number"
-      }
-    ] | null,
+    "step3Data": {
+      "openingValue": "number",
+      "importedValue": "number",
+      "exportedValue": "number",
+      "closingValue": "number"
+    } | null,
     "step4Data": {
-      "totalExpense": "number"
-    } | null
+      "totalExpense": "number",
+      "chiPhiNguyenVatLieu": "number",
+      "chiPhiNhanCong": "number",
+      "chiPhiKhauHao": "number",
+      "chiPhiDichVuMuaNgoai": "number",
+      "chiPhiLaiVay": "number",
+      "chiPhiKhac": "number"
+    } | null,
+    "pitComparison": {
+      "profitMethodAmount": "number",
+      "percentageMethodAmount": "number"
+    },
+    "vatAmount": "number",
+    "ytdRevenue": "number",
+    "ytdExpense": "number",
+    "operatedIndustries": [
+      {
+        "categoryName": "string",
+        "revenue": "number",
+        "ytdRevenue": "number",
+        "pitRate": "number",
+        "ytdExemption": "number",
+        "ytdTaxableRevenue": "number"
+      }
+    ]
   },
   "meta": null
 }
 ```
 
-### 12.12. Submit Declaration
+### 12.13. Submit Declaration
 
 - **Route:** `/tax-declaration/submit/:publicId`
 - **Method:** `POST`
@@ -2979,7 +3078,7 @@ None
 }
 ```
 
-### 12.13. Submit Force
+### 12.14. Submit Force
 
 - **Route:** `/tax-declaration/submit-force/:publicId`
 - **Method:** `POST`
@@ -3031,7 +3130,7 @@ None
 }
 ```
 
-### 12.14. Submit Ignore Warning
+### 12.15. Submit Ignore Warning
 
 - **Route:** `/tax-declaration/submit-ignore-warning/:publicId`
 - **Method:** `POST`
@@ -4074,14 +4173,8 @@ None
       ]
     },
     "validation": {
-      "status": "\"SUCCESS\" | \"WARNING\" | \"INFO\"",
-      "warnings": [
-        {
-          "code": "\"TOTAL_AMOUNT_MISMATCH\" | \"PRODUCT_MISSING\" | \"QUANTITY_MISMATCH\" | \"UNIT_COST_MISMATCH\"",
-          "severity": "\"WARNING\" | \"INFO\"",
-          "message": "string"
-        }
-      ]
+      "status": "\"SUCCESS\"",
+      "warnings": []
     }
   },
   "meta": null

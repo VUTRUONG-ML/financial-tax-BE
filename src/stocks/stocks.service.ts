@@ -1295,70 +1295,8 @@ export class StocksService {
         },
       });
 
-      // điều chỉnh Giá trị
-      const invoiceDetailsMap = new Map<number, { unitCost: Decimal }>();
-      for (const d of invoice.details) {
-        invoiceDetailsMap.set(d.productId, {
-          unitCost: new Decimal(d.unitCost),
-        });
-      }
-
-      let isAdjusted = false;
-
-      for (const recDetail of receipt.details) {
-        const invDetail = invoiceDetailsMap.get(recDetail.productId);
-        if (invDetail) {
-          // Compare unit cost (we don't change quantity as requested by user)
-          if (!new Decimal(recDetail.unitCost).equals(invDetail.unitCost)) {
-            const newTotalValue = new Decimal(recDetail.quantity).mul(
-              invDetail.unitCost,
-            );
-
-            // Cập nhật StockReceiptDetail
-            await tx.stockReceiptDetail.update({
-              where: { id: recDetail.id },
-              data: {
-                unitCost: invDetail.unitCost,
-                totalValue: newTotalValue,
-              },
-            });
-            isAdjusted = true;
-
-            // Cập nhật InventoryMovement tương ứng
-            await tx.inventoryMovement.updateMany({
-              where: {
-                sourceDocumentId: receipt.id,
-                productId: recDetail.productId,
-                movementType: { in: ['PURCHASE_IN', 'OPENING', 'ADJUST_IN', 'PRODUCTION_IN'] }
-              },
-              data: {
-                unitCost: invDetail.unitCost,
-                totalValue: newTotalValue,
-              },
-            });
-          }
-        }
-      }
-
-      // Cập nhật lại tổng tiền phiếu nhập kho nếu có điều chỉnh
-      if (isAdjusted) {
-        const updatedDetails = await tx.stockReceiptDetail.findMany({
-          where: { receiptId: receipt.id },
-        });
-        const newReceiptTotal = updatedDetails.reduce(
-          (acc, curr) => acc.add(new Decimal(curr.totalValue)),
-          new Decimal(0),
-        );
-        await tx.stockReceipt.update({
-          where: { id: receipt.id },
-          data: { totalValue: newReceiptTotal },
-        });
-      }
-
       return {
-        message:
-          'Linked stock receipt to invoice successfully' +
-          (isAdjusted ? ' and adjusted inventory values.' : '.'),
+        message: 'Linked stock receipt to invoice successfully',
         data: link,
       };
     });
@@ -1494,84 +1432,6 @@ export class StocksService {
     const invoice = link?.invoice || null;
     const warnings: any[] = [];
     let status = 'SUCCESS';
-
-    if (invoice) {
-      const invoiceTotal = Number(invoice.totalAmount);
-      const receiptTotal = Number(receipt.totalValue);
-      if (Math.abs(invoiceTotal - receiptTotal) > 0.01) {
-        warnings.push({
-          code: 'TOTAL_AMOUNT_MISMATCH',
-          severity: 'WARNING',
-          message: 'Receipt total differs from linked invoice total.',
-        });
-      }
-
-      const invoiceDetailsMap = new Map<
-        number,
-        { quantity: number; unitCost: number }
-      >();
-      for (const d of invoice.details) {
-        invoiceDetailsMap.set(d.productId, {
-          quantity: d.quantity,
-          unitCost: Number(d.unitCost),
-        });
-      }
-
-      const receiptDetailsMap = new Map<
-        number,
-        { quantity: number; unitCost: number }
-      >();
-      for (const d of receipt.details) {
-        receiptDetailsMap.set(d.productId, {
-          quantity: Number(d.quantity),
-          unitCost: Number(d.unitCost),
-        });
-      }
-
-      for (const [productId, invDetail] of invoiceDetailsMap.entries()) {
-        if (!receiptDetailsMap.has(productId)) {
-          warnings.push({
-            code: 'PRODUCT_MISSING',
-            severity: 'WARNING',
-            message: 'Invoice product does not exist in receipt.',
-          });
-          continue;
-        }
-
-        const recDetail = receiptDetailsMap.get(productId)!;
-
-        if (Math.abs(invDetail.quantity - recDetail.quantity) > 0.001) {
-          warnings.push({
-            code: 'QUANTITY_MISMATCH',
-            severity: 'WARNING',
-            message: 'Receipt quantity differs from invoice quantity.',
-          });
-        }
-
-        const costDiff = Math.abs(invDetail.unitCost - recDetail.unitCost);
-        if (costDiff > 100) {
-          warnings.push({
-            code: 'UNIT_COST_MISMATCH',
-            severity: 'WARNING',
-            message: 'Receipt unit cost differs from invoice unit cost.',
-          });
-        } else if (costDiff > 0.01) {
-          warnings.push({
-            code: 'UNIT_COST_MISMATCH',
-            severity: 'INFO',
-            message: 'Receipt unit cost differs from invoice unit cost.',
-          });
-        }
-      }
-
-      const hasWarning = warnings.some((w) => w.severity === 'WARNING');
-      const hasInfo = warnings.some((w) => w.severity === 'INFO');
-      if (hasWarning) {
-        status = 'WARNING';
-      } else if (hasInfo) {
-        status = 'INFO';
-      }
-    }
 
     return {
       receipt: mapToDto(StockReceiptResponseDto, receipt),

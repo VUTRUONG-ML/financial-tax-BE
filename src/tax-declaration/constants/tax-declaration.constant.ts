@@ -27,3 +27,19 @@ export const DECLARATION_TYPE_OPTIONS = {
   FIRST_TIME: 'Tờ khai lần đầu',
   ADDITIONAL: 'Tờ khai bổ sung',
 };
+
+export const DECLARATION_FORM_OPTIONS = {
+  FORM_01_TKN_CNKD: {
+    code: '01_TKN_CNKD',
+    name: 'Dành cho hộ kinh doanh, cá nhân kinh doanh có doanh thu <= 1 tỷ đồng hoặc đề nghị hoàn thuế',
+  },
+  FORM_01_CNKD: {
+    code: '01_CNKD',
+    name: 'Dành cho hộ kinh doanh, cá nhân kinh doanh nộp thuế theo phương pháp kê khai hoặc tỷ lệ doanh thu (doanh thu > 1 tỷ đồng/năm)',
+  },
+  FORM_02_CNKD_TNCN_QTT: {
+    code: '02_CNKD_TNCN_QTT',
+    name: 'Tờ khai quyết toán thuế TNCN cuối năm dành cho cá nhân kinh doanh, hộ kinh doanh.',
+  },
+};
+

@@ -68,4 +68,3 @@ export class InboundResponseDto {
   @Type(() => InboundDetailResponseDto)
   details!: InboundDetailResponseDto[];
 }
-
