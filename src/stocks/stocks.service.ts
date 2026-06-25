@@ -168,8 +168,8 @@ export class StocksService {
           totalValue,
           periodId: period.id,
           note: createDto.note || null,
-          isPaid: createDto.isPaid ?? false,
-          paidAmount: createDto.isPaid ? totalValue : new Decimal(0),
+          isPaid: false,
+          paidAmount: new Decimal(0),
         },
       });
 
