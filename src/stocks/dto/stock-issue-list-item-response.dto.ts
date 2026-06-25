@@ -32,4 +32,7 @@ export class StockIssueListItemResponseDto {
 
   @Expose()
   status!: StockIssueStatus;
+
+  @Expose()
+  note?: string;
 }

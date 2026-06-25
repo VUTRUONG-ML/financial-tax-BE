@@ -74,6 +74,12 @@ export class StockReceiptResponseDto {
   createdAt!: Date;
 
   @Expose()
+  note?: string;
+
+  @Expose()
+  isPaid!: boolean;
+
+  @Expose()
   @Type(() => StockReceiptDetailResponseDto)
   details!: StockReceiptDetailResponseDto[];
 }

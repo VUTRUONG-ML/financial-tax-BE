@@ -78,6 +78,9 @@ export class StockIssueResponseDto {
   createdAt!: Date;
 
   @Expose()
+  note?: string;
+
+  @Expose()
   @Type(() => StockIssueDetailResponseDto)
   details!: StockIssueDetailResponseDto[];
 }

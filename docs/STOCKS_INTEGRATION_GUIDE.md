@@ -82,6 +82,18 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
   - Trạng thái phiếu xuất chuyển sang `CANCELLED`.
   - Số lượng sản phẩm xuất đi sẽ được hoàn trả lại vào tồn kho của hộ kinh doanh.
 
+### 2.7. Tự động Tạo Phiếu Chi khi Thanh toán Phiếu Nhập Kho (`isPaid`)
+- Khi lập phiếu nhập kho (`POST /stock-receipts`), Frontend có thể truyền thuộc tính `isPaid: true` (mặc định là `false` nếu không truyền).
+- Nếu `isPaid` là `true`, Backend sẽ tự động khởi tạo một phiếu chi (`Voucher` loại `PAYMENT`) liên kết với phiếu nhập kho này:
+  - **Hạng mục chi:** Hệ thống tự động truy vấn danh mục chi cho Nguyên vật liệu (`systemTag: 'PAYMENT_MATERIAL'`).
+  - **Phương thức thanh toán:** Chuyển khoản ngân hàng (`BANK`).
+  - **Nội dung chi:** `"Thanh toán cho phiếu nhập kho <receiptCode>"`.
+  - **Số tiền:** Bằng đúng tổng giá trị phiếu nhập kho (`totalValue`).
+  - **Ngày lập phiếu chi:** Trùng khớp với ngày giao dịch phiếu nhập kho (`receiptDate`).
+  - **Thông tin liên hệ:** Tên nhà cung cấp (`supplierName`).
+- Đồng thời, trạng thái thanh toán của phiếu nhập kho cũng được cập nhật thành đã thanh toán (`isPaid = true` và `paidAmount = totalValue`).
+- Ngoài ra, cả phiếu nhập kho (`StockReceipt`) và phiếu xuất kho (`StockIssue`) đều hỗ trợ trường ghi chú `note` để Frontend hiển thị và ghi nhận các lưu ý bổ sung từ người dùng.
+
 ---
 
 ## 3. Ràng Buộc Khóa Kỳ Kế Toán (`PeriodLockGuard`)
@@ -116,6 +128,8 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
     "sourceInvoiceNo": "0001234",
     "totalValue": 50000000,
     "status": "APPROVED",
+    "note": "Ghi chú phiếu nhập kho",
+    "isPaid": true,
     "details": [
       {
         "productPublicId": "prod-101",

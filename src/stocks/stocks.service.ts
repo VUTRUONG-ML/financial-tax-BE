@@ -167,6 +167,9 @@ export class StocksService {
           status: StockReceiptStatus.APPROVED,
           totalValue,
           periodId: period.id,
+          note: createDto.note || null,
+          isPaid: createDto.isPaid ?? false,
+          paidAmount: createDto.isPaid ? totalValue : new Decimal(0),
         },
       });
 
@@ -232,6 +235,35 @@ export class StocksService {
             currentStock: { increment: Math.round(item.quantity) },
           },
         });
+      }
+
+      if (createDto.isPaid) {
+        const category = await client.voucherCategory.findUnique({
+          where: {
+            systemTag: 'PAYMENT_MATERIAL',
+          },
+        });
+        if (!category) {
+          throw new NotFoundException(
+            'System voucher category "PAYMENT_MATERIAL" not found',
+          );
+        }
+
+        await this.voucherService.create(
+          userId,
+          {
+            voucherType: 'PAYMENT',
+            categoryId: category.id,
+            content: `Thanh toán cho phiếu nhập kho ${receiptCode}`,
+            amount: totalValue,
+            paymentMethod: 'BANK',
+            transactionAt: createDto.receiptDate,
+            contactName: createDto.supplierName || undefined,
+            isDeductibleExpense: false,
+            stockReceiptCode: receiptCode,
+          },
+          client,
+        );
       }
 
       // Fetch the full receipt with details and products for mapping DTO
@@ -512,6 +544,7 @@ export class StocksService {
           sourceDocumentId: createDto.sourceDocumentId || null,
           status: StockIssueStatus.APPROVED,
           periodId: period.id,
+          note: createDto.note || null,
         },
       });
 

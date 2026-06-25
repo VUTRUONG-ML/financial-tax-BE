@@ -9,6 +9,7 @@ import {
   IsString,
   Min,
   ValidateNested,
+  IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { StockReceiptSourceType } from '@prisma/client';
@@ -49,6 +50,14 @@ export class CreateStockReceiptDto {
   @IsString()
   @IsOptional()
   sourceDocumentUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isPaid?: boolean;
 
   @IsArray()
   @ArrayMinSize(1)

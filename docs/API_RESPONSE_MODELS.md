@@ -3890,6 +3890,8 @@ None
       "sourceInvoiceNo": "string | null",
       "totalValue": "number",
       "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\"",
+      "note": "string | null",
+      "isPaid": "boolean",
       "payment": "\"UNPAID\" | \"CASH\" | \"BANK\" | \"PAID\""
     }
   ],
@@ -3916,6 +3918,8 @@ None
   "supplierName": "string (Optional)",
   "sourceInvoiceNo": "string (Optional)",
   "sourceDocumentUrl": "string (Optional)",
+  "note": "string (Optional)",
+  "isPaid": "boolean (Optional)",
   "products": [
     {
       "productPublicId": "string",
@@ -3945,6 +3949,8 @@ None
     "status": "\"APPROVED\"",
     "periodName": "string",
     "createdAt": "Date string",
+    "note": "string | null",
+    "isPaid": "boolean",
     "details": [
       {
         "productPublicId": "string",
@@ -3990,6 +3996,8 @@ None
     "status": "\"CANCELLED\"",
     "periodName": "string",
     "createdAt": "Date string",
+    "note": "string | null",
+    "isPaid": "boolean",
     "details": [
       {
         "productPublicId": "string",
@@ -4135,6 +4143,8 @@ None
       "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\"",
       "periodName": "string",
       "createdAt": "Date string",
+      "note": "string | null",
+      "isPaid": "boolean",
       "details": [
         {
           "productPublicId": "string",
@@ -4220,7 +4230,8 @@ None
       "sourceDocumentType": "\"INVOICE\" | \"PRODUCTION_ORDER\" | null",
       "sourceDocumentId": "number | null",
       "sourceDocumentCode": "string | null",
-      "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\" | \"PENDING_ISSUED\" | \"SYNC_FAILED\""
+      "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\" | \"PENDING_ISSUED\" | \"SYNC_FAILED\"",
+      "note": "string | null"
     }
   ],
   "meta": {
@@ -4245,6 +4256,7 @@ None
   "issueDate": "Date string",
   "sourceDocumentType": "\"INVOICE\" | \"PRODUCTION_ORDER\" (Optional)",
   "sourceDocumentId": "number (Optional)",
+  "note": "string (Optional)",
   "products": [
     {
       "productPublicId": "string",
@@ -4271,6 +4283,7 @@ None
     "status": "\"APPROVED\"",
     "periodName": "string",
     "createdAt": "Date string",
+    "note": "string | null",
     "details": [
       {
         "id": "number",
@@ -4316,6 +4329,7 @@ None
     "status": "\"CANCELLED\"",
     "periodName": "string",
     "createdAt": "Date string",
+    "note": "string | null",
     "details": [
       {
         "id": "number",

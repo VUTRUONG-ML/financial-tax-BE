@@ -41,6 +41,10 @@ export class CreateStockIssueDto {
   @IsOptional()
   sourceDocumentId?: number;
 
+  @IsString()
+  @IsOptional()
+  note?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

@@ -13,6 +13,7 @@ describe('StocksService', () => {
   let prismaMock: any;
   let auditLogMock: any;
   let movementsMock: any;
+  let vouchersMock: any;
 
   beforeEach(async () => {
     prismaMock = {
@@ -20,11 +21,13 @@ describe('StocksService', () => {
         findFirst: jest.fn(),
         updateMany: jest.fn(),
         findUnique: jest.fn(),
+        create: jest.fn(),
       },
       stockReceipt: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         updateMany: jest.fn(),
+        create: jest.fn(),
       },
       inboundInvoice: {
         findUnique: jest.fn(),
@@ -46,6 +49,21 @@ describe('StocksService', () => {
         upsert: jest.fn(),
         updateMany: jest.fn(),
       },
+      voucherCategory: {
+        findUnique: jest.fn(),
+      },
+      user: {
+        update: jest.fn(),
+      },
+      financialPeriod: {
+        findUnique: jest.fn(),
+      },
+      stockReceiptDetail: {
+        create: jest.fn(),
+      },
+      stockIssueDetail: {
+        create: jest.fn(),
+      },
       $transaction: jest.fn((cb) => cb(prismaMock)),
     };
 
@@ -55,6 +73,11 @@ describe('StocksService', () => {
 
     movementsMock = {
       createInventoryMovement: jest.fn(),
+    };
+
+    vouchersMock = {
+      bulkCancelByStockReceipt: jest.fn(),
+      create: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -74,9 +97,7 @@ describe('StocksService', () => {
         },
         {
           provide: VouchersService,
-          useValue: {
-            bulkCancelByStockReceipt: jest.fn(),
-          },
+          useValue: vouchersMock,
         },
       ],
     }).compile();
@@ -618,6 +639,131 @@ describe('StocksService', () => {
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
+    });
+  });
+
+  describe('createStockReceipt', () => {
+    const mockUserId = 'user-1';
+    const mockPeriodId = 10;
+    const createDto = {
+      sourceType: 'PURCHASE' as any,
+      receiptDate: '2026-06-25T00:00:00.000Z',
+      supplierName: 'Supplier A',
+      sourceInvoiceNo: 'INV-001',
+      note: 'Test receipt note',
+      products: [
+        { productPublicId: 'prod-1', quantity: 10, unitCost: 100 },
+      ],
+    };
+
+    it('should create stock receipt with note and without voucher if isPaid is false/not provided', async () => {
+      prismaMock.financialPeriod.findUnique.mockResolvedValue({ id: mockPeriodId, userId: mockUserId });
+      prismaMock.product.findMany.mockResolvedValue([
+        { id: 1, publicId: 'prod-1', productName: 'Prod 1', currentStock: 0, isInventoryTracked: true, productType: 'RAW_MATERIAL' },
+      ]);
+      prismaMock.stockReceipt.findFirst.mockResolvedValue(null);
+      prismaMock.stockReceipt.create.mockResolvedValue({ id: 100, receiptCode: 'PNK-0626-0001' });
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: 100,
+        receiptCode: 'PNK-0626-0001',
+        totalValue: new Decimal(1000),
+        note: 'Test receipt note',
+        isPaid: false,
+        details: [],
+        period: { periodName: 'June 2026' },
+      });
+
+      const result = await service.createStockReceipt(mockUserId, createDto, mockPeriodId);
+
+      expect(prismaMock.stockReceipt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          note: 'Test receipt note',
+          isPaid: false,
+        }),
+      });
+      expect(vouchersMock.create).not.toHaveBeenCalled();
+      expect(result.note).toBe('Test receipt note');
+    });
+
+    it('should create stock receipt and automatically create a payment voucher if isPaid is true', async () => {
+      const createDtoPaid = { ...createDto, isPaid: true };
+      prismaMock.financialPeriod.findUnique.mockResolvedValue({ id: mockPeriodId, userId: mockUserId });
+      prismaMock.product.findMany.mockResolvedValue([
+        { id: 1, publicId: 'prod-1', productName: 'Prod 1', currentStock: 0, isInventoryTracked: true, productType: 'RAW_MATERIAL' },
+      ]);
+      prismaMock.stockReceipt.findFirst.mockResolvedValue(null);
+      prismaMock.stockReceipt.create.mockResolvedValue({ id: 100, receiptCode: 'PNK-0626-0001' });
+      prismaMock.voucherCategory.findUnique.mockResolvedValue({ id: 5, systemTag: 'PAYMENT_MATERIAL' });
+      prismaMock.stockReceipt.findUnique.mockResolvedValue({
+        id: 100,
+        receiptCode: 'PNK-0626-0001',
+        totalValue: new Decimal(1000),
+        note: 'Test receipt note',
+        isPaid: true,
+        details: [],
+        period: { periodName: 'June 2026' },
+      });
+
+      const result = await service.createStockReceipt(mockUserId, createDtoPaid, mockPeriodId);
+
+      expect(prismaMock.voucherCategory.findUnique).toHaveBeenCalledWith({
+        where: { systemTag: 'PAYMENT_MATERIAL' },
+      });
+      expect(vouchersMock.create).toHaveBeenCalledWith(
+        mockUserId,
+        {
+          voucherType: 'PAYMENT',
+          categoryId: 5,
+          content: 'Thanh toán cho phiếu nhập kho PNK-0626-0001',
+          amount: new Decimal(1000),
+          paymentMethod: 'BANK',
+          transactionAt: createDto.receiptDate,
+          contactName: 'Supplier A',
+          isDeductibleExpense: false,
+          stockReceiptCode: 'PNK-0626-0001',
+        },
+        prismaMock,
+      );
+      expect(result.note).toBe('Test receipt note');
+    });
+  });
+
+  describe('createStockIssue', () => {
+    const mockUserId = 'user-1';
+    const mockPeriodId = 10;
+    const createDto = {
+      issueType: 'PRODUCTION' as any,
+      issueDate: '2026-06-25T00:00:00.000Z',
+      note: 'Test issue note',
+      products: [
+        { productPublicId: 'prod-1', quantity: 5 },
+      ],
+    };
+
+    it('should create stock issue with note successfully', async () => {
+      prismaMock.financialPeriod.findUnique.mockResolvedValue({ id: mockPeriodId, userId: mockUserId });
+      prismaMock.product.findMany.mockResolvedValue([
+        { id: 1, publicId: 'prod-1', productName: 'Prod 1', currentStock: 10, isInventoryTracked: true, productType: 'RAW_MATERIAL' },
+      ]);
+      prismaMock.stockIssue.findFirst.mockResolvedValue(null);
+      prismaMock.stockIssue.create.mockResolvedValue({ id: 200, issueCode: 'PXK-0626-0001' });
+      prismaMock.product.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.stockIssue.findUnique.mockResolvedValue({
+        id: 200,
+        issueCode: 'PXK-0626-0001',
+        note: 'Test issue note',
+        details: [],
+        period: { periodName: 'June 2026' },
+      });
+
+      const result = await service.createStockIssue(mockUserId, createDto, mockPeriodId);
+
+      expect(prismaMock.stockIssue.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          note: 'Test issue note',
+        }),
+      });
+      expect(result.note).toBe('Test issue note');
     });
   });
 });

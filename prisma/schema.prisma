@@ -696,6 +696,7 @@ model StockReceipt {
 
   isPaid     Boolean @default(false) @map("is_paid")
   paidAmount Decimal @default(0.00) @map("paid_amount") @db.Decimal(15, 2)
+  note       String? @db.Text
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -739,6 +740,7 @@ model StockIssue {
   sourceDocumentId   Int?                @map("source_document_id")
   status             StockIssueStatus    @default(DRAFT)
   periodId           Int                 @map("period_id")
+  note               String?             @db.Text
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)

@@ -25,6 +25,12 @@ export class StockReceiptListItemResponseDto {
   status!: StockReceiptStatus;
 
   @Expose()
+  note?: string;
+
+  @Expose()
+  isPaid!: boolean;
+
+  @Expose()
   @Transform(({ obj }) => {
     if (!obj.isPaid) return 'UNPAID';
     const activeVoucher: Voucher = obj.vouchers?.[0];
