@@ -102,48 +102,18 @@ export class VouchersService {
       if (currentOutInvoice.status === InvoiceStatus.CANCELED)
         throw new BadRequestException('Invoice canceled.');
 
-      if (currentOutInvoice.isPaid)
-        throw new BadRequestException('The invoice has been paid in full.');
+      // Check if there is already an active voucher linked to this invoice
+      const existingVoucher = await tx.voucher.findFirst({
+        where: {
+          outboundInvoiceId: currentOutInvoice.id,
+          status: 'ACTIVE',
+        },
+      });
 
-      const { isPaid, newTotalPaid } = this.calculateNewPaymentState(
-        currentOutInvoice.paidAmount,
-        currentOutInvoice.totalPayment,
-        amount,
-      );
-      const result = await tx.invoice.updateMany({
-        where: { publicId: outInvoicePublicId, userId, isPaid: false },
-        data: {
-          paidAmount: newTotalPaid,
-          isPaid,
-        },
-      });
-      if (result.count === 0) {
-        this.log.debug('UPDATE_PAYMENT_STATUS_INVOICE', {
-          status: LOG_STATUS.FAILED,
-          userId,
-          invoicePublicId: outInvoicePublicId,
-        });
-        throw new ConflictException(
-          'Error updating payment status for invoice.',
-        );
+      if (existingVoucher) {
+        throw new BadRequestException('The invoice has been paid in full.');
       }
-      await this.auditLog.logChange(
-        tx,
-        userId,
-        'UPDATE',
-        tableWrite.invoices,
-        currentOutInvoice.id,
-        { isPaid: false, paidAmount: currentOutInvoice.paidAmount },
-        {
-          isPaid,
-          paidAmount: newTotalPaid,
-        },
-      );
-      this.log.debug('UPDATE_PAYMENT_STATUS_INVOICE', {
-        status: LOG_STATUS.SUCCESS,
-        userId,
-        invoicePublicId: outInvoicePublicId,
-      });
+
       return { id: currentOutInvoice.id, type: 'OUTBOUND' };
     }
 
@@ -299,7 +269,6 @@ export class VouchersService {
       voucher.outboundInvoiceId &&
       voucher.amount.gt(0)
     ) {
-      const { amount } = voucher;
       const invoice = await tx.invoice.findUnique({
         where: { id: voucher.outboundInvoiceId },
       });
@@ -308,25 +277,6 @@ export class VouchersService {
           'Outbound invoice not found for this voucher.',
         );
 
-      if (invoice.paidAmount.lessThan(amount))
-        throw new ConflictException('Amount of voucher invalid.');
-
-      const updatedInvoice = await tx.invoice.update({
-        where: { id: voucher.outboundInvoiceId },
-        data: { paidAmount: { decrement: amount }, isPaid: false },
-      });
-      await this.auditLog.logChange(
-        tx,
-        voucher.userId,
-        'UPDATE',
-        tableWrite.invoices,
-        updatedInvoice.id,
-        { paidAmount: invoice.paidAmount, isPaid: invoice.isPaid },
-        {
-          paidAmount: updatedInvoice.paidAmount,
-          isPaid: updatedInvoice.isPaid,
-        },
-      );
       this.log.debug('REFUND_AMOUNT_INVOICE', {
         status: LOG_STATUS.SUCCESS,
         invoiceId: voucher.outboundInvoiceId,
@@ -416,120 +366,128 @@ export class VouchersService {
     }
   }
 
-  async create(userId: string, createVoucherDto: CreateVoucherDto) {
-    const result = await this.prisma.$transaction(
-      async (tx) => {
-        // --- BƯỚC KHÓA CHIẾN THUẬT ---
-        // Khóa dòng User này lại. Bất kỳ request nào của cùng userId
-        // chạy đến đây sẽ phải xếp hàng chờ ở đây trước khi làm bất cứ việc gì.
-        await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
-        // Validation: Check category existence and bounds
-        const category = await tx.voucherCategory.findUnique({
-          where: { id: createVoucherDto.categoryId },
-        });
+  async create(
+    userId: string,
+    createVoucherDto: CreateVoucherDto,
+    txParam?: Prisma.TransactionClient,
+  ) {
+    const run = async (tx: Prisma.TransactionClient) => {
+      // --- BƯỚC KHÓA CHIẾN THUẬT ---
+      // Khóa dòng User này lại. Bất kỳ request nào của cùng userId
+      // chạy đến đây sẽ phải xếp hàng chờ ở đây trước khi làm bất cứ việc gì.
+      await tx.$executeRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      // Validation: Check category existence and bounds
+      const category = await tx.voucherCategory.findUnique({
+        where: { id: createVoucherDto.categoryId },
+      });
 
-        if (!category) {
-          throw new BadRequestException('Voucher category not found');
+      if (!category) {
+        throw new BadRequestException('Voucher category not found');
+      }
+
+      if (
+        (category.userId !== null && category.userId !== userId) ||
+        category.type !== createVoucherDto.voucherType
+      ) {
+        throw new BadRequestException('Invalid voucher category');
+      }
+
+      const invoice = await this.resolveVoucherType(
+        tx,
+        userId,
+        createVoucherDto.voucherType,
+        createVoucherDto.amount,
+        createVoucherDto.paymentMethod,
+        createVoucherDto.isDeductibleExpense,
+        createVoucherDto.inboundInvoicePublicId,
+        createVoucherDto.outboundInvoicePublicId,
+        createVoucherDto.stockReceiptCode,
+      );
+
+      // Generate Voucher Code: PT/PC-MMYY-0001
+      const transactionDate = new Date(createVoucherDto.transactionAt);
+      const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
+      const yy = transactionDate.getFullYear().toString().slice(-2);
+      const mmyy = `${mm}${yy}`;
+
+      const prefix = createVoucherDto.voucherType === 'RECEIPT' ? 'PT' : 'PC';
+
+      // Sử dụng mảng để nhận kết quả từ $queryRaw
+      const vouchers: { voucher_code: string }[] = await tx.$queryRaw`
+        SELECT voucher_code FROM vouchers 
+        WHERE user_id = ${userId} 
+          AND voucher_type = ${createVoucherDto.voucherType}
+          AND voucher_code LIKE ${prefix + '-' + mmyy + '-%'}
+        ORDER BY id DESC
+        LIMIT 1
+      `;
+      let nextNumber = 1;
+      // Kiểm tra xem mảng có phần tử nào không
+      if (vouchers.length > 0) {
+        const lastVoucher = vouchers[0]; // Lấy phần tử đầu tiên
+        const parts = lastVoucher.voucher_code.split('-');
+        if (parts.length === 3) {
+          nextNumber = parseInt(parts[2], 10) + 1;
         }
+      }
 
-        if (
-          (category.userId !== null && category.userId !== userId) ||
-          category.type !== createVoucherDto.voucherType
-        ) {
-          throw new BadRequestException('Invalid voucher category');
-        }
+      const seq = nextNumber.toString().padStart(4, '0');
+      const voucherCode = `${prefix}-${mmyy}-${seq}`;
 
-        const invoice = await this.resolveVoucherType(
-          tx,
+      // Insert Voucher
+      const voucher = await tx.voucher.create({
+        data: {
           userId,
-          createVoucherDto.voucherType,
-          createVoucherDto.amount,
-          createVoucherDto.paymentMethod,
-          createVoucherDto.isDeductibleExpense,
-          createVoucherDto.inboundInvoicePublicId,
-          createVoucherDto.outboundInvoicePublicId,
-          createVoucherDto.stockReceiptCode,
-        );
-
-        // Generate Voucher Code: PT/PC-MMYY-0001
-        const transactionDate = new Date(createVoucherDto.transactionAt);
-        const mm = (transactionDate.getMonth() + 1).toString().padStart(2, '0');
-        const yy = transactionDate.getFullYear().toString().slice(-2);
-        const mmyy = `${mm}${yy}`;
-
-        const prefix = createVoucherDto.voucherType === 'RECEIPT' ? 'PT' : 'PC';
-
-        // Sử dụng mảng để nhận kết quả từ $queryRaw
-        const vouchers: { voucher_code: string }[] = await tx.$queryRaw`
-          SELECT voucher_code FROM vouchers 
-          WHERE user_id = ${userId} 
-            AND voucher_type = ${createVoucherDto.voucherType}
-            AND voucher_code LIKE ${prefix + '-' + mmyy + '-%'}
-          ORDER BY id DESC
-          LIMIT 1
-        `;
-        let nextNumber = 1;
-        // Kiểm tra xem mảng có phần tử nào không
-        if (vouchers.length > 0) {
-          const lastVoucher = vouchers[0]; // Lấy phần tử đầu tiên
-          const parts = lastVoucher.voucher_code.split('-');
-          if (parts.length === 3) {
-            nextNumber = parseInt(parts[2], 10) + 1;
-          }
-        }
-
-        const seq = nextNumber.toString().padStart(4, '0');
-        const voucherCode = `${prefix}-${mmyy}-${seq}`;
-
-        // Insert Voucher
-        const voucher = await tx.voucher.create({
-          data: {
-            userId,
-            voucherCode,
-            voucherType: createVoucherDto.voucherType,
-            transactionAt: transactionDate,
-            categoryId: createVoucherDto.categoryId,
-            content: createVoucherDto.content,
-            amount: createVoucherDto.amount,
-            paymentMethod: createVoucherDto.paymentMethod,
-            contactName: createVoucherDto.contactName ?? null,
-            isDeductibleExpense: createVoucherDto.isDeductibleExpense ?? false,
-            inboundInvoiceId: invoice?.type === 'INBOUND' ? invoice.id : null,
-            outboundInvoiceId: invoice?.type === 'OUTBOUND' ? invoice.id : null,
-            stockReceiptId:
-              invoice?.type === 'STOCK_RECEIPT' ? invoice.id : null,
+          voucherCode,
+          voucherType: createVoucherDto.voucherType,
+          transactionAt: transactionDate,
+          categoryId: createVoucherDto.categoryId,
+          content: createVoucherDto.content,
+          amount: createVoucherDto.amount,
+          paymentMethod: createVoucherDto.paymentMethod,
+          contactName: createVoucherDto.contactName ?? null,
+          isDeductibleExpense: createVoucherDto.isDeductibleExpense ?? false,
+          inboundInvoiceId: invoice?.type === 'INBOUND' ? invoice.id : null,
+          outboundInvoiceId: invoice?.type === 'OUTBOUND' ? invoice.id : null,
+          stockReceiptId:
+            invoice?.type === 'STOCK_RECEIPT' ? invoice.id : null,
+        },
+        include: {
+          category: true,
+          inboundInvoice: {
+            select: { publicId: true, invoiceNo: true },
           },
-          include: {
-            category: true,
-            inboundInvoice: {
-              select: { publicId: true, invoiceNo: true },
-            },
-            outBoundInvoice: {
-              select: { publicId: true, invoiceSymbol: true },
-            },
-            stockReceipt: {
-              select: { receiptCode: true },
-            },
+          outBoundInvoice: {
+            select: { publicId: true, invoiceSymbol: true },
           },
-        });
+          stockReceipt: {
+            select: { receiptCode: true },
+          },
+        },
+      });
 
-        await this.auditLog.logChange(
-          tx,
-          userId,
-          'CREATE',
-          tableWrite.vouchers,
-          voucher.id,
-          null,
-          voucher,
-        );
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'CREATE',
+        tableWrite.vouchers,
+        voucher.id,
+        null,
+        voucher,
+      );
 
-        return voucher;
-      },
-      {
+      return voucher;
+    };
+
+    let result;
+    if (txParam) {
+      result = await run(txParam);
+    } else {
+      result = await this.prisma.$transaction(run, {
         maxWait: 5000,
         timeout: 15000,
-      },
-    );
+      });
+    }
 
     this.log.log(LOG_ACTIONS.CREATE_VOUCHER, {
       status: LOG_STATUS.SUCCESS,

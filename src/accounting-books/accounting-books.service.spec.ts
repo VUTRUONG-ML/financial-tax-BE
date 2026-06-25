@@ -540,7 +540,6 @@ describe('AccountingBooksService', () => {
           id: 55,
           invoiceSymbol: '2C26TAA-55',
           status: 'ISSUED',
-          isPaid: true,
         },
       ] as any);
       prisma.stockIssue.aggregate.mockResolvedValue({

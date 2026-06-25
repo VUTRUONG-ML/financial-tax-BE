@@ -26,4 +26,49 @@ export class SaveStep1Dto {
   @IsString()
   @IsOptional()
   ownerName?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  taxpayerOption?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  taxPeriodOption?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  declarationTypeOption?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  authorizedFilerName?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  authorizedFilerTaxCode?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  authorizedFilerDocNumber?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  authorizedFilerDocDate?: string | null;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  taxAgentName?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  taxAgentTaxCode?: string;
 }

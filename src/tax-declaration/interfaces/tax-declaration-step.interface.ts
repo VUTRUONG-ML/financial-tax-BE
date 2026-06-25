@@ -11,6 +11,17 @@ export interface Step1Data {
   industry?: string;
   address?: string;
   provinceCity: string;
+
+  // Tùy chọn bổ sung tờ khai
+  taxpayerOption?: string;
+  taxPeriodOption?: string;
+  declarationTypeOption?: string;
+  authorizedFilerName?: string;
+  authorizedFilerTaxCode?: string;
+  authorizedFilerDocNumber?: string;
+  authorizedFilerDocDate?: string | null;
+  taxAgentName?: string;
+  taxAgentTaxCode?: string;
 }
 
 export interface Step2Data {

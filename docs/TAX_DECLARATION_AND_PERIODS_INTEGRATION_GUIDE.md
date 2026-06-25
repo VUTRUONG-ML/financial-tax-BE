@@ -38,19 +38,19 @@ Các API chính thức phục vụ quản lý kỳ tài chính (yêu cầu Beare
 
 Hệ thống hỗ trợ kê khai thuế tự động theo từng bước dưới dạng bản nháp (Draft). Bản nháp này lưu lại số liệu chụp nhanh (Snapshot) từ DB tại thời điểm xác nhận để tránh việc số liệu trên tờ khai bị thay đổi liên tục khi người dùng sửa chứng từ.
 
-### 2.1. Phân Luồng Kê Khai Theo Quy Mô Doanh Thu
+### 2.1. Phân Luồng Kê Khai Theo Nhóm Thuế
 
 Quy trình kê khai thuế tự động phân làm hai luồng tùy thuộc vào nhóm thuế suất của kỳ kế khai (`taxGroupId`):
 
-#### 1. Luồng 3 Bước (Doanh thu <= 1 tỷ / Nhóm Miễn Thuế - `taxGroupId === 1`)
-Hộ kinh doanh có quy mô doanh thu dưới ngưỡng chịu thuế/được miễn thuế chỉ cần thực hiện 3 bước:
+#### 1. Luồng 3 Bước (Nhóm Miễn Thuế - `taxGroupId === 1`)
+Hộ kinh doanh thuộc nhóm miễn thuế chỉ cần thực hiện 3 bước:
 * **Bước 1**: Xác nhận thông tin Hộ kinh doanh.
 * **Bước 2**: Xác nhận doanh thu chịu thuế (Kèm bảng thống kê ngành nghề và giao dịch).
 * **Bước 3**: Xem trước tờ khai & Ký nộp (Bỏ qua Bước 3 về Tồn kho và Bước 4 về Chi phí).
-* *Ràng buộc:* Nếu FE cố tình gọi API lấy hoặc lưu Bước 3/Bước 4, Backend sẽ chặn lại và ném lỗi `400 Bad Request`.
+* *Ràng buộc:* Nếu FE cố tình gọi API lấy hoặc lưu Bước 3/Bước 4, Backend sẽ chặn lại và ném lỗi `400 Bad Request` (`INVALID_TAX_DECLARATION_STEP`).
 
-#### 2. Luồng 5 Bước Đầy Đủ (Doanh thu > 1 tỷ - `taxGroupId !== 1`)
-Hộ kinh doanh quy mô lớn thực hiện đầy đủ 5 bước:
+#### 2. Luồng 5 Bước Đầy Đủ (Nhóm Nộp Thuế - `taxGroupId !== 1`)
+Hộ kinh doanh thuộc nhóm nộp thuế thực hiện đầy đủ 5 bước:
 * **Bước 1**: Xác nhận thông tin Hộ kinh doanh.
 * **Bước 2**: Xác nhận doanh thu chịu thuế.
 * **Bước 3**: Xác nhận tổng hợp giá trị Tồn kho.
@@ -70,9 +70,9 @@ Hộ kinh doanh quy mô lớn thực hiện đầy đủ 5 bước:
 | **B2: Lấy** | `GET` | `/tax-declaration/step-2/:publicId` | Không có | Trả về thông tin doanh thu, danh sách ngành nghề và số giao dịch thực tế trong kỳ. |
 | **B2: Lưu** | `POST` | `/tax-declaration/step-2/save/:publicId` | Không có (Lưu tự động) | **Snapshot doanh thu**: BE tự tính và chụp nhanh doanh thu từ DB lưu vào nháp. |
 | **B3: Lấy** | `GET` | `/tax-declaration/step-3/:publicId` | Không có | Trả về tổng hợp tồn kho: đầu kỳ, nhập trong kỳ, xuất trong kỳ, cuối kỳ. |
-| **B3: Lưu** | `POST` | `/tax-declaration/step-3/save/:publicId` | Không có (Lưu tự động) | **Snapshot tồn kho**: BE tự chụp nhanh giá trị kho lưu vào nháp (Chặn đối với nhóm <= 1 tỷ). |
+| **B3: Lưu** | `POST` | `/tax-declaration/step-3/save/:publicId` | Không có (Lưu tự động) | **Snapshot tồn kho**: BE tự chụp nhanh giá trị kho lưu vào nháp (Chặn đối với Nhóm Miễn Thuế `taxGroupId === 1`). |
 | **B4: Lấy** | `GET` | `/tax-declaration/step-4/:publicId` | Không có | Trả về thống kê các chi phí hợp lệ (theo 6 nhóm của Thông tư 152/2025/TT-BTC). |
-| **B4: Lưu** | `POST` | `/tax-declaration/step-4/save/:publicId` | Không có (Lưu tự động) | **Snapshot chi phí**: BE tự chụp nhanh chi phí từ DB lưu vào nháp (Chặn đối với nhóm <= 1 tỷ). |
+| **B4: Lưu** | `POST` | `/tax-declaration/step-4/save/:publicId` | Không có (Lưu tự động) | **Snapshot chi phí**: BE tự chụp nhanh chi phí từ DB lưu vào nháp (Chặn đối với Nhóm Miễn Thuế `taxGroupId === 1`). |
 | **B5: Lấy** | `GET` | `/tax-declaration/step-5/preview/:publicId`| Không có | Xem trước tờ khai mẫu (PDF/HTML layout) và chọn phương thức tính thuế PIT. |
 | **Nộp** | `POST` | `/tax-declaration/submit/:publicId` | `SubmitDeclarationDto` | **Ký nộp**: Kiểm tra biến động dữ liệu DB và tiến hành khóa kỳ kế toán. |
 | **Nộp đè** | `POST` | `/tax-declaration/submit-force/:publicId` | `SubmitDeclarationDto` | Chụp lại snapshot mới và tiến hành ký nộp đè. |
@@ -80,15 +80,51 @@ Hộ kinh doanh quy mô lớn thực hiện đầy đủ 5 bước:
 
 ---
 
-### 2.3. Chi Tiết Kỹ Thuật Bước 3 - Thống Kê Tồn Kho Tổng Hợp
+### 2.3. Chi Tiết Kỹ Thuật Bước 1 - Thông Tin Hộ Kinh Doanh & Tùy Chọn Tờ Khai
 
-Để tránh trùng lặp code và tính toán sai lệch, logic tính toán tồn kho tổng hợp đã được chuyển dịch tập trung về module `stocks`.
-* **Cơ chế tính toán**:
-  * **Giá trị đầu kỳ (`openingValue`)**: Tính tổng giá trị từ các chi tiết phiếu nhập kho (`StockReceiptDetail`) có trạng thái `APPROVED` và loại `sourceType = 'OPENING'`.
-  * **Giá trị nhập trong kỳ (`importedValue`)**: Tính tổng giá trị từ các chi tiết phiếu nhập kho có trạng thái `APPROVED` và loại khác `OPENING`.
-  * **Giá trị xuất trong kỳ (`exportedValue`)**: Tính tổng giá trị từ các phiếu xuất kho (`StockIssueDetail`) có trạng thái `APPROVED` (sử dụng phép tính nhân ở cơ sở dữ liệu `sd.quantity * COALESCE(sd.final_weighted_unit_cost, sd.provisional_unit_cost, 0)`).
-  * **Giá trị cuối kỳ (`closingValue`)**: Bằng `openingValue + importedValue - exportedValue`.
-* *Lưu ý cho FE:* API `POST /tax-declaration/step-3/save/:publicId` không yêu cầu body gửi lên. Hệ thống sẽ tự động thực hiện snapshot dữ liệu tồn kho tổng hợp thực tế.
+Tại Bước 1 (`GET /tax-declaration/step-1/:publicId`), hệ thống sẽ trả về các thông tin cơ bản của Hộ kinh doanh (HKD) được tự động lấy từ Hồ sơ người dùng (User Profile) và cấu hình thuế (`TaxConfiguration`), đồng thời tự động tính toán các tùy chọn mặc định để điền vào tờ khai:
+
+* **Tự động đề xuất loại tờ khai (`declarationTypeOption`):**
+  Hệ thống kiểm tra bảng `TaxFormExport` đối với kỳ kê khai và loại biểu tương ứng (`01_TKN_CNKD` cho Nhóm Miễn Thuế `taxGroupId === 1`, hoặc `01_CNKD` cho Nhóm Nộp Thuế `taxGroupId !== 1`).
+  - Nếu đã có lịch sử kết xuất thành công (`exportStatus === 'SUCCESS'`) -> Mặc định gán là `"Tờ khai bổ sung"` (`DECLARATION_TYPE_OPTIONS.ADDITIONAL`).
+  - Nếu chưa từng kết xuất thành công -> Mặc định gán là `"Tờ khai lần đầu"` (`DECLARATION_TYPE_OPTIONS.FIRST_TIME`).
+* **Tự động đề xuất Đối tượng nộp thuế (`taxpayerOption`):**
+  Dựa vào cấu hình phương pháp nộp thuế của HKD (`chosenPitMethod`):
+  - `EXEMPT` hoặc Nhóm Miễn Thuế `taxGroupId === 1` -> Mặc định gán là `"Hộ kinh doanh, cá nhân kinh doanh có doanh thu năm từ 01 tỷ đồng trở xuống"`.
+  - `PERCENTAGE` -> Mặc định gán là `"Hộ kinh doanh, cá nhân kinh doanh thuộc đối tượng nộp thuế TNCN trên doanh thu tính thuế"`.
+  - `PROFIT_15`, `PROFIT_17`, `PROFIT_20` -> Mặc định gán là `"Hộ kinh doanh, cá nhân kinh doanh thuộc đối tượng nộp thuế TNCN trên thu nhập tính thuế"`.
+* **Tự động đề xuất Kỳ tính thuế (`taxPeriodOption`):**
+  - Nhóm Miễn Thuế `taxGroupId === 1` -> Mặc định gán là `"Năm"`.
+  - Nhóm Nộp Thuế `taxGroupId !== 1` -> Ánh xạ trực tiếp từ `vatFilingPeriod` trong cấu hình thuế:
+    - `MONTHLY` -> `"Tháng"`.
+    - `PER_OCCURRENCE` -> `"Lần phát sinh"`.
+    - `QUARTERLY` (hoặc các giá trị khác) -> `"Quý"`.
+
+#### Bảng Tùy Chọn Dữ Liệu Hợp Lệ Cho FE (BE Constants)
+
+* **Đối tượng nộp thuế (`taxpayerOption`):**
+  * `Hộ kinh doanh, cá nhân kinh doanh có doanh thu năm từ 01 tỷ đồng trở xuống`
+  * `Hộ kinh doanh, cá nhân kinh doanh mới ra kinh doanh có doanh thu năm từ 01 tỷ đồng trở xuống`
+  * `Hộ kinh doanh, cá nhân kinh doanh nộp thuế TNCN theo phương pháp thuế suất nhân với doanh thu tính thuế để nghị hoàn thuế`
+  * `Cá nhân trực tiếp ký hợp đồng làm đại lý xổ số, bảo hiểm, bán hàng đa cấp, hoạt động kinh doanh khác chưa khấu trừ, nộp thuế trong năm`
+  * `Cho phép điều chỉnh, bổ sung các tờ khai Mẫu số 01/CNKD đã kê khai theo Thông tư số 40/2021/TT-BTC, Thông tư số 18/2026/TT-BTC; tờ khai Mẫu số 02/TMĐT đã kê khai theo Nghị định số 117/2025/NĐ-CP`
+  * `Hộ kinh doanh, cá nhân kinh doanh thuộc đối tượng nộp thuế TNCN trên doanh thu tính thuế`
+  * `Hộ kinh doanh, cá nhân kinh doanh thuộc đối tượng nộp thuế TNCN trên thu nhập tính thuế`
+  * `Hộ kinh doanh, cá nhân kinh doanh chỉ có hoạt động kinh doanh trên nền tảng thương mại điện tử, nền tảng số khác không có chức năng đặt hàng trực tuyến và chức năng thanh toán`
+  * `Hộ kinh doanh, cá nhân kinh doanh khai các loại thuế khác (thuế TTĐB, thuế tài nguyên, thuế/phí bảo vệ môi trường)`
+  * `Trường hợp đề nghị cấp hóa đơn điện tử có mã của cơ quan thuế theo lần phát sinh`
+
+* **Kỳ tính thuế (`taxPeriodOption`):**
+  * `Năm` | `Tháng` | `Quý` | `Lần phát sinh` | `6 tháng đầu năm` | `6 tháng cuối năm`
+
+* **Thông tin đại lý thuế & Ủy quyền kê khai thay (Mẫu 01/CNKD):**
+  Khi gửi dữ liệu lưu Bước 1 (`POST /tax-declaration/step-1/save/:publicId`), Frontend có thể truyền các thông tin tùy chọn sau nếu HKD có đại lý thuế hoặc ủy quyền:
+  - `authorizedFilerName`: Tên tổ chức/cá nhân khai thay.
+  - `authorizedFilerTaxCode`: Mã số thuế người khai thay.
+  - `authorizedFilerDocNumber`: Số văn bản ủy quyền.
+  - `authorizedFilerDocDate`: Ngày văn bản ủy quyền (Date string hoặc null).
+  - `taxAgentName`: Tên đại lý thuế.
+  - `taxAgentTaxCode`: Mã số thuế đại lý thuế.
 
 ---
 
@@ -118,7 +154,19 @@ Dữ liệu trả về từ API `GET /tax-declaration/step-2/:publicId` chứa c
 
 ---
 
-### 2.5. Luồng Ký Nộp & Xử Lý Biến Động Số Liệu (Submit Flow)
+### 2.5. Chi Tiết Kỹ Thuật Bước 3 - Thống Kê Tồn Kho Tổng Hợp
+
+Để tránh trùng lặp code và tính toán sai lệch, logic tính toán tồn kho tổng hợp đã được chuyển dịch tập trung về module `stocks`.
+* **Cơ chế tính toán**:
+  * **Giá trị đầu kỳ (`openingValue`)**: Tính tổng giá trị từ các chi tiết phiếu nhập kho (`StockReceiptDetail`) có trạng thái `APPROVED` và loại `sourceType = 'OPENING'`.
+  * **Giá trị nhập trong kỳ (`importedValue`)**: Tính tổng giá trị từ các chi tiết phiếu nhập kho có trạng thái `APPROVED` và loại khác `OPENING`.
+  * **Giá trị xuất trong kỳ (`exportedValue`)**: Tính tổng giá trị từ các phiếu xuất kho (`StockIssueDetail`) có trạng thái `APPROVED` (sử dụng phép tính nhân ở cơ sở dữ liệu `sd.quantity * COALESCE(sd.final_weighted_unit_cost, sd.provisional_unit_cost, 0)`).
+  * **Giá trị cuối kỳ (`closingValue`)**: Bằng `openingValue + importedValue - exportedValue`.
+* *Lưu ý cho FE:* API `POST /tax-declaration/step-3/save/:publicId` không yêu cầu body gửi lên. Hệ thống sẽ tự động thực hiện snapshot dữ liệu tồn kho tổng hợp thực tế.
+
+---
+
+### 2.6. Luồng Ký Nộp & Xử Lý Biến Động Số Liệu (Submit Flow)
 
 Khi người dùng nhấn nút "Ký nộp" ở bước cuối cùng, hệ thống kiểm tra sự sai lệch giữa số liệu thực tế trong DB hiện tại và số liệu snapshot đã lưu trong bản nháp tờ khai:
 

@@ -38,6 +38,10 @@ Tất cả các API của module Vouchers đều yêu cầu mã token đăng nh�
   * Khi tạo một phiếu thu liên kết với hóa đơn bán ra (hoặc phiếu chi liên kết với phiếu nhập kho) có số tiền $A$, Backend sẽ cộng dồn số tiền này vào trường `paidAmount` của hóa đơn bán ra (hoặc phiếu nhập kho) đó.
   * Nếu tổng số tiền của các phiếu liên kết cộng lại bằng đúng tổng tiền của hóa đơn bán ra (`totalPayment`) hoặc phiếu nhập kho (`totalValue`), hóa đơn bán ra hoặc phiếu nhập kho sẽ tự động chuyển trạng thái `isPaid` sang `true`.
   * Nếu tổng số tiền vượt quá giá trị hóa đơn bán ra hoặc phiếu nhập kho, API sẽ chặn và trả về lỗi `400 Bad Request`.
+* **Tự động tạo Phiếu Thu khi Phát hành Hóa đơn:**
+  * Khi hóa đơn bán ra được phát hành thành công (`status` chuyển thành `ISSUED`), Backend sẽ **tự động khởi tạo một phiếu thu** (`Voucher` loại `RECEIPT` ở trạng thái `ACTIVE`) liên kết với hóa đơn này để thu toàn bộ giá trị của hóa đơn (`amount = totalPayment`).
+  * Trạng thái thanh toán của hóa đơn sẽ tự động được cập nhật thành đã thanh toán (`isPaid = true` và `paidAmount = totalPayment`).
+  * Khi hủy hóa đơn bán ra (`status` chuyển thành `CANCELED`), tất cả phiếu thu liên kết với hóa đơn đó sẽ tự động bị hủy (`status` chuyển thành `CANCELED`).
 
 ### 2.3. Ràng buộc Thuế đối với Chi phí giảm trừ (Deductible Expense Constraint)
 Theo Luật Thuế Việt Nam hiện hành áp dụng cho các hộ kinh doanh:

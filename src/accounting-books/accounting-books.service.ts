@@ -795,7 +795,6 @@ export class AccountingBooksService {
         where: {
           userId,
           status: 'ISSUED',
-          isPaid: true,
         },
       }),
     ]);

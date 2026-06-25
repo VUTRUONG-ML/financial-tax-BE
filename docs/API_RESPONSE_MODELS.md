@@ -453,6 +453,9 @@ None
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
+> [!NOTE]
+> Khi hóa đơn phát hành thành công (`status` chuyển sang `ISSUED`), hệ thống sẽ tự động khởi tạo một phiếu thu (`Voucher` loại `RECEIPT`) liên kết với hóa đơn đó để thu toàn bộ số tiền hóa đơn. Trạng thái thanh toán của hóa đơn sẽ tự động được cập nhật thành `isPaid = true` và `paidAmount` bằng đúng `totalPayment`.
+
 #### Request Body
 
 None
@@ -2592,7 +2595,16 @@ None
     "businessName": "string",
     "ownerName": "string",
     "cccdNumber": "string",
-    "provinceCity": "string"
+    "provinceCity": "string",
+    "taxpayerOption": "string (Optional)",
+    "taxPeriodOption": "string (Optional)",
+    "declarationTypeOption": "string (Optional)",
+    "authorizedFilerName": "string (Optional)",
+    "authorizedFilerTaxCode": "string (Optional)",
+    "authorizedFilerDocNumber": "string (Optional)",
+    "authorizedFilerDocDate": "string | null (Optional)",
+    "taxAgentName": "string (Optional)",
+    "taxAgentTaxCode": "string (Optional)"
   },
   "meta": null
 }
@@ -2612,7 +2624,16 @@ None
   "businessName": "string (Optional)",
   "provinceCity": "string (Optional)",
   "cccdNumber": "string (Optional)",
-  "ownerName": "string (Optional)"
+  "ownerName": "string (Optional)",
+  "taxpayerOption": "string (Optional)",
+  "taxPeriodOption": "string (Optional)",
+  "declarationTypeOption": "string (Optional)",
+  "authorizedFilerName": "string (Optional)",
+  "authorizedFilerTaxCode": "string (Optional)",
+  "authorizedFilerDocNumber": "string (Optional)",
+  "authorizedFilerDocDate": "string | null (Optional)",
+  "taxAgentName": "string (Optional)",
+  "taxAgentTaxCode": "string (Optional)"
 }
 ```
 
@@ -2633,7 +2654,16 @@ None
       "businessName": "string",
       "ownerName": "string",
       "cccdNumber": "string",
-      "provinceCity": "string"
+      "provinceCity": "string",
+      "taxpayerOption": "string",
+      "taxPeriodOption": "string",
+      "declarationTypeOption": "string",
+      "authorizedFilerName": "string",
+      "authorizedFilerTaxCode": "string",
+      "authorizedFilerDocNumber": "string",
+      "authorizedFilerDocDate": "string | null",
+      "taxAgentName": "string",
+      "taxAgentTaxCode": "string"
     },
     "step2Data": "object | null",
     "step3Data": "object | null",

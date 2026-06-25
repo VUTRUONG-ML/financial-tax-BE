@@ -54,6 +54,9 @@ export class InvoiceResponseDto {
   status!: InvoiceStatus;
 
   @Expose()
+  @Transform(({ obj }) => {
+    return obj.status === 'ISSUED';
+  })
   isPaid!: boolean;
 
   @Expose()
@@ -61,7 +64,9 @@ export class InvoiceResponseDto {
   totalPayment!: number;
 
   @Expose()
-  @Transform(({ value }) => (value ? Number(value) : 0))
+  @Transform(({ obj }) => {
+    return obj.status === 'ISSUED' ? Number(obj.totalPayment || 0) : 0;
+  })
   paidAmount!: number;
 
   @Expose()
@@ -102,7 +107,7 @@ export class InvoiceResponseDto {
   @Transform(({ obj }) => {
     // Tính số tiền còn nợ (Total - Paid) để Frontend hiển thị nhanh
     const total = Number(obj.totalPayment || 0);
-    const paid = Number(obj.paidAmount || 0);
+    const paid = obj.status === 'ISSUED' ? total : 0;
     return Math.max(0, total - paid);
   })
   remainingAmount!: number;

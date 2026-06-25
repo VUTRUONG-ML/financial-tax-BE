@@ -259,8 +259,14 @@ export class InvoicesService {
         'UPDATE',
         tableWrite.invoices,
         invoice.id,
-        { status: invoice.status, cqtCode: null },
-        { status: 'ISSUED', cqtCode },
+        {
+          status: invoice.status,
+          cqtCode: null,
+        },
+        {
+          status: 'ISSUED',
+          cqtCode,
+        },
       );
 
       this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
@@ -329,7 +335,7 @@ export class InvoicesService {
           taxRate,
           taxPayable,
           totalPayment,
-          // status mặc định DRAFT, isPaid mặc định false (từ schema)
+          // status mặc định DRAFT
         },
       });
 
@@ -469,6 +475,43 @@ export class InvoicesService {
             tx,
           );
         }
+      }
+
+      // Tự động tạo phiếu thu (Receipt Voucher) nếu chưa tồn tại
+      const existingVoucher = await tx.voucher.findFirst({
+        where: {
+          outboundInvoiceId: invoice.id,
+          status: 'ACTIVE',
+        },
+      });
+
+      if (!existingVoucher) {
+        const category = await tx.voucherCategory.findUnique({
+          where: {
+            systemTag: 'RECEIPT_SALES',
+          },
+        });
+        if (!category) {
+          throw new NotFoundException(
+            'System voucher category "RECEIPT_SALES" not found',
+          );
+        }
+
+        await this.voucherService.create(
+          userId,
+          {
+            voucherType: 'RECEIPT',
+            categoryId: category.id,
+            content: `Thu tiền bán hàng hóa đơn ${invoice.invoiceSymbol}`,
+            amount: invoice.totalPayment,
+            paymentMethod: invoice.paymentMethod,
+            transactionAt: invoice.issueDate.toISOString(),
+            contactName: invoice.buyerName || undefined,
+            isDeductibleExpense: false,
+            outboundInvoicePublicId: invoice.publicId,
+          },
+          tx,
+        );
       }
 
       this.log.log(LOG_ACTIONS.INVOICE_CQT_ISSUED + '_PHASE1', {

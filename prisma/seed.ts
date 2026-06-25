@@ -238,40 +238,61 @@ async function main() {
       categoryName:
         'Chi phí nguyên liệu, vật liệu, nhiên liệu, năng lượng, hàng hóa sử dụng vào sản xuất, kinh doanh.',
       s2cExpenseMapping: 'ITEM_A',
+      systemTag: 'PAYMENT_MATERIAL',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí tiền lương, tiền công, các khoản phụ cấp, bảo hiểm bắt buộc và các khoản chi trả cho người lao động...',
       s2cExpenseMapping: 'ITEM_B',
+      systemTag: 'PAYMENT_SALARY',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí khấu hao tài sản cố định sử dụng vào sản xuất, kinh doanh.',
       s2cExpenseMapping: 'ITEM_C',
+      systemTag: 'PAYMENT_DEPRECIATION',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí dịch vụ mua ngoài như điện, nước, điện thoại, internet, vận chuyển, thuê tài sản...',
       s2cExpenseMapping: 'ITEM_D',
+      systemTag: 'PAYMENT_OUTSOURCED_SERVICE',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí trả lãi tiền vay phục vụ sản xuất kinh doanh.',
       s2cExpenseMapping: 'ITEM_E',
+      systemTag: 'PAYMENT_INTEREST',
     },
     {
       type: VoucherType.PAYMENT,
       categoryName:
         'Chi phí thuê kho bãi, mặt bằng phục vụ sản xuất kinh doanh và các khoản chi khác...',
       s2cExpenseMapping: 'ITEM_F',
+      systemTag: 'PAYMENT_RENT_AND_OTHERS',
     },
-    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền bán hàng', s2cExpenseMapping: 'NONE' },
-    { type: VoucherType.RECEIPT, categoryName: 'Thu tiền thu nợ', s2cExpenseMapping: 'NONE' },
-    { type: VoucherType.RECEIPT, categoryName: 'Thu khác', s2cExpenseMapping: 'NONE' },
+    {
+      type: VoucherType.RECEIPT,
+      categoryName: 'Thu tiền bán hàng',
+      s2cExpenseMapping: 'NONE',
+      systemTag: 'RECEIPT_SALES',
+    },
+    {
+      type: VoucherType.RECEIPT,
+      categoryName: 'Thu tiền thu nợ',
+      s2cExpenseMapping: 'NONE',
+      systemTag: 'RECEIPT_DEBT_COLLECTION',
+    },
+    {
+      type: VoucherType.RECEIPT,
+      categoryName: 'Thu khác',
+      s2cExpenseMapping: 'NONE',
+      systemTag: 'RECEIPT_OTHERS',
+    },
   ];
 
   for (const vc of voucherCategories) {
@@ -280,6 +301,7 @@ async function main() {
         type: vc.type,
         categoryName: vc.categoryName,
         s2cExpenseMapping: vc.s2cExpenseMapping as any,
+        systemTag: vc.systemTag,
         userId: null,
       },
     });

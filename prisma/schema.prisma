@@ -39,6 +39,7 @@ model User {
   vouchers               Voucher[]
   taxAuthorityConnection TaxAuthorityConnection?
   businessBankAccounts   BusinessBankAccount[]
+  taxFormExports         TaxFormExport[]
 
   setUpCompletedAt DateTime? @map("setup_completed_at")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -259,10 +260,6 @@ model Invoice {
   status             InvoiceStatus @default(DRAFT)
   cancellationReason String?       @map("cancellation_reason")
 
-  // Trạng thái thu tiền — tách biệt với status phát hành
-  isPaid     Boolean @default(false) @map("is_paid")
-  paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4) // Trường lưu tổng giá trị các phiếu thu đã trả cho invoice này -> Nếu paidAmount == totalPayment -> cập nhật ispaid
-
   user     User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   details  InvoiceDetail[]
   vouchers Voucher[]
@@ -392,6 +389,7 @@ model VoucherCategory {
   type              VoucherType
   categoryName      String            @map("category_name")
   s2cExpenseMapping S2cExpenseMapping @default(NONE) @map("s2c_expense_mapping")
+  systemTag         String?           @unique @map("system_tag")
 
   vouchers Voucher[]
 
@@ -513,6 +511,7 @@ model FinancialPeriod {
   inventoryMovements  InventoryMovement[]
   stockReceipts       StockReceipt[]
   stockIssues         StockIssue[]
+  taxFormExports      TaxFormExport[]
   invoices            Invoice[]
   createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -858,4 +857,22 @@ model BusinessBankAccount {
 
   @@index([userId])
   @@map("business_bank_accounts")
+}
+
+model TaxFormExport {
+  id           Int      @id @default(autoincrement())
+  publicId     String   @unique @default(cuid()) @map("public_id")
+  formType     String   @map("form_type") // '01_TKN_CNKD', '01_CNKD', '02_CNKD_TNCN_QTT', '01_BK_STK'
+  periodId     Int      @map("period_id")
+  taxYear      Int      @map("tax_year")
+  xmlContent   String   @map("xml_content") @db.Text
+  pdfUrl       String?  @map("pdf_url")
+  exportStatus String   @default("SUCCESS") @map("export_status")
+  createdBy    String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  period       FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  user         User            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@map("tax_form_exports")
 }

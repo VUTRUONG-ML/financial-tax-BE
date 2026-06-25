@@ -11,6 +11,11 @@ import { TaxEngineService } from '../tax-engine/tax-engine.service';
 import { SaveStep1Dto } from './dto/save-step-1.dto';
 import { StocksService } from '../stocks/stocks.service';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
+import {
+  TAXPAYER_OPTIONS,
+  TAX_PERIOD_OPTIONS,
+  DECLARATION_TYPE_OPTIONS,
+} from './constants/tax-declaration.constant';
 import { Prisma, PeriodStatus, PitMethod, FinancialPeriod } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
 import {
@@ -116,8 +121,67 @@ export class TaxDeclarationService {
       },
     });
 
-    // Ưu tiên trả về dữ liệu đã lưu trong draft
-    if (draft?.step1Data) return draft.step1Data as unknown as Step1Data;
+    // Xác định formType và check lịch sử kết xuất trong TaxFormExport
+    const targetFormType = currentTaxConfig?.taxGroupId === 1 ? '01_TKN_CNKD' : '01_CNKD';
+    const hasExported = await this.prisma.taxFormExport.findFirst({
+      where: {
+        periodId: period.id,
+        formType: targetFormType,
+        exportStatus: 'SUCCESS',
+      },
+    });
+    const defaultDeclType = hasExported ? DECLARATION_TYPE_OPTIONS.ADDITIONAL : DECLARATION_TYPE_OPTIONS.FIRST_TIME;
+
+    // Xác định taxpayerOption mặc định dựa trên chosenPitMethod
+    let defaultTaxpayerOpt = '';
+    if (currentTaxConfig) {
+      if (currentTaxConfig.chosenPitMethod === 'EXEMPT' || currentTaxConfig.taxGroupId === 1) {
+        defaultTaxpayerOpt = TAXPAYER_OPTIONS.HKD_UNDER_1B;
+      } else if (currentTaxConfig.chosenPitMethod === 'PERCENTAGE') {
+        defaultTaxpayerOpt = TAXPAYER_OPTIONS.HKD_ON_REVENUE;
+      } else if (
+        currentTaxConfig.chosenPitMethod === 'PROFIT_15' ||
+        currentTaxConfig.chosenPitMethod === 'PROFIT_17' ||
+        currentTaxConfig.chosenPitMethod === 'PROFIT_20'
+      ) {
+        defaultTaxpayerOpt = TAXPAYER_OPTIONS.HKD_ON_PROFIT;
+      }
+    }
+    if (!defaultTaxpayerOpt) {
+      defaultTaxpayerOpt = currentTaxConfig?.taxGroupId === 1
+        ? TAXPAYER_OPTIONS.HKD_UNDER_1B
+        : TAXPAYER_OPTIONS.HKD_ON_REVENUE;
+    }
+
+    // Xác định taxPeriodOption mặc định (Nhóm 1 mặc định là 'Năm', Nhóm 2, 3, 4 ánh xạ từ vatFilingPeriod)
+    let defaultTaxPeriod = TAX_PERIOD_OPTIONS.QUARTER;
+    if (currentTaxConfig?.taxGroupId === 1) {
+      defaultTaxPeriod = TAX_PERIOD_OPTIONS.YEAR;
+    } else if (currentTaxConfig) {
+      const filingPeriod = currentTaxConfig.vatFilingPeriod;
+      defaultTaxPeriod = filingPeriod === 'MONTHLY'
+        ? TAX_PERIOD_OPTIONS.MONTH
+        : filingPeriod === 'PER_OCCURRENCE'
+        ? TAX_PERIOD_OPTIONS.PER_OCCURRENCE
+        : TAX_PERIOD_OPTIONS.QUARTER;
+    }
+
+    // Ưu tiên trả về dữ liệu đã lưu trong draft và merge thêm các giá trị mặc định nếu thiếu
+    if (draft?.step1Data) {
+      const existing = draft.step1Data as unknown as Step1Data;
+      return {
+        ...existing,
+        taxpayerOption: existing.taxpayerOption || defaultTaxpayerOpt,
+        taxPeriodOption: existing.taxPeriodOption || defaultTaxPeriod,
+        declarationTypeOption: existing.declarationTypeOption || defaultDeclType,
+        authorizedFilerName: existing.authorizedFilerName ?? '',
+        authorizedFilerTaxCode: existing.authorizedFilerTaxCode ?? '',
+        authorizedFilerDocNumber: existing.authorizedFilerDocNumber ?? '',
+        authorizedFilerDocDate: existing.authorizedFilerDocDate ?? null,
+        taxAgentName: existing.taxAgentName ?? '',
+        taxAgentTaxCode: existing.taxAgentTaxCode ?? '',
+      } as unknown as Step1Data;
+    }
 
     // Auto-fill từ User profile
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -131,6 +195,15 @@ export class TaxDeclarationService {
       address:
         'Số 123, Đường Lý Thường Kiệt, Phường Trần Hưng Đạo, Quận Hoàn Kiếm, TP. Hà Nội',
       provinceCity: user?.provinceCity ?? '',
+      taxpayerOption: defaultTaxpayerOpt,
+      taxPeriodOption: defaultTaxPeriod,
+      declarationTypeOption: defaultDeclType,
+      authorizedFilerName: '',
+      authorizedFilerTaxCode: '',
+      authorizedFilerDocNumber: '',
+      authorizedFilerDocDate: null,
+      taxAgentName: '',
+      taxAgentTaxCode: '',
     };
     return step1;
   }
@@ -144,6 +217,15 @@ export class TaxDeclarationService {
       ownerName: dto.ownerName ?? '',
       cccdNumber: dto.cccdNumber ?? '',
       provinceCity: dto.provinceCity ?? '',
+      taxpayerOption: dto.taxpayerOption ?? '',
+      taxPeriodOption: dto.taxPeriodOption ?? '',
+      declarationTypeOption: dto.declarationTypeOption ?? '',
+      authorizedFilerName: dto.authorizedFilerName ?? '',
+      authorizedFilerTaxCode: dto.authorizedFilerTaxCode ?? '',
+      authorizedFilerDocNumber: dto.authorizedFilerDocNumber ?? '',
+      authorizedFilerDocDate: dto.authorizedFilerDocDate ?? null,
+      taxAgentName: dto.taxAgentName ?? '',
+      taxAgentTaxCode: dto.taxAgentTaxCode ?? '',
     };
 
     return await this.prisma.taxDeclarationDraft.update({
