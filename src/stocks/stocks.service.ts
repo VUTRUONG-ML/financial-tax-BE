@@ -1589,4 +1589,162 @@ export class StocksService {
       },
     };
   }
+
+  /**
+   * Lấy tổng số lượng và giá trị nhập kho hợp lệ theo từng sản phẩm trong kỳ.
+   * Phiếu nhập kho nguồn PURCHASE bắt buộc phải liên kết hóa đơn mua vào từ Cơ quan Thuế.
+   */
+  async getReceiptAggregatesByProduct(
+    periodId: number,
+    sourceTypes: StockReceiptSourceType[],
+    productIds: number[],
+    tx?: Prisma.TransactionClient,
+  ): Promise<Map<number, { qty: number; val: Decimal }>> {
+    const client = tx || this.prisma;
+    const result = new Map<number, { qty: number; val: Decimal }>();
+    if (productIds.length === 0) return result;
+
+    const details = await client.stockReceiptDetail.findMany({
+      where: {
+        productId: { in: productIds },
+        receipt: {
+          periodId,
+          status: StockReceiptStatus.APPROVED,
+          sourceType: { in: sourceTypes },
+          OR: [
+            {
+              sourceType: {
+                in: [
+                  StockReceiptSourceType.PRODUCTION,
+                  StockReceiptSourceType.ADJUSTMENT,
+                ],
+              },
+            },
+            {
+              sourceType: StockReceiptSourceType.PURCHASE,
+              receiptInvoices: { some: {} },
+            },
+          ],
+        },
+      },
+      select: {
+        productId: true,
+        quantity: true,
+        totalValue: true,
+      },
+    });
+
+    for (const d of details) {
+      const existing = result.get(d.productId) || { qty: 0, val: new Decimal(0) };
+      existing.qty += Number(d.quantity);
+      existing.val = existing.val.add(d.totalValue);
+      result.set(d.productId, existing);
+    }
+    return result;
+  }
+
+  /**
+   * Lấy tổng số lượng xuất kho hợp lệ theo từng sản phẩm trong kỳ.
+   * Phiếu xuất bán hàng (SALE) bắt buộc hóa đơn liên kết phải ở trạng thái ISSUED.
+   */
+  async getIssueAggregatesByProduct(
+    periodId: number,
+    productIds: number[],
+    tx?: Prisma.TransactionClient,
+  ): Promise<Map<number, number>> {
+    const client = tx || this.prisma;
+    const result = new Map<number, number>();
+    if (productIds.length === 0) return result;
+
+    // Lấy danh sách ID hóa đơn đã phát hành thành công
+    const issuedInvoices = await client.invoice.findMany({
+      where: { status: 'ISSUED' },
+      select: { id: true },
+    });
+    const issuedInvoiceIds = issuedInvoices.map((i) => i.id);
+
+    const details = await client.stockIssueDetail.findMany({
+      where: {
+        productId: { in: productIds },
+        issue: {
+          periodId,
+          status: StockIssueStatus.APPROVED,
+          issueType: {
+            in: [
+              StockIssueType.SALE,
+              StockIssueType.PRODUCTION,
+              StockIssueType.ADJUSTMENT,
+            ],
+          },
+          OR: [
+            { issueType: { in: [StockIssueType.PRODUCTION, StockIssueType.ADJUSTMENT] } },
+            {
+              issueType: StockIssueType.SALE,
+              sourceDocumentType: StockIssueDocument.INVOICE,
+              sourceDocumentId: { in: issuedInvoiceIds },
+            },
+          ],
+        },
+      },
+      select: {
+        productId: true,
+        quantity: true,
+      },
+    });
+
+    for (const d of details) {
+      const existing = result.get(d.productId) || 0;
+      result.set(d.productId, existing + Number(d.quantity));
+    }
+    return result;
+  }
+
+  async calculateTotalMaterialCost(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+    tx?: Prisma.TransactionClient,
+  ): Promise<Decimal> {
+    const client = tx || this.prisma;
+
+    // 1. Lấy danh sách ID hóa đơn bán ra đã phát hành thành công
+    const issuedInvoices = await client.invoice.findMany({
+      where: {
+        userId,
+        status: 'ISSUED',
+        issueDate: { gte: startDate, lte: endDate } },
+      select: { id: true },
+    });
+    const issuedInvoiceIds = issuedInvoices.map((i) => i.id);
+
+    // 2. Lấy chi tiết phiếu xuất kho hợp lệ trong kỳ
+    const details = await client.stockIssueDetail.findMany({
+      where: {
+        issue: {
+          userId,
+          issueDate: { gte: startDate, lte: endDate },
+          status: StockIssueStatus.APPROVED,
+          OR: [
+            { issueType: { in: [StockIssueType.PRODUCTION, StockIssueType.ADJUSTMENT] } },
+            {
+              issueType: StockIssueType.SALE,
+              sourceDocumentType: StockIssueDocument.INVOICE,
+              sourceDocumentId: { in: issuedInvoiceIds },
+            },
+          ],
+        },
+      },
+      select: {
+        quantity: true,
+        finalWeightedUnitCost: true,
+        provisionalUnitCost: true,
+      },
+    });
+
+    // 3. Tính tổng chi phí nguyên vật liệu
+    return details.reduce((sum, d) => {
+      const unitCost = d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? new Decimal(0);
+      return sum.add(d.quantity.mul(unitCost));
+    }, new Decimal(0));
+  }
 }

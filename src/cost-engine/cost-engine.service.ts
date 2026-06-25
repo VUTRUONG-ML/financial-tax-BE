@@ -71,7 +71,7 @@ export class CostEngineService {
       openingMap.set(pId, { qty, val });
     }
 
-    // 2. Query inbound stock receipt aggregates in bulk
+    // 2. Lấy tổng nhập kho hợp lệ theo sản phẩm (từ StocksService)
     const sourceTypes = isPhase2
       ? [
           StockReceiptSourceType.PRODUCTION,
@@ -80,56 +80,19 @@ export class CostEngineService {
         ]
       : [StockReceiptSourceType.PURCHASE, StockReceiptSourceType.ADJUSTMENT];
 
-    const sourceTypesSqlList = sourceTypes.map((t) => `'${t}'`).join(', ');
-
-    const receiptAggregates: any[] = await tx.$queryRawUnsafe(
-      `
-        SELECT
-          d.product_id as "productId",
-          SUM(d.quantity) as "quantity",
-          SUM(d.total_value) as "totalValue"
-        FROM stock_receipt_details d
-        JOIN stock_receipts r ON d.receipt_id = r.id
-        WHERE r.period_id = $1
-          AND r.status = 'APPROVED'
-          AND r.source_type IN (${sourceTypesSqlList})
-          AND d.product_id IN (${targetProductIds.join(', ')})
-        GROUP BY d.product_id
-      `,
+    const receiptMap = await this.stocksService.getReceiptAggregatesByProduct(
       periodId,
+      sourceTypes,
+      targetProductIds,
+      tx,
     );
 
-    const receiptMap = new Map<number, { qty: number; val: Decimal }>();
-    for (const agg of receiptAggregates) {
-      const pId = Number(agg.productId);
-      const qty = agg.quantity ? Number(agg.quantity) : 0;
-      const val = agg.totalValue ? new Decimal(agg.totalValue) : new Decimal(0);
-      receiptMap.set(pId, { qty, val });
-    }
-
-    // 3. Query outbound movement aggregates in bulk
-    const outboundAggregates: any[] = await tx.$queryRawUnsafe(
-      `
-        SELECT
-          d.product_id as "productId",
-          SUM(d.quantity) as "quantity"
-        FROM stock_issue_details d
-        JOIN stock_issues i ON d.issue_id = i.id
-        WHERE i.period_id = $1
-          AND i.status = 'APPROVED'
-          AND i.issue_type IN ('SALE', 'PRODUCTION', 'ADJUSTMENT')
-          AND d.product_id IN (${targetProductIds.join(', ')})
-        GROUP BY d.product_id
-      `,
+    // 3. Lấy tổng xuất kho hợp lệ theo sản phẩm (từ StocksService)
+    const outboundMap = await this.stocksService.getIssueAggregatesByProduct(
       periodId,
+      targetProductIds,
+      tx,
     );
-
-    const outboundMap = new Map<number, number>();
-    for (const agg of outboundAggregates) {
-      const pId = Number(agg.productId);
-      const qty = agg.quantity ? Number(agg.quantity) : 0;
-      outboundMap.set(pId, qty);
-    }
 
     // 4. Compute weighted average cost and endingQty for each product
     const validCosts: [number, Decimal][] = [];

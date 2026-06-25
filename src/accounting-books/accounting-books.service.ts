@@ -819,7 +819,7 @@ export class AccountingBooksService {
 
     const [
       dbResult,
-      rawMaterialsResult,
+      materialCostDecimal,
       realtimeData,
       taxConfig,
       bookMetadata,
@@ -840,17 +840,7 @@ export class AccountingBooksService {
           AND v.is_deductible_expense = TRUE
           AND v.status = 'ACTIVE';
       `,
-      this.prisma.$queryRaw<{ cost: number }[]>`
-        SELECT COALESCE(SUM(sd.quantity * COALESCE(sd.final_weighted_unit_cost, sd.provisional_unit_cost, 0)), 0)::double precision as cost
-        FROM stock_issue_details sd
-        JOIN stock_issues s ON sd.issue_id = s.id
-        JOIN invoices i ON s.source_document_id = i.id
-        WHERE s.user_id = ${userId}
-          AND s.issue_date BETWEEN ${startDate} AND ${endDate}
-          AND s.status = 'APPROVED'
-          AND s.source_document_type = 'INVOICE'
-          AND i.status = 'ISSUED'
-      `,
+      this.stocksService.calculateTotalMaterialCost(userId, startDate, endDate),
       this.financialPeriodsService.calculateRealtimeTaxData(
         userId,
         startDate,
@@ -876,7 +866,7 @@ export class AccountingBooksService {
       chi_phi_khac: 0,
     };
 
-    const chi_phi_nguyen_vat_lieu = Number(rawMaterialsResult[0]?.cost || 0);
+    const chi_phi_nguyen_vat_lieu = materialCostDecimal.toNumber();
     const chi_phi_nhan_cong = Number(summaryRow.chi_phi_nhan_cong || 0);
     const chi_phi_khau_hao = Number(summaryRow.chi_phi_khau_hao || 0);
     const chi_phi_dich_vu_mua_ngoai = Number(

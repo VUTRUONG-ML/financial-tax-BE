@@ -205,6 +205,7 @@ describe('AccountingBooksService', () => {
           provide: StocksService,
           useValue: {
             getProductPeriodInventorySummary: jest.fn(),
+            calculateTotalMaterialCost: jest.fn(),
           },
         },
       ],
@@ -478,6 +479,7 @@ describe('AccountingBooksService', () => {
         expense: new Decimal(1850000),
       });
       taxEngine.calculatePitProfitForPeriod.mockReturnValue(new Decimal(195500));
+      stocksService.calculateTotalMaterialCost.mockResolvedValue(new Decimal(150000));
 
 
       const mockCategories = [
