@@ -10,8 +10,10 @@ import {
 } from '../core/audit-log/audit-log.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
+import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { StockReceiptResponseDto } from './dto/stock-receipt-response.dto';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
+import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { StockIssueResponseDto } from './dto/stock-issue-response.dto';
 import { StockSummaryResponseDto } from './dto/stock-summary-response.dto';
 import { StockReceiptListItemResponseDto } from './dto/stock-receipt-list-item-response.dto';
@@ -331,32 +333,28 @@ export class StocksService {
         });
         throw new NotFoundException('The warehouse receipt does not exist.');
       }
+
+      if (current.status === StockReceiptStatus.CANCELLED) {
+        throw new BadRequestException('The stock receipt has already been canceled.');
+      }
+
+      // Gỡ liên kết tất cả hóa đơn đầu vào trước khi hủy
+      await client.stockReceiptInvoice.deleteMany({
+        where: { receiptId: current.id },
+      });
+
       // Hủy các phiếu chi liên quan
       await this.voucherService.bulkCancelByStockReceipt(
         client,
         userId,
         current.id,
       );
-      const updateReceipt = await client.stockReceipt.updateMany({
-        where: {
-          receiptCode,
-          userId,
-          periodId,
-          status: { not: StockReceiptStatus.CANCELLED },
-        },
-        data: {
-          status: StockReceiptStatus.CANCELLED,
-        },
+
+      await client.stockReceipt.update({
+        where: { id: current.id },
+        data: { status: StockReceiptStatus.CANCELLED },
       });
-      if (updateReceipt.count === 0) {
-        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
-          status: LOG_STATUS.FAILED,
-          userId,
-          reason: 'RECEIPT_CANCELED',
-          receiptCode,
-        });
-        throw new BadRequestException('The stock receipt has been canceled.');
-      }
+
       const items = current.details;
       const transactionDate = moment().toDate();
       for (const item of items) {
@@ -413,7 +411,7 @@ export class StocksService {
         tableWrite.stockReceipts,
         current.id,
         { status: current.status },
-        { status: StockIssueStatus.CANCELLED },
+        { status: StockReceiptStatus.CANCELLED },
       );
 
       this.log.log(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
@@ -1626,5 +1624,232 @@ export class StocksService {
     tx?: Prisma.TransactionClient,
   ): Promise<Decimal> {
     return this.calculateExportedCost(userId, { startDate, endDate }, tx);
+  }
+
+  //----------------------------------------------------------------------
+  // UPDATE RECEIPT
+  //----------------------------------------------------------------------
+
+  async updateStockReceipt(
+    userId: string,
+    receiptCode: string,
+    updateDto: UpdateStockReceiptDto,
+  ): Promise<StockReceiptResponseDto> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.stockReceipt.findFirst({
+        where: { receiptCode, userId },
+        include: { details: true, vouchers: { where: { status: 'ACTIVE' } } },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Stock receipt not found or access denied.');
+      }
+      if (current.status === StockReceiptStatus.CANCELLED) {
+        throw new BadRequestException('Cannot update a cancelled stock receipt.');
+      }
+
+      const updateData: Prisma.StockReceiptUpdateInput = {};
+
+      if (updateDto.note !== undefined) updateData.note = updateDto.note;
+      if (updateDto.sourceType !== undefined) updateData.sourceType = updateDto.sourceType;
+      if (updateDto.supplierName !== undefined) updateData.supplierName = updateDto.supplierName;
+
+      // --- isPaid logic: sync voucher ---
+      if (updateDto.isPaid !== undefined && updateDto.isPaid !== current.isPaid) {
+        if (updateDto.isPaid) {
+          // Tạo phiếu chi nếu chưa có
+          const existingVoucher = await tx.voucher.findFirst({
+            where: { stockReceiptId: current.id, status: 'ACTIVE' },
+          });
+          if (!existingVoucher) {
+            const category = await tx.voucherCategory.findUnique({
+              where: { systemTag: 'PAYMENT_MATERIAL' },
+            });
+            if (!category) {
+              throw new NotFoundException(
+                'System voucher category "PAYMENT_MATERIAL" not found',
+              );
+            }
+            await this.voucherService.create(
+              userId,
+              {
+                voucherType: 'PAYMENT',
+                categoryId: category.id,
+                content: `Thanh toán cho phiếu nhập kho ${current.receiptCode}`,
+                amount: current.totalValue,
+                paymentMethod: 'BANK',
+                transactionAt: current.receiptDate.toISOString(),
+                contactName: updateDto.supplierName ?? current.supplierName ?? undefined,
+                isDeductibleExpense: true,
+                stockReceiptCode: current.receiptCode,
+              },
+              tx,
+            );
+          }
+          updateData.isPaid = true;
+          updateData.paidAmount = current.totalValue;
+        } else {
+          // Hủy phiếu chi liên quan
+          await this.voucherService.bulkCancelByStockReceipt(tx, userId, current.id);
+          updateData.isPaid = false;
+          updateData.paidAmount = new Decimal(0);
+        }
+      }
+
+      if (updateDto.unlinkInvoicePublicId) {
+        const inv = await tx.inboundInvoice.findUnique({
+          where: { publicId: updateDto.unlinkInvoicePublicId },
+        });
+        if (inv) {
+          await tx.stockReceiptInvoice.deleteMany({
+            where: { receiptId: current.id, invoiceId: inv.id },
+          });
+        }
+      }
+
+      if (updateDto.linkInvoicePublicId) {
+        const inv = await tx.inboundInvoice.findUnique({
+          where: { publicId: updateDto.linkInvoicePublicId, userId },
+          include: { details: true },
+        });
+        if (!inv) {
+          throw new NotFoundException('Inbound invoice not found or access denied.');
+        }
+        const existingLink = await tx.stockReceiptInvoice.findUnique({
+          where: { receiptId_invoiceId: { receiptId: current.id, invoiceId: inv.id } },
+        });
+        if (!existingLink) {
+          await tx.stockReceiptInvoice.create({
+            data: { receiptId: current.id, invoiceId: inv.id },
+          });
+        }
+      }
+
+      await tx.stockReceipt.update({
+        where: { id: current.id },
+        data: updateData,
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.stockReceipts,
+        current.id,
+        { receiptCode: current.receiptCode, status: current.status },
+        updateData,
+      );
+
+      const finalReceipt = await tx.stockReceipt.findUnique({
+        where: { id: current.id },
+        include: {
+          period: { select: { periodName: true } },
+          details: {
+            include: {
+              product: { select: { publicId: true, productName: true, skuCode: true } },
+            },
+          },
+        },
+      });
+      return mapToDto(StockReceiptResponseDto, finalReceipt);
+    });
+  }
+
+  async updateStockIssue(
+    userId: string,
+    issueCode: string,
+    updateDto: UpdateStockIssueDto,
+  ): Promise<StockIssueResponseDto> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.stockIssue.findFirst({
+        where: { issueCode, userId },
+        include: { details: true },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Stock issue not found or access denied.');
+      }
+      if (current.status === StockIssueStatus.CANCELLED) {
+        throw new BadRequestException('Cannot update a cancelled stock issue.');
+      }
+
+      const updateData: Prisma.StockIssueUpdateInput = {};
+
+      if (updateDto.note !== undefined) updateData.note = updateDto.note;
+      if (updateDto.issueType !== undefined) updateData.issueType = updateDto.issueType;
+
+      await tx.stockIssue.update({
+        where: { id: current.id },
+        data: updateData,
+      });
+
+      await this.auditLog.logChange(
+        tx,
+        userId,
+        'UPDATE',
+        tableWrite.stockIssues,
+        current.id,
+        { issueCode: current.issueCode, status: current.status },
+        updateData,
+      );
+
+      const finalIssue = await tx.stockIssue.findUnique({
+        where: { id: current.id },
+        include: {
+          period: { select: { periodName: true } },
+          details: {
+            include: {
+              product: { select: { publicId: true, productName: true, skuCode: true } },
+            },
+          },
+        },
+      });
+      return mapToDto(StockIssueResponseDto, finalIssue);
+    });
+  }
+
+  async findOneIssue(userId: string, issueCode: string): Promise<StockIssueResponseDto> {
+    const issue = await this.prisma.stockIssue.findFirst({
+      where: { issueCode, userId },
+      include: {
+        period: { select: { periodName: true } },
+        details: {
+          include: {
+            product: { select: { publicId: true, productName: true, skuCode: true } },
+          },
+        },
+      },
+    });
+
+    if (!issue) {
+      throw new NotFoundException('Stock issue not found or access denied.');
+    }
+
+    return mapToDto(StockIssueResponseDto, issue);
+  }
+
+  async findOneReceipt(userId: string, receiptCode: string){
+    const receipt = await this.prisma.stockReceipt.findUnique({
+      where: {
+        userId_receiptCode: {userId, receiptCode}
+      },
+      include: {
+        details: {
+          include: {
+            product: {
+              select: {
+                publicId: true, 
+                productName: true,
+                skuCode: true,
+              }
+            }
+          }
+        }
+      }
+    });
+    if(!receipt){
+      throw new NotFoundException('Receipt stock not found.');
+    }
+    return mapToDto(StockReceiptResponseDto, receipt);
   }
 }

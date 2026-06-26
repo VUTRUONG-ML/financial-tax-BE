@@ -100,10 +100,13 @@ This document describes the request and response data structures of the core API
   - [15.5. Unlink Invoice from Stock Receipt](#155-unlink-invoice-from-stock-receipt)
   - [15.6. Get Linked Invoices](#156-get-linked-invoices)
   - [15.7. Get Stock Receipt Detail](#157-get-stock-receipt-detail)
+  - [15.8. Update Stock Receipt](#158-update-stock-receipt)
 - [16. Stock Issues](#16-stock-issues)
   - [16.1. Get All Stock Issues](#161-get-all-stock-issues)
   - [16.2. Create Stock Issue](#162-create-stock-issue)
   - [16.3. Cancel Stock Issue](#163-cancel-stock-issue)
+  - [16.4. Get Stock Issue Detail](#164-get-stock-issue-detail)
+  - [16.5. Update Stock Issue](#165-update-stock-issue)
 - [17. Tax Authority Connections](#17-tax-authority-connections)
   - [17.1. Get Tax Connection](#171-get-tax-connection)
   - [17.2. Upsert Tax Connection](#172-upsert-tax-connection)
@@ -1397,15 +1400,9 @@ None
 
 ```json
 {
-  "categoryId": "number (Optional)",
   "content": "string (Optional)",
-  "paymentMethod": "\"CASH\" | \"BANK\" (Optional)",
-  "contactName": "string (Optional)",
-  "isDeductibleExpense": "boolean (Optional)",
-  "voucherType": "\"RECEIPT\" | \"PAYMENT\" (Optional)",
-  "amount": "number (Optional)",
-  "inboundInvoicePublicId": "string (Optional)",
-  "outboundInvoicePublicId": "string (Optional)"
+  "transactionAt": "string (Date string)"
+  "contactName": "string (Optional)"
 }
 ```
 
@@ -3590,7 +3587,7 @@ None
 
 #### Response Data (JSON)
 
-```json
+````json
 {
   "success": true,
   "statusCode": 200,
@@ -3700,7 +3697,7 @@ None
   },
   "meta": null
 }
-```
+````
 
 ### 13.7. Get Inventory Book Summary
 
@@ -4193,6 +4190,60 @@ None
 
 ---
 
+### 15.8. Update Stock Receipt
+
+- **Route:** `/stock-receipts/:receiptCode`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+- **Period:** `CheckPeriod()` — period được suy ra từ ngày hiện tại hoặc `receiptDate` mới nếu có thay đổi.
+
+**Request Body** (`UpdateStockReceiptDto`):
+
+| Trường                  | Kiểu                          | Bắt buộc | Mô tả                                                                           |
+| :---------------------- | :---------------------------- | :------: | :------------------------------------------------------------------------------ |
+| `note`                  | `string`                      |  Không   | Ghi chú cho phiếu nhập.                                                         |
+| `sourceType`            | `enum StockReceiptSourceType` |  Không   | Nguồn nhập: `PURCHASE`, `PRODUCTION`, `ADJUSTMENT`, `OPENING`.                  |
+| `supplierName`          | `string`                      |  Không   | Tên nhà cung cấp.                                                               |
+| `isPaid`                | `boolean`                     |  Không   | Nếu `true` → tự động tạo phiếu chi. Nếu `false` → hủy phiếu chi đang hoạt động. |
+| `linkInvoicePublicId`   | `string`                      |  Không   | `publicId` của hóa đơn cần liên kết thêm.                                       |
+| `unlinkInvoicePublicId` | `string`                      |  Không   | `publicId` của hóa đơn cần gỡ liên kết.                                         |
+
+> ⚠️ Không được cập nhật: danh sách sản phẩm, số lượng, đơn giá, tổng tiền, receiptDate.
+> ⚠️ Phiếu đã `CANCELLED` không thể cập nhật.
+
+**Response thành công** (`200 OK`):
+
+```json
+{
+  "message": "Stock receipt updated successfully",
+  "data": {
+    "receiptCode": "PNK-0626-0001",
+    "receiptDate": "2026-06-15T00:00:00.000Z",
+    "sourceType": "PURCHASE",
+    "supplierName": "Công ty TNHH ABC",
+    "totalValue": 15000000,
+    "status": "APPROVED",
+    "periodName": "Kỳ 01/2026 - 06/2026",
+    "note": "Ghi chú cập nhật",
+    "isPaid": true,
+    "createdAt": "2026-06-01T10:00:00.000Z",
+    "details": [
+      {
+        "productPublicId": "prod-uuid-001",
+        "productName": "Nguyên liệu A",
+        "skuCode": "NVL-001",
+        "quantity": 100,
+        "unitCost": 150000,
+        "totalValue": 15000000
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+---
+
 ## 16. Stock Issues
 
 ### 16.1. Get All Stock Issues
@@ -4350,6 +4401,97 @@ None
 
 ---
 
+### 16.4. Get Stock Issue Detail
+
+- **Route:** `/stock-issues/:issueCode`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+**Response thành công** (`200 OK`):
+
+```json
+{
+  "message": "Stock issue retrieved successfully",
+  "data": {
+    "issueCode": "PXK-0626-0001",
+    "issueDate": "2026-06-20T00:00:00.000Z",
+    "issueType": "ADJUSTMENT",
+    "sourceDocumentType": null,
+    "sourceDocumentId": null,
+    "status": "APPROVED",
+    "periodName": "Kỳ 01/2026 - 06/2026",
+    "note": "Xuất điều chỉnh hàng hỏng",
+    "createdAt": "2026-06-20T09:00:00.000Z",
+    "details": [
+      {
+        "productPublicId": "prod-uuid-002",
+        "productName": "Hàng hóa B",
+        "skuCode": "HH-002",
+        "quantity": 10,
+        "provisionalUnitCost": 200000,
+        "finalWeightedUnitCost": null,
+        "finalCogsValue": null,
+        "cogsPostedToS2c": "PENDING"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+---
+
+### 16.5. Update Stock Issue
+
+- **Route:** `/stock-issues/:issueCode`
+- **Method:** `PATCH`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+- **Period:** `CheckPeriod()` — period được suy ra từ ngày hiện tại hoặc `issueDate` mới nếu có thay đổi.
+
+**Request Body** (`UpdateStockIssueDto`):
+
+| Trường      | Kiểu                  | Bắt buộc | Mô tả                                          |
+| :---------- | :-------------------- | :------: | :--------------------------------------------- |
+| `issueType` | `enum StockIssueType` |  Không   | Loại xuất: `SALE`, `PRODUCTION`, `ADJUSTMENT`. |
+| `note`      | `string`              |  Không   | Ghi chú cho phiếu xuất.                        |
+
+> ⚠️ Không được cập nhật: danh sách sản phẩm, số lượng, tổng tiền, issueDate.
+> ⚠️ Phiếu đã `CANCELLED` không thể cập nhật.
+
+**Response thành công** (`200 OK`):
+
+```json
+{
+  "message": "Stock issue updated successfully",
+  "data": {
+    "issueCode": "PXK-0626-0001",
+    "issueDate": "2026-06-21T00:00:00.000Z",
+    "issueType": "ADJUSTMENT",
+    "sourceDocumentType": null,
+    "sourceDocumentId": null,
+    "status": "APPROVED",
+    "periodName": "Kỳ 01/2026 - 06/2026",
+    "note": "Ghi chú đã cập nhật",
+    "createdAt": "2026-06-20T09:00:00.000Z",
+    "details": [
+      {
+        "productPublicId": "prod-uuid-002",
+        "productName": "Hàng hóa B",
+        "skuCode": "HH-002",
+        "quantity": 10,
+        "provisionalUnitCost": 200000,
+        "finalWeightedUnitCost": null,
+        "finalCogsValue": null,
+        "cogsPostedToS2c": "PENDING"
+      }
+    ]
+  },
+  "meta": null
+}
+```
+
+---
+
 ## 17. Tax Authority Connections
 
 ### 17.1. Get Tax Connection
@@ -4465,6 +4607,7 @@ Module quản lý tài khoản ngân hàng / ví điện tử của hộ kinh do
 **Enum `DeclarationStatus`:** `"INITIAL_REGISTRATION"` | `"INFORMATION_UPDATE"` | `"ACCOUNT_CLOSURE"`
 
 > **Business Rule:** `isActive` được tự động set theo `declarationStatus`:
+>
 > - `ACCOUNT_CLOSURE` → `isActive = false`
 > - `INITIAL_REGISTRATION` / `INFORMATION_UPDATE` → `isActive = true`
 >

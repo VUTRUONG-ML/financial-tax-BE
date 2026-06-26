@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
 import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
+import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 
@@ -84,6 +85,40 @@ export class StockIssuesController {
     return {
       message: 'Stock issue canceled successfully',
       data: result,
+    };
+  }
+
+  @Patch(':issueCode')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async updateStockIssue(
+    @CurrentUser('id') userId: string,
+    @Param('issueCode') issueCode: string,
+    @Body() updateDto: UpdateStockIssueDto,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.updateStockIssue(
+      userId,
+      issueCode,
+      updateDto,
+    );
+    return {
+      message: 'Stock issue updated successfully',
+      data: result,
+    };
+  }
+
+  @Get(':issueCode')
+  @HttpCode(HttpStatus.OK)
+  async getIssueDetail(
+    @CurrentUser('id') userId: string,
+    @Param('issueCode') issueCode: string,
+  ) {
+    const data = await this.stocksService.findOneIssue(userId, issueCode);
+    return {
+      message: 'Stock issue retrieved successfully',
+      data,
     };
   }
 }

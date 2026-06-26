@@ -12,25 +12,28 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
 
 - **Prefix Endpoint:** `/stock-receipts`
 
-| Chức năng | Method | Endpoint | Query Parameters / Body | Mô tả & Ràng buộc nghiệp vụ |
-| :--- | :---: | :--- | :--- | :--- |
-| **Lấy danh sách** | `GET` | `/stock-receipts` | Query: `page`, `limit`, `sourceType` | Lấy danh sách phiếu nhập kho. `sourceType` lọc theo nguồn: `PURCHASE`, `PRODUCTION`, `ADJUSTMENT`, `OPENING`. |
-| **Chi tiết phiếu & Đối chiếu** | `GET` | `/stock-receipts/:receiptCode` | Không có | Lấy thông tin chi tiết của 1 phiếu nhập kho kèm theo hóa đơn mua vào liên kết và các cảnh báo lệch đơn giá, số lượng. |
-| **Tạo phiếu nhập** | `POST` | `/stock-receipts` | Body: `CreateStockReceiptDto` | Lập phiếu nhập kho mới. Hệ thống tự sinh mã phiếu theo định dạng `PNK-MMYY-XXXX`. |
-| **Hủy phiếu nhập** | `PATCH` | `/stock-receipts/:receiptCode/cancel` | Không có | Hủy phiếu nhập kho. Hoàn trừ số lượng tồn kho và **tự động hủy toàn bộ các phiếu chi (Payment Vouchers)** liên kết với phiếu nhập kho này. |
-| **Liên kết hóa đơn đầu vào** | `POST` | `/stock-receipts/:receiptCode/link-invoice` | Body: `invoicePublicId` | Tạo liên kết giữa phiếu nhập kho và hóa đơn đầu vào (`InboundInvoice`). BE tự động điều chỉnh đơn giá của phiếu nhập khớp với hóa đơn. |
-| **Hủy liên kết hóa đơn** | `DELETE` | `/stock-receipts/:receiptCode/link-invoice/:invoicePublicId` | Không có | Xóa liên kết giữa phiếu nhập kho và hóa đơn đầu vào. |
-| **Lấy hóa đơn đã liên kết** | `GET` | `/stock-receipts/:receiptCode/invoices` | Không có | Trả về danh sách các hóa đơn đầu vào đang liên kết với phiếu nhập kho này. |
+| Chức năng                      |  Method  | Endpoint                                                     | Query Parameters / Body              | Mô tả & Ràng buộc nghiệp vụ                                                                                                              |
+| :----------------------------- | :------: | :----------------------------------------------------------- | :----------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| **Lấy danh sách**              |  `GET`   | `/stock-receipts`                                            | Query: `page`, `limit`, `sourceType` | Lấy danh sách phiếu nhập kho. `sourceType` lọc theo nguồn: `PURCHASE`, `PRODUCTION`, `ADJUSTMENT`, `OPENING`.                            |
+| **Chi tiết phiếu & Đối chiếu** |  `GET`   | `/stock-receipts/:receiptCode`                               | Không có                             | Lấy thông tin chi tiết của 1 phiếu nhập kho kèm theo hóa đơn mua vào liên kết.                                                           |
+| **Tạo phiếu nhập**             |  `POST`  | `/stock-receipts`                                            | Body: `CreateStockReceiptDto`        | Lập phiếu nhập kho mới. Hệ thống tự sinh mã phiếu theo định dạng `PNK-MMYY-XXXX`.                                                        |
+| **Cập nhật phiếu nhập**        | `PATCH`  | `/stock-receipts/:receiptCode`                               | Body: `UpdateStockReceiptDto`        | Cập nhật thông tin phiếu nhập kho (note, sourceType, supplierName, isPaid, link/unlink invoice). Không được cập nhật danh sách sản phẩm. |
+| **Hủy phiếu nhập**             | `PATCH`  | `/stock-receipts/:receiptCode/cancel`                        | Không có                             | Hủy phiếu nhập kho. Tự động gỡ liên kết hóa đơn, hoàn trừ tồn kho và **hủy toàn bộ phiếu chi liên kết**.                                 |
+| **Liên kết hóa đơn đầu vào**   |  `POST`  | `/stock-receipts/:receiptCode/link-invoice`                  | Body: `invoicePublicId`              | Tạo liên kết giữa phiếu nhập kho và hóa đơn đầu vào (`InboundInvoice`). BE tự động điều chỉnh đơn giá của phiếu nhập khớp với hóa đơn.   |
+| **Hủy liên kết hóa đơn**       | `DELETE` | `/stock-receipts/:receiptCode/link-invoice/:invoicePublicId` | Không có                             | Xóa liên kết giữa phiếu nhập kho và hóa đơn đầu vào.                                                                                     |
+| **Lấy hóa đơn đã liên kết**    |  `GET`   | `/stock-receipts/:receiptCode/invoices`                      | Không có                             | Trả về danh sách các hóa đơn đầu vào đang liên kết với phiếu nhập kho này.                                                               |
 
 ### 1.2. API Phiếu Xuất Kho (Stock Issues)
 
 - **Prefix Endpoint:** `/stock-issues`
 
-| Chức năng | Method | Endpoint | Query Parameters / Body | Mô tả & Ràng buộc nghiệp vụ |
-| :--- | :---: | :--- | :--- | :--- |
-| **Lấy danh sách** | `GET` | `/stock-issues` | Query: `page`, `limit`, `sourceType` | Lấy danh sách phiếu xuất kho. `sourceType` lọc theo: `SALE`, `PRODUCTION`, `ADJUSTMENT`. |
-| **Tạo phiếu xuất** | `POST` | `/stock-issues` | Body: `CreateStockIssueDto` | Lập phiếu xuất kho thủ công (ví dụ: Xuất hủy, xuất sản xuất). Hệ thống tự sinh mã `PXK-MMYY-XXXX`. |
-| **Hủy phiếu xuất** | `PATCH` | `/stock-issues/:issueCode/cancel` | Không có | Hủy phiếu xuất kho và hoàn trả lại số lượng sản phẩm tương ứng vào tồn kho. |
+| Chức năng               | Method  | Endpoint                          | Query Parameters / Body              | Mô tả & Ràng buộc nghiệp vụ                                                                        |
+| :---------------------- | :-----: | :-------------------------------- | :----------------------------------- | :------------------------------------------------------------------------------------------------- |
+| **Lấy danh sách**       |  `GET`  | `/stock-issues`                   | Query: `page`, `limit`, `sourceType` | Lấy danh sách phiếu xuất kho. `sourceType` lọc theo: `SALE`, `PRODUCTION`, `ADJUSTMENT`.           |
+| **Chi tiết phiếu xuất** |  `GET`  | `/stock-issues/:issueCode`        | Không có                             | Lấy thông tin chi tiết của 1 phiếu xuất kho kèm danh sách sản phẩm.                                |
+| **Tạo phiếu xuất**      | `POST`  | `/stock-issues`                   | Body: `CreateStockIssueDto`          | Lập phiếu xuất kho thủ công (ví dụ: Xuất hủy, xuất sản xuất). Hệ thống tự sinh mã `PXK-MMYY-XXXX`. |
+| **Cập nhật phiếu xuất** | `PATCH` | `/stock-issues/:issueCode`        | Body: `UpdateStockIssueDto`          | Cập nhật thông tin phiếu xuất kho (issueType, note). Không được cập nhật danh sách sản phẩm.       |
+| **Hủy phiếu xuất**      | `PATCH` | `/stock-issues/:issueCode/cancel` | Không có                             | Hủy phiếu xuất kho và hoàn trả lại số lượng sản phẩm tương ứng vào tồn kho.                        |
 
 ### 1.3. API Tổng Quan Tồn Kho (Stock Summary)
 
@@ -45,6 +48,7 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
 ## 2. Giải Đáp & Thống Nhất Nghiệp Vụ FE ↔ BE
 
 ### 2.1. Quy tắc sinh mã tự động & Ngày giao dịch
+
 - Hệ thống tự động đánh số phiếu tăng dần theo tháng/năm giao dịch được chọn:
   - **Phiếu nhập kho:** Bắt đầu bằng `PNK-MMYY-XXXX` (ví dụ: `PNK-0626-0001`).
   - **Phiếu xuất kho:** Bắt đầu bằng `PXK-MMYY-XXXX` (ví dụ: `PXK-0626-0001`).
@@ -53,15 +57,18 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
   > Khi lập phiếu nhập/xuất, Frontend bắt buộc phải truyền thời gian giao dịch dạng ISO string trong body request. Hệ thống sẽ trích xuất `MMYY` từ trường này để tự sinh mã số phiếu, hỗ trợ hoàn toàn luồng ghi nhận lùi ngày (khác thời gian thực tế của server).
 
 ### 2.2. Phân loại loại bỏ Dịch vụ (Product Types)
+
 - Chỉ các mặt hàng có cấu hình là sản phẩm hữu hình (`productType !== 'SERVICE'`) và được bật theo dõi kho (`isInventoryTracked = true`) mới được đưa vào phiếu nhập/xuất kho.
 - Nếu người dùng cố tình đưa sản phẩm dịch vụ vào chứng từ kho, API sẽ chặn lại và trả về lỗi `400 Bad Request` (`PRODUCT_IS_SERVICE`).
 
 ### 2.3. Tự động Tạo Phiếu Xuất Kho khi Phát hành Hóa đơn
+
 - Khi hóa đơn bán ra được phát hành thành công (`status` chuyển sang `PENDING_ISSUED` trong Phase 1), Backend sẽ **tự động khởi tạo một phiếu xuất kho** (`StockIssue` loại `SALE` và liên kết `sourceDocumentType = 'INVOICE'`) để xuất toàn bộ sản phẩm hữu hình có trong hóa đơn.
 - **Ràng buộc:** Phiếu xuất kho chỉ tự động sinh ra cho các sản phẩm có theo dõi kho (`isInventoryTracked = true` và không phải dịch vụ). Nếu hóa đơn chỉ chứa toàn dịch vụ, hệ thống sẽ không sinh phiếu xuất kho.
 - Nếu người dùng bấm phát hành lại hóa đơn bị lỗi (Retry publish), Backend sẽ kiểm tra xem đã có phiếu xuất kho liên kết chưa để tránh tạo trùng.
 
 ### 2.4. Luồng Liên kết Hóa đơn Mua vào (Inbound Invoice Linkage)
+
 - Khác với phiếu chi, phiếu nhập kho (`StockReceipt`) có thể liên kết trực tiếp với hóa đơn đầu vào (`InboundInvoice`) nhằm phục vụ đối chiếu và cập nhật giá trị.
 - **Cơ chế cập nhật giá trị tự động (Reconciliation Adjustment):**
   - Khi liên kết thành công (`POST /stock-receipts/:receiptCode/link-invoice`), Backend sẽ đối chiếu đơn giá (`unitCost`) của từng sản phẩm trên hóa đơn mua vào.
@@ -70,10 +77,12 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
   - Khi hủy liên kết (`DELETE`), Backend chỉ gỡ bỏ bản ghi liên kết, không hoàn trả lại đơn giá cũ trước khi liên kết.
 
 ### 2.5. Đối Chiếu Chứng Từ & Cảnh Báo Lệch (Document Reconciliation warnings)
+
 - Nhằm tối giản hóa luồng nghiệp vụ và cho phép người dùng liên kết hóa đơn tự do, Backend đã loại bỏ hoàn toàn các cảnh báo chênh lệch đơn giá, số lượng và tổng tiền.
 - API đối chiếu `GET /stock-receipts/:receiptCode` sẽ luôn trả về mảng cảnh báo `validation.warnings` là mảng rỗng và trạng thái `validation.status` là `"SUCCESS"`. Khác biệt về mặt giá trị hay số lượng giữa hóa đơn đầu vào và phiếu nhập kho được chấp nhận bình thường mà không gây ra bất kỳ cảnh báo nào.
 
 ### 2.6. Quy tắc Hủy Phiếu & Domino Effect lên Vouchers
+
 - **Hủy phiếu nhập kho (`cancelReceipt`):**
   - Trạng thái phiếu nhập chuyển sang `CANCELLED`.
   - Tồn kho của các sản phẩm trong phiếu nhập sẽ được hoàn trừ (trừ bớt số lượng đã nhập).
@@ -83,6 +92,7 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
   - Số lượng sản phẩm xuất đi sẽ được hoàn trả lại vào tồn kho của hộ kinh doanh.
 
 ### 2.7. Tự động Tạo Phiếu Chi khi Thanh toán Phiếu Nhập Kho (`isPaid`)
+
 - Khi lập phiếu nhập kho (`POST /stock-receipts`), Frontend có thể truyền thuộc tính `isPaid: true` (mặc định là `false` nếu không truyền).
 - Nếu `isPaid` là `true`, Backend sẽ tự động khởi tạo một phiếu chi (`Voucher` loại `PAYMENT`) liên kết với phiếu nhập kho này:
   - **Hạng mục chi:** Hệ thống tự động truy vấn danh mục chi cho Nguyên vật liệu (`systemTag: 'PAYMENT_MATERIAL'`).
@@ -93,6 +103,26 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
   - **Thông tin liên hệ:** Tên nhà cung cấp (`supplierName`).
 - Đồng thời, trạng thái thanh toán của phiếu nhập kho cũng được cập nhật thành đã thanh toán (`isPaid = true` và `paidAmount = totalValue`).
 - Ngoài ra, cả phiếu nhập kho (`StockReceipt`) và phiếu xuất kho (`StockIssue`) đều hỗ trợ trường ghi chú `note` để Frontend hiển thị và ghi nhận các lưu ý bổ sung từ người dùng.
+
+### 2.8. Quy tắc Cập nhật Phiếu Nhập Kho và Phiếu Xuất Kho
+
+#### Cập nhật Phiếu Nhập Kho (`PATCH /stock-receipts/:receiptCode`)
+
+- **Các trường được phép cập nhật:** `note`, `sourceType`, `supplierName`, `isPaid`, `linkInvoicePublicId`, `unlinkInvoicePublicId`.
+- **Các trường bị khóa (không được cập nhật):** Danh sách sản phẩm, số lượng, đơn giá, tổng tiền.
+- **Phiếu đã hủy (`CANCELLED`):** Không thể cập nhật, API trả về `400 Bad Request`.
+- **Logic `isPaid`:**
+  - Nếu chuyển từ `false` → `true`: Hệ thống tự động tạo phiếu chi (`PAYMENT`) liên kết, tương tự như khi tạo mới với `isPaid: true`. Nếu đã có phiếu chi hoạt động (`ACTIVE`) thì bỏ qua.
+  - Nếu chuyển từ `true` → `false`: Hệ thống tự động hủy (`CANCELLED`) toàn bộ phiếu chi đang hoạt động liên kết với phiếu nhập kho.
+- **Link/Unlink invoice trong cùng một request:**
+  - `unlinkInvoicePublicId`: Gỡ liên kết hóa đơn đã chỉ định.
+  - `linkInvoicePublicId`: Tạo liên kết với hóa đơn mới (nếu chưa liên kết).
+
+#### Cập nhật Phiếu Xuất Kho (`PATCH /stock-issues/:issueCode`)
+
+- **Các trường được phép cập nhật:**`issueType`, `note`.
+- **Các trường bị khóa (không được cập nhật):** Danh sách sản phẩm, số lượng, tổng tiền.
+- **Phiếu đã hủy (`CANCELLED`):** Không thể cập nhật, API trả về `400 Bad Request`.
 
 ---
 
@@ -106,6 +136,7 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
 ## 4. Đặc Tả JSON Mẫu Cho FE Tích Hợp
 
 ### 4.1. Response GET /stocks/summary
+
 ```json
 {
   "message": "Stock summary retrieved successfully",
@@ -118,6 +149,7 @@ Tất cả các API của module Stocks đều yêu cầu mã token đăng nhậ
 ```
 
 ### 4.2. Response GET /stock-receipts/:receiptCode (Reconciliation Detail)
+
 ```json
 {
   "receipt": {

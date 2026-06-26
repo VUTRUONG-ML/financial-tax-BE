@@ -582,133 +582,9 @@ export class VouchersService {
       if (existing.status === VoucherStatus.CANCELED) {
         throw new BadRequestException('Cannot update a canceled voucher');
       }
-
-      const isLinked =
-        existing.inboundInvoiceId !== null ||
-        existing.outboundInvoiceId !== null ||
-        existing.stockReceiptId !== null;
-
-      // nếu đã có link tới một transaction nào thì không được update các trường dưới đây
-      if (isLinked) {
-        // Locked fields check: voucherType, amount, inboundInvoicePublicId, outboundInvoicePublicId, isDeductibleExpense
-        const hasVoucherTypeChange =
-          updateVoucherDto.voucherType !== undefined &&
-          updateVoucherDto.voucherType !== existing.voucherType;
-
-        const hasAmountChange =
-          updateVoucherDto.amount !== undefined &&
-          !new Decimal(updateVoucherDto.amount).eq(existing.amount);
-
-        const hasInboundLinkChange =
-          updateVoucherDto.inboundInvoicePublicId !== undefined &&
-          updateVoucherDto.inboundInvoicePublicId !==
-          existing.inboundInvoice?.publicId;
-
-        const hasOutboundLinkChange =
-          updateVoucherDto.outboundInvoicePublicId !== undefined &&
-          updateVoucherDto.outboundInvoicePublicId !==
-          existing.outBoundInvoice?.publicId;
-
-        const hasStockReceiptLinkChange =
-          updateVoucherDto.stockReceiptCode !== undefined &&
-          updateVoucherDto.stockReceiptCode !==
-          existing.stockReceipt?.receiptCode;
-
-        const hasIsDeductibleChange =
-          updateVoucherDto.isDeductibleExpense !== undefined &&
-          updateVoucherDto.isDeductibleExpense !== existing.isDeductibleExpense;
-
-        if (
-          hasVoucherTypeChange ||
-          hasAmountChange ||
-          hasInboundLinkChange ||
-          hasOutboundLinkChange ||
-          hasStockReceiptLinkChange ||
-          hasIsDeductibleChange
-        ) {
-          throw new BadRequestException(
-            'Cannot update voucherType, amount, document links, or deductible status when the voucher is linked to a document.',
-          );
-        }
-      }
-
-      const newVoucherType =
-        updateVoucherDto.voucherType ?? existing.voucherType;
-      const newAmount =
-        updateVoucherDto.amount !== undefined
-          ? new Decimal(updateVoucherDto.amount)
-          : existing.amount;
-      const newPaymentMethod =
-        updateVoucherDto.paymentMethod ?? existing.paymentMethod;
-      const newIsDeductibleExpense =
-        updateVoucherDto.isDeductibleExpense ?? existing.isDeductibleExpense;
-
-      // Category Validation
-      const newCategoryId = updateVoucherDto.categoryId ?? existing.categoryId;
-      const category = await tx.voucherCategory.findUnique({
-        where: { id: newCategoryId },
-      });
-
-      if (
-        !category ||
-        (category.userId !== null && category.userId !== userId) ||
-        category.type !== newVoucherType
-      ) {
-        throw new BadRequestException('Invalid voucher category');
-      }
-
-      // Check 5 million bank transfer rule
-      if (
-        newIsDeductibleExpense &&
-        newPaymentMethod === PaymentMethod.CASH &&
-        newAmount.gte(5_000_000)
-      ) {
-        throw new BadRequestException({
-          message:
-            'Transactions of 5 million VND or more must be made via bank transfer.',
-          errorCode: 'INVALID_TAX_DEDUCTIBLE_METHOD',
-        });
-      }
-
-      // Handle invoice link changes for unlinked voucher
-      const newInboundInvoicePublicId = updateVoucherDto.inboundInvoicePublicId;
-      const newOutboundInvoicePublicId =
-        updateVoucherDto.outboundInvoicePublicId;
-      const newStockReceiptCode = updateVoucherDto.stockReceiptCode;
-
-      let invoice: { id: number; type: string } | undefined = undefined;
-      if (
-        newInboundInvoicePublicId ||
-        newOutboundInvoicePublicId ||
-        newStockReceiptCode
-      ) {
-        invoice = await this.resolveVoucherType(
-          tx,
-          userId,
-          newVoucherType,
-          newAmount,
-          newPaymentMethod,
-          newIsDeductibleExpense,
-          newInboundInvoicePublicId || undefined,
-          newOutboundInvoicePublicId || undefined,
-          newStockReceiptCode || undefined,
-        );
-      }
-
-      const updateData: any = {
+      const updateData: UpdateVoucherDto = {
         ...updateVoucherDto,
       };
-      if (invoice) {
-        updateData.inboundInvoiceId =
-          invoice.type === 'INBOUND' ? invoice.id : null;
-        updateData.outboundInvoiceId =
-          invoice.type === 'OUTBOUND' ? invoice.id : null;
-        updateData.stockReceiptId =
-          invoice.type === 'STOCK_RECEIPT' ? invoice.id : null;
-      }
-      delete updateData.inboundInvoicePublicId;
-      delete updateData.outboundInvoicePublicId;
-      delete updateData.stockReceiptCode;
 
       const updated = await tx.voucher.update({
         where: { userId_voucherCode: { userId, voucherCode } },
@@ -734,22 +610,9 @@ export class VouchersService {
         tableWrite.vouchers,
         updated.id,
         {
-          ...(updateVoucherDto.categoryId && {
-            categoryId: existing.categoryId,
-          }),
           ...(updateVoucherDto.content && { content: existing.content }),
-          ...(updateVoucherDto.isDeductibleExpense !== undefined && {
-            isDeductibleExpense: existing.isDeductibleExpense,
-          }),
-          ...(updateVoucherDto.paymentMethod && {
-            paymentMethod: existing.paymentMethod,
-          }),
-          ...(updateVoucherDto.voucherType && {
-            voucherType: existing.voucherType,
-          }),
-          ...(updateVoucherDto.amount && {
-            amount: existing.amount,
-          }),
+          ...(updateVoucherDto.transactionAt && { content: existing.transactionAt }),
+          ...(updateVoucherDto.contactName && { content: existing.contactName }),
         },
         {
           ...updateVoucherDto,

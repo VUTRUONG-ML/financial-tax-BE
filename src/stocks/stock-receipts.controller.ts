@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseIntPipe,
   Post,
   Patch,
   Query,
@@ -19,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
 import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
+import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 
@@ -85,6 +85,27 @@ export class StockReceiptsController {
     );
     return {
       message: 'Stock receipt canceled successfully',
+      data: result,
+    };
+  }
+
+  @Patch(':receiptCode')
+  @CheckPeriod()
+  @Throttle({ medium: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async updateStockReceipt(
+    @CurrentUser('id') userId: string,
+    @Param('receiptCode') receiptCode: string,
+    @Body() updateDto: UpdateStockReceiptDto,
+    @Req() req: Request & { financialPeriodId: number },
+  ) {
+    const result = await this.stocksService.updateStockReceipt(
+      userId,
+      receiptCode,
+      updateDto,
+    );
+    return {
+      message: 'Stock receipt updated successfully',
       data: result,
     };
   }
