@@ -35,18 +35,6 @@ export class CreateProductDto {
   sellingPrice!: number;
 
   @IsInt()
-  @Min(0)
-  @IsOptional()
-  @Type(() => Number)
-  openingStockQuantity?: number;
-
-  @IsNumber()
-  @Min(0)
-  @IsOptional()
-  @Type(() => Number)
-  openingStockUnitCost?: number;
-
-  @IsInt()
   @Min(1)
   @IsOptional()
   @Type(() => Number)

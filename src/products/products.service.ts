@@ -129,22 +129,8 @@ export class ProductsService {
     dto: CreateProductDto,
     file?: Express.Multer.File,
   ) {
-    const qty = dto.openingStockQuantity ?? 0;
-    const unitCost = dto.openingStockUnitCost ?? 0;
-
-    const hasTx = await this.hasTransactions(userId, this.prisma);
-    if (hasTx && (qty > 0 || unitCost > 0)) {
-      throw new BadRequestException({
-        message:
-          'Transactions have occurred in the account. Please enter the quantity and cost price from the stock receipt instead of entering them directly.',
-        errorCode: 'HAS_TRANSACTION',
-      });
-    }
-
     const fileToUpload = file || (dto.file as Express.Multer.File | undefined);
     const imageData = await this.handleImageUpload(userId, fileToUpload);
-
-    const openingStockValue = qty * unitCost;
 
     if (dto.taxCategoryId) {
       const taxCategoryExists = await this.prisma.taxCategory.findUnique({
@@ -172,39 +158,10 @@ export class ProductsService {
             imageUrl: imageData.url,
             imagePublicId: imageData.publicId,
             sellingPrice: dto.sellingPrice,
-            openingStockQuantity: qty,
-            openingStockUnitCost: unitCost,
-            openingStockValue,
-            currentStock: 0,
             taxCategoryId: dto.taxCategoryId,
             isInventoryTracked: dto.productType === 'SERVICE' ? false : true,
           },
         });
-
-        if (dto.productType !== 'SERVICE') {
-          const period = await this.financialPeriodsService.ensurePeriodExists(
-            userId,
-            tx,
-            new Date(),
-          );
-
-          await this.stocksService.createStockReceipt(
-            userId,
-            {
-              sourceType: 'OPENING',
-              receiptDate: period.startDate.toISOString(),
-              products: [
-                {
-                  productPublicId: prod.publicId,
-                  quantity: qty,
-                  unitCost: unitCost,
-                },
-              ],
-            },
-            period.id,
-            tx,
-          );
-        }
 
         return prod;
       });
@@ -315,42 +272,6 @@ export class ProductsService {
       }
     }
 
-    // Spread DTO fields (currentStock không có trong UpdateProductDto)
-    const { openingStockQuantity, openingStockUnitCost } = dto;
-
-    const isQtyChanging =
-      openingStockQuantity !== undefined &&
-      openingStockQuantity !== current.openingStockQuantity;
-
-    const isCostChanging =
-      openingStockUnitCost !== undefined &&
-      Number(openingStockUnitCost) !== current.openingStockUnitCost;
-
-    if (isQtyChanging || isCostChanging) {
-      const hasTx = await this.hasTransactions(userId, this.prisma);
-      if (hasTx) {
-        throw new BadRequestException({
-          message:
-            'Transactions have occurred in the account. Please enter the quantity and cost price from the stock receipt instead of entering them directly.',
-          errorCode: 'HAS_TRANSACTION',
-        });
-      }
-    }
-
-    // Tính lại openingStockValue nếu user cập nhật số lượng hoặc đơn giá vốn
-    const finalQty =
-      openingStockQuantity !== undefined
-        ? openingStockQuantity
-        : current.openingStockQuantity;
-
-    const finalCost =
-      openingStockUnitCost !== undefined
-        ? Decimal(openingStockUnitCost)
-        : Decimal(current.openingStockUnitCost);
-
-    // Tính toán lại giá trị tồn kho đầu kỳ dựa trên Mẫu S05-HKD
-    const openingStockValue = finalCost.mul(Decimal(finalQty));
-
     try {
       const updated = await this.prisma.product.update({
         where: { publicId },
@@ -366,7 +287,6 @@ export class ProductsService {
               : dto.productType === undefined
                 ? current.isInventoryTracked
                 : true,
-          openingStockValue,
         },
       });
 
@@ -429,17 +349,14 @@ export class ProductsService {
       ]);
 
     // 3. Tổng giá trị tồn kho (loại trừ SERVICE)
-    const products = await this.prisma.product.findMany({
-      where: { userId, productType: { not: 'SERVICE' } },
-      select: { currentStock: true, openingStockUnitCost: true },
-    });
-
-    const tong_gia_tri_ton_kho = products.reduce((acc, p) => {
-      const stock = p.currentStock || 0;
-      const unitCost = Number(p.openingStockUnitCost || 0);
-      return acc + stock * unitCost;
-    }, 0);
-
+    const resTotalExist = await this.prisma.$queryRaw<{ total: number }[]>`
+      SELECT
+        COALESCE(SUM(current_stock * opening_stock_unit_cost), 0) as total
+      FROM products
+      WHERE user_id = ${userId}
+        AND product_type <> 'SERVICE'
+    `;
+    const tong_gia_tri_ton_kho = resTotalExist[0]?.total ?? 0;
     return {
       tong_san_pham: counts,
       tong_san_pham_phan_loai: {

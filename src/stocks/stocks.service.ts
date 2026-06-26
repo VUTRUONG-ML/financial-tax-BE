@@ -227,16 +227,52 @@ export class StocksService {
           client,
         );
 
-        // Update product stock using updateMany (not service)
+        this.log.debug('DEBUG_INFOR_OPENING', {
+          userId,
+          sourceType: createDto.sourceType,
+          openingValue: item.unitCost,
+          openingQuantity: item.quantity,
+        });
+        // cập nhật sản phẩm: nếu phiếu nhập là cho opening thì cập nhật các thông số tồn kho đầu kì.
         await client.product.updateMany({
           where: {
             id: productEntity.id,
             productType: { not: ProductType.SERVICE },
           },
           data: {
-            currentStock: { increment: Math.round(item.quantity) },
+            currentStock: {
+              increment: Math.round(item.quantity),
+              ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
+                openingStockQuantity: item.quantity,
+              }),
+              ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
+                openingStockUnitCost: item.unitCost,
+              }),
+              ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
+                openingStockValue: item.quantity * item.unitCost,
+              }),
+            },
           },
         });
+
+        await this.auditLog.logChange(
+          client,
+          userId,
+          'UPDATE',
+          tableWrite.products,
+          productEntity.id,
+          {
+            sourceType: 0,
+            openingValue: 0,
+            openingQuantity: 0,
+          },
+          {
+            sourceType: createDto.sourceType,
+            openingValue: item.unitCost,
+            openingQuantity: item.quantity,
+          },
+          'Auto update in opening receipt stock by System.',
+        );
       }
 
       if (createDto.isPaid) {
