@@ -7,6 +7,7 @@ import { UsersModule } from '../users/users.module';
 import { AuditLogModule } from '../core/audit-log/audit-log.module';
 import { StocksModule } from '../stocks/stocks.module';
 import { VouchersModule } from '../vouchers/vouchers.module';
+import { TaxFormsModule } from '../tax-forms/tax-forms.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { VouchersModule } from '../vouchers/vouchers.module';
     AuditLogModule,
     StocksModule,
     VouchersModule,
+    TaxFormsModule,
   ],
   controllers: [TaxDeclarationController],
   providers: [TaxDeclarationService],

@@ -12,12 +12,15 @@ import { SaveStep1Dto } from './dto/save-step-1.dto';
 import { StocksService } from '../stocks/stocks.service';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { SubmitDeclarationDto } from './dto/submit-declaration.dto';
+import { TaxFormsService } from '../tax-forms/tax-forms.service';
 import {
   TAXPAYER_OPTIONS,
   TAX_PERIOD_OPTIONS,
   DECLARATION_TYPE_OPTIONS,
   DECLARATION_FORM_OPTIONS,
 } from './constants/tax-declaration.constant';
+import { mapToDto } from '../common/utils/mapper.util';
+import { TaxDeclarationHistoryItemDto } from './dto/tax-declaration-history-item.dto';
 import { Prisma, PeriodStatus, PitMethod, FinancialPeriod } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { moment } from '../common/utils/time.util';
@@ -45,6 +48,7 @@ export class TaxDeclarationService {
     private readonly auditLogService: AuditLogService,
     private readonly stocksService: StocksService,
     private readonly vouchersService: VouchersService,
+    private readonly taxFormsService: TaxFormsService,
   ) {}
 
   private async findPeriodAndCheckOwnership(
@@ -761,7 +765,12 @@ export class TaxDeclarationService {
   }
 
   // nộp tờ khai
-  async submit(userId: string, publicId: string, dto: SubmitDeclarationDto) {
+  async submit(
+    userId: string,
+    publicId: string,
+    dto: SubmitDeclarationDto,
+    file?: Express.Multer.File,
+  ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
     const draft = await this.findDraftByPeriodId(period.id);
 
@@ -838,6 +847,10 @@ export class TaxDeclarationService {
       dto.chosenPitMethod,
       step2Data.confirmedRevenue,
       expense,
+      dto.xmlContent,
+      formType,
+      period.endDate.getFullYear(),
+      file,
     );
   }
 
@@ -845,6 +858,7 @@ export class TaxDeclarationService {
     userId: string,
     publicId: string,
     dto: SubmitDeclarationDto,
+    file?: Express.Multer.File,
   ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
 
@@ -856,6 +870,17 @@ export class TaxDeclarationService {
         period.endDate,
       );
 
+    const draft = await this.findDraftByPeriodId(period.id);
+    const taxConfig = await this.prisma.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: period.endDate },
+        applyToDate: { gte: period.endDate },
+      },
+    });
+    const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const formType = this.getDeclarationFormType(draft, taxGroupId);
+
     return await this.processSubmission(
       userId,
       publicId,
@@ -863,6 +888,10 @@ export class TaxDeclarationService {
       dto.chosenPitMethod,
       realtimeData.revenue.toNumber(),
       realtimeData.expense.toNumber(),
+      dto.xmlContent,
+      formType,
+      period.endDate.getFullYear(),
+      file,
     );
   }
 
@@ -870,6 +899,7 @@ export class TaxDeclarationService {
     userId: string,
     publicId: string,
     dto: SubmitDeclarationDto,
+    file?: Express.Multer.File,
   ) {
     const period = await this.findPeriodAndCheckOwnership(userId, publicId);
     const draft = await this.findDraftByPeriodId(period.id);
@@ -928,6 +958,10 @@ export class TaxDeclarationService {
       dto.chosenPitMethod,
       step2Data.confirmedRevenue,
       expense,
+      dto.xmlContent,
+      formType,
+      period.endDate.getFullYear(),
+      file,
     );
 
     await this.auditLogService.logChange(
@@ -953,6 +987,10 @@ export class TaxDeclarationService {
     chosenPitMethod: PitMethod,
     revenue: number,
     expense: number,
+    xmlContent: string,
+    formType: string,
+    taxYear: number,
+    file?: Express.Multer.File,
   ) {
     return await this.prisma.$transaction(async (tx) => {
       // Chốt sổ period bên trong cùng transaction
@@ -973,7 +1011,7 @@ export class TaxDeclarationService {
         tx,
       );
 
-      // Sinh tờ khai TaxDeclaration chính thức (mock XML)
+      // Sinh tờ khai TaxDeclaration chính thức
       const declaration = await tx.taxDeclaration.create({
         data: {
           periodId,
@@ -985,9 +1023,22 @@ export class TaxDeclarationService {
           pitTaxAmount: pitAmount,
           totalTaxAmount: closedPeriod.taxAmount,
           chosenPitMethod,
-          xmlContent: `<mock><declaredRevenue>${revenue}</declaredRevenue><declaredExpense>${expense}</declaredExpense><ytdRevenue>${ytdRevenue}</ytdRevenue><ytdExpense>${ytdExpense}</ytdExpense></mock>`,
+          xmlContent: xmlContent, // Dùng xmlContent truyền từ Client
         },
       });
+
+      // Tạo thêm record TaxFormExport đồng bộ qua TaxFormsService để tái sử dụng logic
+      await this.taxFormsService.createTaxForm(
+        userId,
+        {
+          formType,
+          periodId,
+          taxYear,
+          xmlContent,
+        },
+        file,
+        tx, // Truyền transaction client để đảm bảo tính nhất quán (Atomicity)
+      );
 
       // Dọn dẹp bản nháp
       await tx.taxDeclarationDraft.deleteMany({
@@ -996,5 +1047,35 @@ export class TaxDeclarationService {
 
       return { closedPeriod, declaration };
     });
+  }
+
+  async getDeclarationHistory(userId: string) {
+    // Truy vấn duy nhất 1 lần lấy TaxDeclaration kèm theo thông tin của kỳ và danh sách file export của kỳ đó
+    const declarations = await this.prisma.taxDeclaration.findMany({
+      where: {
+        period: {
+          userId,
+        },
+      },
+      include: {
+        period: {
+          include: {
+            taxFormExports: {
+              where: {
+                createdBy: userId,
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return mapToDto(TaxDeclarationHistoryItemDto, declarations);
   }
 }

@@ -7,6 +7,7 @@ import { AuditLogService } from '../core/audit-log/audit-log.service';
 import { BadRequestException } from '@nestjs/common';
 import { StocksService } from '../stocks/stocks.service';
 import { VouchersService } from '../vouchers/vouchers.service';
+import { TaxFormsService } from '../tax-forms/tax-forms.service';
 import { Decimal } from '@prisma/client/runtime/client';
 
 describe('TaxDeclarationService', () => {
@@ -79,6 +80,9 @@ describe('TaxDeclarationService', () => {
               count: jest.fn(),
               findFirst: jest.fn(),
             },
+            taxFormExport: {
+              create: jest.fn(),
+            },
             $transaction: jest.fn((cb) => cb(prisma)),
             $queryRaw: jest.fn(),
           },
@@ -117,6 +121,13 @@ describe('TaxDeclarationService', () => {
           provide: VouchersService,
           useValue: {
             calculateVoucherExpensesGrouped: jest.fn(),
+          },
+        },
+        {
+          provide: TaxFormsService,
+          useValue: {
+            createTaxForm: jest.fn(),
+            findAllTaxForms: jest.fn(),
           },
         },
       ],
@@ -315,7 +326,7 @@ describe('TaxDeclarationService', () => {
       });
 
       financialPeriodsService.closeFinancialPeriod.mockResolvedValue({
-        period: { taxAmount: new Decimal(0) },
+        period: { taxAmount: new Decimal(0), endDate: new Date('2026-05-31') },
         vatAmount: new Decimal(0),
         pitAmount: new Decimal(0),
         ytdRevenue: new Decimal(250000000),
@@ -326,6 +337,7 @@ describe('TaxDeclarationService', () => {
 
       const res = await service.submit('user-01', 'period-01', {
         chosenPitMethod: 'EXEMPT',
+        xmlContent: '<mock></mock>',
       });
 
       expect(res.declaration).toBeDefined();
@@ -346,7 +358,7 @@ describe('TaxDeclarationService', () => {
       });
 
       financialPeriodsService.closeFinancialPeriod.mockResolvedValue({
-        period: { taxAmount: new Decimal(0) },
+        period: { taxAmount: new Decimal(0), endDate: new Date('2026-05-31') },
         vatAmount: new Decimal(0),
         pitAmount: new Decimal(0),
         ytdRevenue: new Decimal(250000000),
@@ -357,6 +369,7 @@ describe('TaxDeclarationService', () => {
 
       const res = await service.submit('user-01', 'period-01', {
         chosenPitMethod: 'PERCENTAGE',
+        xmlContent: '<mock></mock>',
       });
 
       expect(res.declaration).toBeDefined();
@@ -374,6 +387,7 @@ describe('TaxDeclarationService', () => {
       await expect(
         service.submit('user-01', 'period-01', {
           chosenPitMethod: 'PERCENTAGE',
+          xmlContent: '<mock></mock>',
         }),
       ).rejects.toThrow(BadRequestException);
     });

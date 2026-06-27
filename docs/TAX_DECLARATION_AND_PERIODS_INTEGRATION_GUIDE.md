@@ -82,9 +82,10 @@ Thực hiện đầy đủ cả 5 bước:
 | **B4: Lấy** | `GET` | `/tax-declaration/step-4/:publicId` | Không có | Trả về thống kê các chi phí hợp lệ theo Thông tư 152/2025/TT-BTC. (Chỉ cho Form `02_CNKD_TNCN_QTT`). |
 | **B4: Lưu** | `POST` | `/tax-declaration/step-4/save/:publicId` | Không có (Lưu tự động) | **Snapshot chi phí**: BE tự chụp nhanh chi phí từ DB lưu vào nháp. (Chỉ cho Form `02_CNKD_TNCN_QTT`). |
 | **B5: Lấy** | `GET` | `/tax-declaration/step-5/preview/:publicId`| Không có | Xem trước thông tin tổng hợp tờ khai bao gồm: đối chiếu so sánh PIT, tổng hợp YTD và danh sách ngành nghề lũy kế YTD. |
-| **Nộp** | `POST` | `/tax-declaration/submit/:publicId` | `SubmitDeclarationDto` | **Ký nộp**: Kiểm tra biến động dữ liệu DB và tiến hành khóa kỳ kế toán. |
-| **Nộp đè** | `POST` | `/tax-declaration/submit-force/:publicId` | `SubmitDeclarationDto` | Chụp lại snapshot mới từ DB và tiến hành ký nộp đè. |
-| **Nộp cũ** | `POST` | `/tax-declaration/submit-ignore-warning/:publicId`| `SubmitDeclarationDto`| Bỏ qua cảnh báo biến động, nộp tờ khai theo số liệu snapshot cũ (Ghi Audit Log). |
+| **Nộp** | `POST` | `/tax-declaration/submit/:publicId` | `SubmitDeclarationDto` (Multipart Form-Data: `file`, `chosenPitMethod`, `xmlContent`) | **Ký nộp**: Kiểm tra biến động dữ liệu DB, lưu file PDF, lưu XML từ client, và tiến hành khóa kỳ kế toán. |
+| **Nộp đè** | `POST` | `/tax-declaration/submit-force/:publicId` | `SubmitDeclarationDto` (Multipart Form-Data: `file`, `chosenPitMethod`, `xmlContent`) | Chụp lại snapshot mới từ DB, lưu file PDF, lưu XML từ client, và tiến hành ký nộp đè. |
+| **Nộp cũ** | `POST` | `/tax-declaration/submit-ignore-warning/:publicId`| `SubmitDeclarationDto` (Multipart Form-Data: `file`, `chosenPitMethod`, `xmlContent`)| Bỏ qua cảnh báo biến động, nộp tờ khai theo số liệu snapshot cũ và lưu file PDF, XML từ client (Ghi Audit Log). |
+| **Lịch sử nộp** | `GET` | `/tax-declaration/history` | Không có | Lấy danh sách lịch sử các tờ khai đã nộp/kết xuất của user (Đã tối ưu Single Query). |
 
 ---
 
@@ -266,7 +267,10 @@ graph TD
 ```
 
 #### Chi tiết cơ chế chốt chặn:
-* **Khi gọi `POST /submit/:publicId`**:
+* **Khi gọi các API Ký nộp (`POST /submit/:publicId`, `/submit-force/:publicId`, `/submit-ignore-warning/:publicId`)**:
+  - Yêu cầu sử dụng **Multipart/Form-Data** thay vì JSON.
+  - Phải truyền trường `xmlContent` (XML chuỗi hoàn chỉnh được FE tạo ra).
+  - Có thể truyền tệp PDF của tờ khai qua trường `file` (Optional). Nếu truyền lên, Backend sẽ lưu tệp vật lý trực tiếp trên server và cập nhật `pdfUrl` đồng bộ trong cùng transaction của tiến trình nộp.
   - Hệ thống so sánh doanh thu thực tế hiện tại trong DB với `confirmedRevenue` đã snapshot ở Bước 2.
   - Đối với loại tờ khai `02_CNKD_TNCN_QTT`, hệ thống cũng so sánh chi phí thực tế hiện tại trong DB với `totalExpense` đã snapshot ở Bước 4.
   - Nếu phát hiện bất kỳ sự sai lệch nào, API sẽ trả về mã trạng thái `409 Conflict` kèm thông tin chi tiết:
@@ -294,6 +298,7 @@ graph TD
 Khi hoàn tất giao dịch nộp tờ khai (gọi hàm `processSubmission` nội bộ), hệ thống sẽ đóng kỳ tài chính (`closeFinancialPeriod`):
 - Đối với tờ khai **5 bước** (`02_CNKD_TNCN_QTT`): Số liệu chi phí của kỳ được chốt cứng theo đúng **bản nháp đã lưu ở Bước 4**.
 - Đối với tờ khai **3 bước** (`01_CNKD` và `01_TKN_CNKD`): Số liệu chi phí của kỳ được chốt cứng theo số **tính toán realtime** tại thời điểm chốt sổ.
+- Đồng thời sinh ra bản ghi xuất tờ khai `TaxFormExport` chứa link xem PDF và nội dung XML phục vụ tính năng xem/tải lại.
 
 ---
 

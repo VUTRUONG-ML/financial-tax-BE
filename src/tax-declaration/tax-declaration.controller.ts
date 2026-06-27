@@ -6,7 +6,10 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { TaxDeclarationService } from './tax-declaration.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/interface/request-user.interface';
@@ -145,38 +148,55 @@ export class TaxDeclarationController {
 
   @Post('submit/:publicId')
   @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Kiểm tra & Ký nộp (Lượt bấm đầu tiên)' })
   async submit(
     @CurrentUser() user: RequestUser,
     @Param('publicId') publicId: string,
     @Body() dto: SubmitDeclarationDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return await this.taxDeclarationService.submit(user.id, publicId, dto);
+    return await this.taxDeclarationService.submit(user.id, publicId, dto, file);
   }
 
   @Post('submit-force/:publicId')
   @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Cưỡng chế Đồng bộ & Nộp (Khi có biến động)' })
   async submitForce(
     @CurrentUser() user: RequestUser,
     @Param('publicId') publicId: string,
     @Body() dto: SubmitDeclarationDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return await this.taxDeclarationService.submitForce(user.id, publicId, dto);
+    return await this.taxDeclarationService.submitForce(user.id, publicId, dto, file);
   }
 
   @Post('submit-ignore-warning/:publicId')
   @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Bỏ qua Cảnh báo & Nộp số cũ (Audit Log)' })
   async submitIgnoreWarning(
     @CurrentUser() user: RequestUser,
     @Param('publicId') publicId: string,
     @Body() dto: SubmitDeclarationDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
     return await this.taxDeclarationService.submitIgnoreWarning(
       user.id,
       publicId,
       dto,
+      file,
     );
+  }
+
+  @Get('history')
+  @ApiOperation({ summary: 'Lấy lịch sử danh sách tờ khai đã nộp' })
+  async getDeclarationHistory(@CurrentUser() user: RequestUser) {
+    const data = await this.taxDeclarationService.getDeclarationHistory(user.id);
+    return {
+      message: 'Tax declarations history retrieved successfully.',
+      data,
+    };
   }
 }

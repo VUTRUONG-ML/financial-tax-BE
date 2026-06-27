@@ -81,6 +81,7 @@ This document describes the request and response data structures of the core API
   - [12.13. Submit Declaration](#1213-submit-declaration)
   - [12.14. Submit Force](#1214-submit-force)
   - [12.15. Submit Ignore Warning](#1215-submit-ignore-warning)
+  - [12.16. Get Declaration History](#1216-get-declaration-history)
 - [13. Accounting Books](#13-accounting-books)
   - [13.1. Get Revenue Book Summary](#131-get-revenue-book-summary)
   - [13.2. Get Revenue Book Records](#132-get-revenue-book-records)
@@ -119,6 +120,7 @@ This document describes the request and response data structures of the core API
   - [19.4. Delete Business Bank Account (Soft)](#194-delete-business-bank-account-soft)
 - [20. Tax Forms](#20-tax-forms)
   - [20.1. Get BK-STK Form Data](#201-get-bk-stk-form-data)
+  - [20.2. Create/Upsert Tax Form](#202-createupsert-tax-form)
 
 ---
 
@@ -3028,12 +3030,15 @@ None
 - **Route:** `/tax-declaration/submit/:publicId`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+- **Content-Type:** `multipart/form-data`
 
-#### Request Body (JSON)
+#### Request Body
 
 ```json
 {
-  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\""
+  "file": "Binary File (PDF) - Optional",
+  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+  "xmlContent": "string"
 }
 ```
 
@@ -3080,12 +3085,15 @@ None
 - **Route:** `/tax-declaration/submit-force/:publicId`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+- **Content-Type:** `multipart/form-data`
 
-#### Request Body (JSON)
+#### Request Body
 
 ```json
 {
-  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\""
+  "file": "Binary File (PDF) - Optional",
+  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+  "xmlContent": "string"
 }
 ```
 
@@ -3132,12 +3140,15 @@ None
 - **Route:** `/tax-declaration/submit-ignore-warning/:publicId`
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+- **Content-Type:** `multipart/form-data`
 
-#### Request Body (JSON)
+#### Request Body
 
 ```json
 {
-  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\""
+  "file": "Binary File (PDF) - Optional",
+  "chosenPitMethod": "\"EXEMPT\" | \"PERCENTAGE\" | \"PROFIT_15\" | \"PROFIT_17\" | \"PROFIT_20\"",
+  "xmlContent": "string"
 }
 ```
 
@@ -3175,6 +3186,41 @@ None
       "createdAt": "Date string"
     }
   },
+  "meta": null
+}
+```
+
+### 12.16. Get Declaration History
+
+- **Route:** `/tax-declaration/history`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Tax declarations history retrieved successfully.",
+  "data": [
+    {
+      "publicId": "string",
+      "formType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\"",
+      "periodName": "string",
+      "taxYear": "number",
+      "declaredRevenue": "number",
+      "totalTaxAmount": "number",
+      "createdAt": "Date string",
+      "pdfUrl": "string | null",
+      "xmlContent": "string"
+    }
+  ],
   "meta": null
 }
 ```
@@ -4832,9 +4878,52 @@ None
         "accountHolderName": "string",
         "businessLocationName": "string",
         "businessLocationCode": "string",
-        "declarationStatus": "\"INITIAL_REGISTRATION\" | \"INFORMATION_UPDATE\" | \"ACCOUNT_CLOSURE\""
-      }
     ]
+  },
+  "meta": null
+}
+```
+
+---
+
+### 20.2. Create/Upsert Tax Form
+
+- **Route:** `/tax-forms`
+- **Method:** `POST`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+- **Content-Type:** `multipart/form-data`
+
+#### Request Body
+
+```json
+{
+  "file": "Binary File (PDF) - Optional",
+  "formType": "string",
+  "periodId": "number",
+  "taxYear": "number",
+  "xmlContent": "string"
+}
+```
+
+> **Business Rule:** Nếu bản ghi `TaxFormExport` cho kỳ kế toán (`periodId`) này đã tồn tại (ví dụ được tự động sinh ra khi submit tờ khai), API này sẽ thực hiện cập nhật đè (upsert) `pdfUrl` và `xmlContent` thay vì tạo mới.
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "timestamp": "Date string",
+  "message": "Tax form record created successfully.",
+  "data": {
+    "publicId": "string",
+    "formType": "string",
+    "periodId": "number",
+    "taxYear": "number",
+    "xmlContent": "string",
+    "pdfUrl": "string | null",
+    "exportStatus": "\"SUCCESS\" | \"FAILED\"",
+    "createdBy": "string"
   },
   "meta": null
 }
