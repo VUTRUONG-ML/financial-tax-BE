@@ -41,7 +41,7 @@ describe('StockReceiptsController - update endpoint', () => {
 
       const result = await controller.updateStockReceipt('user-123', 'PNK-001', mockDto, mockReq);
 
-      expect(service.updateStockReceipt).toHaveBeenCalledWith('user-123', 'PNK-001', mockDto, 1);
+      expect(service.updateStockReceipt).toHaveBeenCalledWith('user-123', 'PNK-001', mockDto);
       expect(result).toEqual({
         message: 'Stock receipt updated successfully',
         data: mockResult,

@@ -36,6 +36,7 @@ import { moment } from 'src/common/utils/time.util';
 import { StocksService } from '../stocks/stocks.service';
 import { FinancialPeriodsService } from '../financial-periods/financial-periods.service';
 import { TaxAuthorityConnectionsService } from 'src/tax-authority-connections/tax-authority-connections.service';
+import { OnboardingService } from '../onboarding/onboarding.service';
 
 @Injectable()
 export class InvoicesService {
@@ -50,6 +51,7 @@ export class InvoicesService {
     private readonly productService: ProductsService,
     private readonly stocksService: StocksService,
     private readonly financialPeriodsService: FinancialPeriodsService,
+    private readonly onboardingService: OnboardingService,
   ) { }
 
   private async validateStockAvailability(
@@ -274,6 +276,10 @@ export class InvoicesService {
         userId,
         invoicePublicId: publicId,
       });
+
+      // Kiểm tra và điều chỉnh TaxGroup dựa trên RevenueTracker YTD của năm
+      await this.checkAndAdjustTaxGroup(userId, updated.issueDate, tx);
+
       return updated;
     };
 
@@ -281,6 +287,111 @@ export class InvoicesService {
       return await run(txParam);
     } else {
       return await this.prisma.$transaction(run);
+    }
+  }
+
+  /**
+   * Tự động điều chỉnh nhóm cấu hình thuế của user dựa trên doanh thu lũy kế trong năm (YTD) từ RevenueTracker
+   */
+  private async checkAndAdjustTaxGroup(
+    userId: string,
+    invoiceDate: Date,
+    tx: Prisma.TransactionClient,
+  ) {
+    const year = invoiceDate.getFullYear();
+
+    // 1. Tìm cấu hình thuế active hiện tại tại thời điểm hóa đơn kèm thông tin nhóm thuế
+    const activeConfig = await tx.taxConfiguration.findFirst({
+      where: {
+        userId,
+        applyFromDate: { lte: invoiceDate },
+        applyToDate: { gte: invoiceDate },
+      },
+      include: {
+        taxGroup: true,
+      },
+    });
+
+    if (!activeConfig || !activeConfig.taxGroup) return;
+
+    // 2. Lấy doanh thu lũy kế YTD từ RevenueTracker
+    const tracker = await tx.revenueTracker.findUnique({
+      where: {
+        userId_year: { userId, year },
+      },
+    });
+
+    const currentYtdRevenue = tracker?.revenueYtd ? Number(tracker.revenueYtd) : 0;
+    const maxRevenue = activeConfig.taxGroup.maxRevenue ? Number(activeConfig.taxGroup.maxRevenue) : null;
+    const minRevenue = Number(activeConfig.taxGroup.minRevenue);
+
+    // 3. CHIỀU TĂNG (Upgrade): Doanh thu > maxRevenue của nhóm hiện tại
+    if (maxRevenue !== null && currentYtdRevenue > maxRevenue) {
+      // Tìm nhóm thuế tiếp theo có dải doanh thu bao phủ currentYtdRevenue
+      const nextTaxGroup = await tx.taxGroup.findFirst({
+        where: {
+          minRevenue: { lte: currentYtdRevenue },
+          OR: [
+            { maxRevenue: null },
+            { maxRevenue: { gte: currentYtdRevenue } },
+          ],
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      if (nextTaxGroup && nextTaxGroup.id !== activeConfig.taxGroupId) {
+        await this.onboardingService.updateTaxConfiguration(
+          userId,
+          {
+            industryId: activeConfig.industryId,
+            isOtherIndustry: true,
+            taxGroupId: nextTaxGroup.id,
+          },
+          { isSystemAutoUpgrade: true },
+          tx,
+        );
+        this.log.log('SYSTEM_AUTO_UPGRADE_TAX_GROUP', {
+          userId,
+          year,
+          currentYtdRevenue,
+          oldTaxGroupId: activeConfig.taxGroupId,
+          newTaxGroupId: nextTaxGroup.id,
+        });
+      }
+    }
+    // 4. CHIỀU GIẢM (Downgrade): Doanh thu < minRevenue của nhóm hiện tại
+    else if (currentYtdRevenue < minRevenue) {
+      // Tìm nhóm thuế phía trước có dải doanh thu bao phủ currentYtdRevenue
+      const prevTaxGroup = await tx.taxGroup.findFirst({
+        where: {
+          minRevenue: { lte: currentYtdRevenue },
+          OR: [
+            { maxRevenue: null },
+            { maxRevenue: { gte: currentYtdRevenue } },
+          ],
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      if (prevTaxGroup && prevTaxGroup.id !== activeConfig.taxGroupId) {
+        await this.onboardingService.updateTaxConfiguration(
+          userId,
+          {
+            industryId: activeConfig.industryId,
+            isOtherIndustry: true,
+            taxGroupId: prevTaxGroup.id,
+          },
+          { isSystemAutoUpgrade: true },
+          tx,
+        );
+        this.log.log('SYSTEM_AUTO_DOWNGRADE_TAX_GROUP', {
+          userId,
+          year,
+          currentYtdRevenue,
+          oldTaxGroupId: activeConfig.taxGroupId,
+          newTaxGroupId: prevTaxGroup.id,
+        });
+      }
     }
   }
 
@@ -739,6 +850,10 @@ export class InvoicesService {
         { status: invoice.status },
         { status: 'CANCELED' },
       );
+
+      // Kiểm tra và điều chỉnh TaxGroup dựa trên RevenueTracker YTD của năm
+      await this.checkAndAdjustTaxGroup(userId, invoice.issueDate, tx);
+
       return mapToDto(InvoiceResponseDto, {
         ...invoice,
         status: InvoiceStatus.CANCELED,

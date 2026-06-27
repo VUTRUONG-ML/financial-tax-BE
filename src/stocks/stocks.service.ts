@@ -40,6 +40,7 @@ import { InventoryMovementsService } from '../inventory-movements/inventory-move
 import { moment } from 'src/common/utils/time.util';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { InboundResponseDto } from '../inbound-invoices/dto/response-inbound-invoice.dto';
+import { OpeningStockSummaryResponseDto, OpeningStockListItemDto } from './dto/opening-stock.dto';
 
 @Injectable()
 export class StocksService {
@@ -1812,6 +1813,7 @@ export class StocksService {
     userId: string,
     issueCode: string,
     updateDto: UpdateStockIssueDto,
+    periodId?: number,
   ): Promise<StockIssueResponseDto> {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.stockIssue.findFirst({
@@ -1904,5 +1906,96 @@ export class StocksService {
       throw new NotFoundException('Receipt stock not found.');
     }
     return mapToDto(StockReceiptResponseDto, receipt);
+  }
+
+  /**
+   * Lấy tổng giá trị tồn kho đầu kì của kì kế toán hiện tại đang mở
+   */
+  async getOpeningSummary(userId: string, periodId: number) {
+    // 1. Tìm kì kế toán hiện tại đang mở
+    const openPeriod = await this.prisma.financialPeriod.findFirst({
+      where: { id: periodId, status: 'OPEN' },
+    });
+
+    if (!openPeriod) {
+      this.log.warn('GET_OPENING_SUMMARY', {
+        userId,
+        periodId,
+        status: LOG_STATUS.FAILED,
+        reason: 'PERIOD_NOT_FOUND_OR_CLOSED',
+      });
+      throw new NotFoundException('Period not found or closed.');
+    }
+
+    // 2. Tính tổng giá trị tồn đầu kỳ (từ stockReceipt có sourceType là OPENING, status là APPROVED)
+    const aggregateResult = await this.prisma.stockReceipt.aggregate({
+      _sum: {
+        totalValue: true,
+      },
+      where: {
+        id: openPeriod.id,
+        sourceType: 'OPENING',
+        status: 'APPROVED',
+      },
+    });
+
+    const totalOpeningValue = Number(aggregateResult._sum.totalValue || 0);
+
+    return mapToDto(OpeningStockSummaryResponseDto, {
+      totalOpeningValue,
+      openingPeriod: openPeriod.periodName,
+    });
+  }
+
+  /**
+   * Lấy danh sách tồn kho đầu kì của kì kế toán hiện tại đang mở
+   */
+  async getOpeningList(userId: string, periodId: number) {
+    // 1. Tìm kì kế toán hiện tại đang mở
+    const openPeriod = await this.prisma.financialPeriod.findFirst({
+      where: { id: periodId, status: 'OPEN' },
+    });
+
+    if (!openPeriod) {
+      this.log.warn('GET_OPENING_SUMMARY', {
+        userId,
+        periodId,
+        status: LOG_STATUS.FAILED,
+        reason: 'PERIOD_NOT_FOUND_OR_CLOSED',
+      });
+      throw new NotFoundException('Period not found or closed.');
+    }
+
+    // 2. Lấy các chi tiết tồn đầu kỳ kèm theo thông tin sản phẩm và diễn giải/ghi chú của phiếu nhập tương ứng
+    const details = await this.prisma.stockReceiptDetail.findMany({
+      where: {
+        receipt: {
+          userId,
+          periodId: openPeriod.id,
+          sourceType: 'OPENING',
+          status: 'APPROVED',
+        },
+      },
+      include: {
+        product: {
+          select: {
+            productName: true,
+            unit: true,
+          },
+        },
+        receipt: {
+          select: {
+            note: true,
+          },
+        },
+      },
+      orderBy: {
+        product: {
+          productName: 'asc',
+        },
+      },
+    });
+
+    return mapToDto(OpeningStockListItemDto, details);
   }
 }

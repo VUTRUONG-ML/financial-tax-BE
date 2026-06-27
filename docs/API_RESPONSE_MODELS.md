@@ -93,6 +93,8 @@ This document describes the request and response data structures of the core API
   - [13.8. Get Inventory Book Records](#138-get-inventory-book-records)
 - [14. Stocks](#14-stocks)
   - [14.1. Get Stock Summary](#141-get-stock-summary)
+  - [14.2. Get Opening Stock Summary](#142-get-opening-stock-summary)
+  - [14.3. Get Opening Stock List](#143-get-opening-stock-list)
 - [15. Stock Receipts](#15-stock-receipts)
   - [15.1. Get All Stock Receipts](#151-get-all-stock-receipts)
   - [15.2. Create Stock Receipt](#152-create-stock-receipt)
@@ -3892,6 +3894,63 @@ None
     "trackedItemsCount": "number",
     "lowStockItemsCount": "number"
   },
+  "meta": null
+}
+```
+
+### 14.2. Get Opening Stock Summary
+
+- **Route:** `/stocks/opening-summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Opening stock summary retrieved successfully",
+  "data": {
+    "totalOpeningValue": "number"
+  },
+  "meta": null
+}
+```
+
+### 14.3. Get Opening Stock List
+
+- **Route:** `/stocks/opening-list`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Opening stock list retrieved successfully",
+  "data": [
+    {
+      "productName": "string",
+      "unit": "string",
+      "quantity": "number",
+      "unitCost": "number",
+      "totalValue": "number",
+      "note": "string | null"
+    }
+  ],
   "meta": null
 }
 ```

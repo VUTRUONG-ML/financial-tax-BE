@@ -6,6 +6,7 @@ import { VouchersModule } from '../vouchers/vouchers.module';
 import { ProductsModule } from '../products/products.module';
 import { StocksModule } from '../stocks/stocks.module';
 import { TaxAuthorityConnectionsModule } from 'src/tax-authority-connections/tax-authority-connections.module';
+import { OnboardingModule } from '../onboarding/onboarding.module';
 
 @Module({
   controllers: [InvoicesController],
@@ -16,6 +17,7 @@ import { TaxAuthorityConnectionsModule } from 'src/tax-authority-connections/tax
     VouchersModule,
     ProductsModule,
     StocksModule,
+    OnboardingModule,
   ],
 })
 export class InvoicesModule { }

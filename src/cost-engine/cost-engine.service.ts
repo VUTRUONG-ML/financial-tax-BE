@@ -435,7 +435,11 @@ export class CostEngineService {
         });
 
         // b. Tạo mới
-        const nextPeriodProductsToCreate: any[] = [];
+        const nextPeriodProductsToCreate: {
+          productPublicId: string;
+          quantity: number;
+          unitCost: number;
+        }[] = [];
         for (const [productId, info] of allCosts.entries()) {
           if (info.endingQty > 0) {
             const product = activeProductsMap.get(productId);
@@ -456,6 +460,7 @@ export class CostEngineService {
               sourceType: StockReceiptSourceType.OPENING,
               receiptDate: nextPeriod.startDate.toISOString(),
               products: nextPeriodProductsToCreate,
+              note: 'The system has automatically transferred the financial period.',
             },
             nextPeriod.id,
             tx,

@@ -264,9 +264,10 @@ export class OnboardingService {
     userId: string,
     dto: CreateOnboardingDto,
     options?: { isSystemAutoUpgrade?: boolean },
+    txParam?: Prisma.TransactionClient,
   ) {
     const { industryId, taxGroupId } = dto;
-    return this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       const now = moment().startOf('day').toDate();
       // 1. Tìm cấu hình đang Active
       const currentActiveConfig = await tx.taxConfiguration.findFirst({
@@ -381,6 +382,11 @@ export class OnboardingService {
       });
 
       return newConfig;
-    });
+    };
+
+    if (txParam) {
+      return run(txParam);
+    }
+    return this.prisma.$transaction(run);
   }
 }
