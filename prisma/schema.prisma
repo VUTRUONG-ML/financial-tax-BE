@@ -649,7 +649,7 @@ enum StockReceiptSourceType {
   PURCHASE
   PRODUCTION
   ADJUSTMENT
-  OPENING
+  OPENING // Trạng thái này thì user ko được thêm/sửa/xóa bất kì hạnh động write nào
 }
 
 enum StockReceiptStatus {
@@ -691,7 +691,7 @@ model StockReceipt {
   sourceInvoiceNo   String?                @map("source_invoice_no") @db.VarChar(50)
   sourceDocumentUrl String?                @map("source_document_url") @db.VarChar(512)
   totalValue        Decimal                @default(0.00) @map("total_value") @db.Decimal(15, 2)
-  status            StockReceiptStatus     @default(DRAFT)
+  status            StockReceiptStatus     @default(APPROVED)
   periodId          Int                    @map("period_id")
 
   isPaid     Boolean @default(false) @map("is_paid")
@@ -738,7 +738,7 @@ model StockIssue {
   issueType          StockIssueType      @map("issue_type")
   sourceDocumentType StockIssueDocument? @map("source_document_type")
   sourceDocumentId   Int?                @map("source_document_id")
-  status             StockIssueStatus    @default(DRAFT)
+  status             StockIssueStatus    @default(APPROVED)
   periodId           Int                 @map("period_id")
   note               String?             @db.Text
 

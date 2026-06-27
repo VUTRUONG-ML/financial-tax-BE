@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  NotEquals,
 } from 'class-validator';
 import { StockReceiptSourceType } from '@prisma/client';
 
@@ -14,6 +15,9 @@ export class UpdateStockReceiptDto {
 
   @IsEnum(StockReceiptSourceType)
   @IsOptional()
+  @NotEquals('OPENING', {
+    message: 'Users are not allowed to create or edit OPENING type documents.',
+  })
   sourceType?: StockReceiptSourceType;
 
   @IsString()

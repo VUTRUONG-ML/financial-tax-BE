@@ -10,6 +10,7 @@ import {
   Min,
   ValidateNested,
   IsBoolean,
+  NotEquals,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { StockReceiptSourceType } from '@prisma/client';
@@ -33,6 +34,7 @@ export class StockReceiptItemDto {
 export class CreateStockReceiptDto {
   @IsEnum(StockReceiptSourceType)
   @IsNotEmpty()
+  @NotEquals('OPENING', { message: 'Users are not allowed to create or edit OPENING type documents.' })
   sourceType!: StockReceiptSourceType;
 
   @IsDateString()

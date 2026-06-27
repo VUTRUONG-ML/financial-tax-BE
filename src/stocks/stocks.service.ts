@@ -370,8 +370,26 @@ export class StocksService {
         throw new NotFoundException('The warehouse receipt does not exist.');
       }
 
-      if (current.status === StockReceiptStatus.CANCELLED) {
-        throw new BadRequestException('The stock receipt has already been canceled.');
+      if (current.sourceType === StockReceiptSourceType.OPENING) {
+        throw new BadRequestException('Opening balance is read only.');
+      }
+
+      const cancel = await client.stockReceipt.updateMany({
+        where: {
+          id: current.id,
+          status: { not: StockReceiptStatus.CANCELLED },
+        },
+        data: { status: StockReceiptStatus.CANCELLED },
+      });
+      if (cancel.count === 0) {
+        this.log.warn(LOG_ACTIONS.CANCEL_STOCK_RECEIPT, {
+          status: LOG_STATUS.FAILED,
+          reason: 'RECEIPT_CANCELED_OR_NOT_FOUND',
+          receiptId: current.id,
+        });
+        throw new BadRequestException(
+          'The stock receipt has already been canceled or not found.',
+        );
       }
 
       // Gỡ liên kết tất cả hóa đơn đầu vào trước khi hủy
@@ -385,11 +403,6 @@ export class StocksService {
         userId,
         current.id,
       );
-
-      await client.stockReceipt.update({
-        where: { id: current.id },
-        data: { status: StockReceiptStatus.CANCELLED },
-      });
 
       const items = current.details;
       const transactionDate = moment().toDate();
@@ -1678,10 +1691,14 @@ export class StocksService {
       });
 
       if (!current) {
-        throw new NotFoundException('Stock receipt not found or access denied.');
+        throw new NotFoundException(
+          'Stock receipt not found or access denied.',
+        );
       }
       if (current.status === StockReceiptStatus.CANCELLED) {
-        throw new BadRequestException('Cannot update a cancelled stock receipt.');
+        throw new BadRequestException(
+          'Cannot update a cancelled stock receipt.',
+        );
       }
 
       const updateData: Prisma.StockReceiptUpdateInput = {};

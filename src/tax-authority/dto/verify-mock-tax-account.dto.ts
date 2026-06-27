@@ -13,9 +13,4 @@ export class VerifyMockTaxAccountDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @Length(5, 5, { message: 'cashRegisterCode must be exactly 5 characters' })
-  cashRegisterCode!: string;
 }

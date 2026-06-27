@@ -22,15 +22,14 @@ export class TaxAuthorityConnectionsService {
     private readonly configService: ConfigService,
   ) { }
 
-  private async verifyTaxAuthorityAccount(dto: CreateConnectionDto) {
+  private async verifyTaxAuthorityAccount(dto: CreateConnectionDto, userTaxCode: string) {
     const baseUrl = this.configService.get<string>('MOCK_TAX_AUTHORITY_URL');
 
     const response = await firstValueFrom(
-      this.httpService.post(`${baseUrl}/mock-tax-authority/verify`, {
-        taxCode: dto.taxCode,
+      this.httpService.post(`${baseUrl}/v1/mock-tax-authority/verify`, {
+        taxCode: userTaxCode,
         username: dto.username,
         password: dto.password,
-        cashRegisterCode: dto.cashRegisterCode
       }),
     );
 
@@ -54,8 +53,29 @@ export class TaxAuthorityConnectionsService {
   }
 
   async upsertConnection(userId: string, dto: CreateConnectionDto) {
+    this.logger.debug('UPSERT_CONNECTION', {
+      status: LOG_STATUS.START,
+      ...dto,
+    });
+    // Tự động dùng userTaxCode
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    let resCqt;
+    if (!user) {
+      this.logger.warn('UPSERT_CONNECTION', {
+        status: LOG_STATUS.FAILED,
+        userId,
+        reason: 'USER_NOT_FOUND',
+      });
+      throw new NotFoundException('User not found.');
+    }
     try {
-      await this.verifyTaxAuthorityAccount(dto);
+      const res = await this.verifyTaxAuthorityAccount(dto, user.taxCode );
+      resCqt = res.data;
+      this.logger.debug('RESPONSE_CQT', {
+        ...resCqt,
+      });
     } catch (error) {
       throw new BadRequestException({
         message: error.response?.data ?? 'Tax authority verification failed.',
@@ -73,22 +93,23 @@ export class TaxAuthorityConnectionsService {
         where: { userId },
       });
 
+      // lưu 5 số từ cơ quan thuế trả về
       const connection = await tx.taxAuthorityConnection.upsert({
         where: { userId },
         update: {
-          taxCode: dto.taxCode,
+          taxCode: user.taxCode,
           encryptedUsername,
           encryptedPassword,
-          cashRegisterCode: dto.cashRegisterCode,
+          cashRegisterCode: resCqt.cashRegisterCode,
           connectionStatus: 'VERIFIED',
           lastVerifiedAt: new Date(),
         },
         create: {
           userId,
-          taxCode: dto.taxCode,
+          taxCode: user.taxCode,
           encryptedUsername,
           encryptedPassword,
-          cashRegisterCode: dto.cashRegisterCode,
+          cashRegisterCode: resCqt.cashRegisterCode,
           connectionStatus: 'VERIFIED',
           lastVerifiedAt: new Date(),
         },
@@ -102,9 +123,9 @@ export class TaxAuthorityConnectionsService {
         connection.id,
         existing
           ? {
-            taxCode: existing.taxCode,
-            status: existing.connectionStatus,
-          }
+              taxCode: existing.taxCode,
+              status: existing.connectionStatus,
+            }
           : null,
         { taxCode: connection.taxCode, status: connection.connectionStatus },
       );
