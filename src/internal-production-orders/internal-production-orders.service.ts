@@ -426,7 +426,7 @@ export class InternalProductionOrdersService {
 
           if (updateDto.products.length !== 1) {
             throw new BadRequestException(
-              'Mỗi lệnh sản xuất chỉ được tạo cho duy nhất 1 thành phẩm.',
+              'Each production order is created for only one finished product.',
             );
           }
 

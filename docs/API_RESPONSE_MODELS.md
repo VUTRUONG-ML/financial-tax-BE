@@ -2123,7 +2123,34 @@ None
 
 ## 10. Financial Periods
 
-### 10.1. Reopen Financial Period
+### 10.1. Get Financial Periods Summary
+
+- **Route:** `/financial-periods/summary`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Get summary successful",
+  "data": {
+    "countOpen": "number",
+    "countExpire": "number",
+    "totalTaxPayment": "number"
+  },
+  "meta": null
+}
+```
+
+### 10.2. Reopen Financial Period
 
 - **Route:** `/financial-periods/:id/reopen`
 - **Method:** `PATCH`
@@ -2147,17 +2174,22 @@ None
     "startDate": "Date string",
     "endDate": "Date string",
     "deadlineDate": "Date string",
-    "status": "\"OPEN\"",
-    "taxAmount": "number",
+    "status": "\"OPEN\" | \"CLOSED\"",
     "actualPaymentDate": "Date string | null",
     "createdAt": "Date string",
-    "updatedAt": "Date string"
+    "updatedAt": "Date string",
+    "taxAmount": "number",
+    "vatAmount": "number | null",
+    "pitAmount": "number | null",
+    "countExpireDate": "number",
+    "isFinishedTaxPayment": "boolean",
+    "penaltyAmount": "number"
   },
   "meta": null
 }
 ```
 
-### 10.2. Confirm Tax Payment
+### 10.3. Confirm Tax Payment
 
 - **Route:** `/financial-periods/:id/confirm-payment`
 - **Method:** `PATCH`
@@ -2185,17 +2217,22 @@ None
     "startDate": "Date string",
     "endDate": "Date string",
     "deadlineDate": "Date string",
-    "status": "\"CLOSED\"",
-    "taxAmount": "number",
-    "actualPaymentDate": "Date string",
+    "status": "\"OPEN\" | \"CLOSED\"",
+    "actualPaymentDate": "Date string | null",
     "createdAt": "Date string",
-    "updatedAt": "Date string"
+    "updatedAt": "Date string",
+    "taxAmount": "number",
+    "vatAmount": "number | null",
+    "pitAmount": "number | null",
+    "countExpireDate": "number",
+    "isFinishedTaxPayment": "boolean",
+    "penaltyAmount": "number"
   },
   "meta": null
 }
 ```
 
-### 10.3. Compare PIT
+### 10.4. Compare PIT
 
 - **Route:** `/financial-periods/:id/compare-pit`
 - **Method:** `GET`
@@ -2221,7 +2258,7 @@ None
 }
 ```
 
-### 10.4. Update Financial Period
+### 10.5. Update Financial Period
 
 - **Route:** `/financial-periods/:id`
 - **Method:** `PATCH`
@@ -2252,14 +2289,107 @@ None
     "endDate": "Date string",
     "deadlineDate": "Date string",
     "status": "\"OPEN\" | \"CLOSED\"",
+    "actualPaymentDate": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string",
     "taxAmount": "number",
     "vatAmount": "number | null",
     "pitAmount": "number | null",
-    "actualPaymentDate": "Date string | null",
-    "createdAt": "Date string",
-    "updatedAt": "Date string"
+    "countExpireDate": "number",
+    "isFinishedTaxPayment": "boolean",
+    "penaltyAmount": "number"
   },
   "meta": null
+}
+```
+
+### 10.6. Get Financial Period Detail
+
+- **Route:** `/financial-periods/:id`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Lấy chi tiết kỳ tài chính thành công",
+  "data": {
+    "publicId": "string",
+    "periodName": "string",
+    "startDate": "Date string",
+    "endDate": "Date string",
+    "deadlineDate": "Date string",
+    "status": "\"OPEN\" | \"CLOSED\"",
+    "actualPaymentDate": "Date string | null",
+    "createdAt": "Date string",
+    "updatedAt": "Date string",
+    "taxAmount": "number",
+    "vatAmount": "number | null",
+    "pitAmount": "number | null",
+    "countExpireDate": "number",
+    "isFinishedTaxPayment": "boolean",
+    "penaltyAmount": "number"
+  },
+  "meta": null
+}
+```
+
+### 10.7. Get All Financial Periods
+
+- **Route:** `/financial-periods`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Query
+
+- `page`: `number (Optional)`
+- `limit`: `number (Optional)`
+- `status`: `string (Optional - values: "OPENING" | "DANG_MO" | "CLOSED" | "DA_KHOA" | "EXPIRE" | "QUA_HAN" | "FINISHED" | "HOAN_THANH")`
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Get all period successful",
+  "data": [
+    {
+      "publicId": "string",
+      "periodName": "string",
+      "startDate": "Date string",
+      "endDate": "Date string",
+      "deadlineDate": "Date string",
+      "status": "\"OPEN\" | \"CLOSED\"",
+      "actualPaymentDate": "Date string | null",
+      "createdAt": "Date string",
+      "updatedAt": "Date string",
+      "taxAmount": "number",
+      "vatAmount": "number | null",
+      "pitAmount": "number | null",
+      "countExpireDate": "number",
+      "isFinishedTaxPayment": "boolean",
+      "penaltyAmount": "number"
+    }
+  ],
+  "meta": {
+    "total": "number",
+    "page": "number",
+    "lastPage": "number"
+  }
 }
 ```
 
@@ -3477,8 +3607,6 @@ None
 }
 ```
 
-````
-
 ### 13.5. Get Expense Book Summary
 
 - **Route:** `/accounting-books/expense/summary`
@@ -3534,7 +3662,7 @@ None
   },
   "meta": null
 }
-````
+```
 
 ### 13.6. Get Expense Book Records
 
@@ -3669,7 +3797,7 @@ None
 
 #### Response Data (JSON)
 
-````json
+```json
 {
   "success": true,
   "statusCode": 200,
@@ -3694,38 +3822,14 @@ None
         "So_Luong_Ton": "number"
       }
     ],
-  "success": true,
-  "statusCode": 200,
-  "timestamp": "Date string",
-  "message": "Retrieve expense book summary successfully",
-  "data": {
-    "activeBookKey": "S2c-HKD",
-    "books": {
-      "S2c-HKD": {
-        "bookMetadata": {
-          "businessName": "string",
-          "taxCode": "string",
-          "bookTitle": "string",
-          "ownerName": "string",
-          "templateStyle": "string"
-        },
-        "bookKey": "S2C",
-        "timeFrame": {
-          "startDate": "Date string",
-          "endDate": "Date string"
-        },
-        "summary": {
-          "chi_phi_nguyen_vat_lieu": "number",
-          "chi_phi_nhan_cong": "number",
-          "chi_phi_khau_hao": "number",
-          "chi_phi_dich_vu_mua_ngoai": "number",
-          "chi_phi_lai_vay": "number",
-          "chi_phi_khac": "number",
-          "tong_chi_phi_hop_le": "number"
-        }
-      }
+    "meta": {
+      "total": "number",
+      "page": "number",
+      "lastPage": "number"
     },
-    "syncCode": "string"
+    "activeBookKey": "\"S2d-HKD\"",
+    "syncCode": "string",
+    "isSummaryOutdated": "boolean"
   },
   "meta": null
 }
@@ -3778,8 +3882,7 @@ None
     "isSummaryOutdated": "boolean"
   },
   "meta": null
-}
-````
+```
 
 ### 13.7. Get Inventory Book Summary
 

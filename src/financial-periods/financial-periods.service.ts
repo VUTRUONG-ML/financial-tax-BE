@@ -190,7 +190,6 @@ export class FinancialPeriodsService {
       data: {
         periodName:
           updateDto.periodName !== undefined ? updateDto.periodName : undefined,
-        status: updateDto.status !== undefined ? updateDto.status : undefined,
         actualPaymentDate:
           updateDto.actualPaymentDate !== undefined
             ? updateDto.actualPaymentDate
@@ -866,7 +865,7 @@ export class FinancialPeriodsService {
     publicId: string,
     dto: ConfirmTaxPaymentDto,
   ) {
-    const paymentDate = dto.paymentDate;
+    const paymentDate = moment(dto.paymentDate).toDate();
     return await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra điều kiện status và tờ khai
       const period = await tx.financialPeriod.findUnique({

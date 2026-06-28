@@ -132,7 +132,7 @@ export class InvoicesService {
   private async validateInvoiceAccess(
     publicId: string,
     userId: string,
-    action?: 'UPDATE' | 'CANCELED',
+    action?: 'UPDATE' | 'CANCELED' | 'PUBLISH',
     tx: Prisma.TransactionClient = this.prisma,
   ) {
     // 1. Tìm hóa đơn và kiểm tra quyền sở hữu ngay trong câu query
@@ -188,7 +188,11 @@ export class InvoicesService {
     }
 
     if (action && action === 'CANCELED') {
-      if (invoice.status !== 'ISSUED' && invoice.status !== 'SYNC_FAILED') {
+      if (
+        invoice.status !== 'ISSUED' &&
+        invoice.status !== 'SYNC_FAILED' &&
+        invoice.status !== 'PENDING_ISSUED'
+      ) {
         this.log.warn('VALIDATE_ACCESS', {
           status: LOG_STATUS.FAILED,
           reason: 'CANCELED_INVOICE_DIFFERENCE_ISSUED_OR_SYNC_FAILED',
@@ -198,6 +202,30 @@ export class InvoicesService {
         throw new ForbiddenException(
           'Cancel invoice when the status is different from ISSUED or SYNC_FAILED.',
         );
+      }
+    }
+
+    if (action && action === 'PUBLISH') {
+      if (invoice.status === 'ISSUED') {
+        this.log.warn('VALIDATE_ACCESS', {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVOICE_ISSUED',
+          userId,
+          invoicePublicId: publicId,
+        });
+        throw new ForbiddenException(
+          'The invoice has been issued and assigned a tax authority code.',
+        );
+      }
+
+      if (invoice.status === 'CANCELED') {
+        this.log.warn('VALIDATE_ACCESS', {
+          status: LOG_STATUS.FAILED,
+          reason: 'INVOICE_CANCELED',
+          userId,
+          invoicePublicId: publicId,
+        });
+        throw new ForbiddenException('The invoice has been canceled');
       }
     }
     return invoice;
@@ -523,7 +551,7 @@ export class InvoicesService {
       const invoice = await this.validateInvoiceAccess(
         publicId,
         userId,
-        'UPDATE',
+        'PUBLISH',
         tx,
       );
       const details = await tx.invoiceDetail.findMany({
