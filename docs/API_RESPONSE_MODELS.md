@@ -3239,9 +3239,9 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
-- `year`: `number (Optional - Required if timeFrame is "custom")`
-- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
+- `periodPublicId`: `string`
+- `timeFrame`: `"nam_nay" | "nua_dau_nam" | "nua_cuoi_nam" (Optional)`
+- `taxCategoryId`: `number (Optional)`
 
 #### Request Body
 
@@ -3293,9 +3293,9 @@ _(Note: `books` structure varies depending on `activeBookKey` being `S1a-HKD`, `
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
-- `year`: `number (Optional - Required if timeFrame is "custom")`
-- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
+- `periodPublicId`: `string`
+- `timeFrame`: `"nam_nay" | "nua_dau_nam" | "nua_cuoi_nam" (Optional)`
+- `taxCategoryId`: `number (Optional)`
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
 - `syncCode`: `string (Optional)`
@@ -3343,9 +3343,8 @@ _(Note: `rows` objects format will adapt to the active book schema `S1ARowDto`, 
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
-- `year`: `number (Optional - Required if timeFrame is "custom")`
-- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
+- `periodPublicId`: `string`
+- `method`: `"ALL" | "CASH" | "BANK" (Optional)`
 
 #### Request Body
 
@@ -3362,7 +3361,7 @@ None
   "data": {
     "activeBookKey": "string",
     "books": {
-      "S03-HKD": {
+      "S2e-HKD": {
         "bookMetadata": {
           "businessName": "string",
           "taxCode": "string",
@@ -3381,9 +3380,6 @@ None
           "Tong_Chi_Trong_Ky": "number",
           "So_Du_Cuoi_Ky": "number"
         }
-      },
-      "S04-HKD": {
-        // Same structure as S03-HKD
       }
     },
     "syncCode": "string"
@@ -3400,10 +3396,8 @@ None
 
 #### Request Query
 
-- `timeFrame`: `"thang_nay" | "thang_truoc" | "quy_nay" | "custom"`
-- `year`: `number (Optional - Required if timeFrame is "custom")`
-- `quarter`: `number (Optional - Required if timeFrame is "custom", values 1-4)`
-- `bookKey`: `string (Optional - Enum: "S03", "S04")`
+- `periodPublicId`: `string`
+- `method`: `"ALL" | "CASH" | "BANK" (Optional)`
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
 - `syncCode`: `string (Optional)`
@@ -3424,8 +3418,7 @@ None
     "rows": [
       {
         "Ngay_Giao_Dich": "Date string",
-        "So_Phieu_Thu": "string | null",
-        "So_Phieu_Chi": "string | null",
+        "So_Phieu": "string | null",
         "Dien_Giai": "string",
         "Tien_Thu": "number",
         "Tien_Chi": "number",
@@ -3443,6 +3436,7 @@ None
   },
   "meta": null
 }
+```
 ```
 
 ### 13.5. Get Expense Book Summary

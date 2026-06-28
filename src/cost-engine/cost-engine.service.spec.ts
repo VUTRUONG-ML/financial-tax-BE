@@ -359,6 +359,7 @@ describe('CostEngineService', () => {
               unitCost: 100,
             },
           ],
+          note: 'The system has automatically transferred the financial period.',
         },
         mockNextPeriod.id,
         txMock,

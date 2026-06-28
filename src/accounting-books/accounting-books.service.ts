@@ -151,34 +151,68 @@ export class AccountingBooksService {
     return `${invCount}-${invMaxTime}-${vchCount}-${vchMaxTime}`;
   }
 
-  async getRevenueBookSummary(userId: string, periodPublicId: string) {
+  async getRevenueBookSummary(
+    userId: string,
+    periodPublicId: string,
+    timeFrame?: string,
+    taxCategoryId?: number,
+  ) {
     const {
       id: periodId,
-      startDate,
-      endDate,
+      startDate: origStartDate,
+      endDate: origEndDate,
     } = await this.getPeriodTarget(periodPublicId, userId);
+
+    const baseTaxConfig = await this.getValidTaxConfig(userId, origStartDate, origEndDate);
+    const taxGroupId = baseTaxConfig.taxGroupId;
+
+    // Chỉ cho phép S1a (taxGroupId === 1) sử dụng timeFrame
+    const actualTimeFrame = taxGroupId === 1 ? timeFrame : undefined;
+
+    let startDate = origStartDate;
+    let endDate = origEndDate;
+
+    if (actualTimeFrame === 'nam_nay') {
+      startDate = moment(origStartDate).startOf('year').toDate();
+      endDate = moment(origStartDate).endOf('year').toDate();
+    } else if (actualTimeFrame === 'nua_dau_nam') {
+      startDate = moment(origStartDate).startOf('year').toDate();
+      endDate = moment(origStartDate).startOf('year').add(5, 'months').endOf('month').toDate(); // Jan 1 - Jun 30
+    } else if (actualTimeFrame === 'nua_cuoi_nam') {
+      startDate = moment(origStartDate).startOf('year').add(6, 'months').toDate(); // Jul 1 - Dec 31
+      endDate = moment(origStartDate).endOf('year').toDate();
+    }
 
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
-    const [realtimeData, so_luong_don_hang] = await Promise.all([
-      this.financialPeriodsService.calculateRealtimeTaxData(
-        userId,
-        startDate,
-        endDate,
-        periodId,
-      ),
-      this.prisma.invoice.count({
-        where: {
-          userId,
-          status: 'ISSUED',
-          periodId: periodId,
+    // Xây dựng điều kiện lọc hóa đơn
+    const invoiceWhere: Prisma.InvoiceWhereInput = {
+      userId,
+      status: 'ISSUED',
+      ...(actualTimeFrame ? { issueDate: { gte: startDate, lte: endDate } } : { periodId: periodId }),
+    };
+
+    if (taxCategoryId !== undefined) {
+      invoiceWhere.details = {
+        some: {
+          product: {
+            taxCategoryId: taxCategoryId,
+          },
         },
-      }),
-    ]);
+      };
+    }
 
-    const tong_doanh_thu = Number(realtimeData.revenue);
+    // Tính toán doanh thu realtime dựa trên invoiceWhere
+    const aggregateInvoice = await this.prisma.invoice.aggregate({
+      _sum: { totalPayment: true },
+      where: invoiceWhere,
+    });
+    const realtimeRevenue = aggregateInvoice._sum.totalPayment || new Decimal(0);
+    const tong_doanh_thu = realtimeRevenue.toNumber();
 
-    const taxGroupId = taxConfig.taxGroupId;
+    const so_luong_don_hang = await this.prisma.invoice.count({
+      where: invoiceWhere,
+    });
 
     const books: Record<string, any> = {};
     let activeBookKey = '';
@@ -242,35 +276,65 @@ export class AccountingBooksService {
     page: number = 1,
     limit: number = 20,
     currentSyncCode?: string,
+    timeFrame?: string,
+    taxCategoryId?: number,
   ) {
     const {
       id: periodId,
-      startDate,
-      endDate,
+      startDate: origStartDate,
+      endDate: origEndDate,
     } = await this.getPeriodTarget(periodPublicId, userId);
+
+    const baseTaxConfig = await this.getValidTaxConfig(userId, origStartDate, origEndDate);
+    const taxGroupId = baseTaxConfig.taxGroupId;
+
+    // Chỉ cho phép S1a (taxGroupId === 1) sử dụng timeFrame
+    const actualTimeFrame = taxGroupId === 1 ? timeFrame : undefined;
+
+    let startDate = origStartDate;
+    let endDate = origEndDate;
+
+    if (actualTimeFrame === 'nam_nay') {
+      startDate = moment(origStartDate).startOf('year').toDate();
+      endDate = moment(origStartDate).endOf('year').toDate();
+    } else if (actualTimeFrame === 'nua_dau_nam') {
+      startDate = moment(origStartDate).startOf('year').toDate();
+      endDate = moment(origStartDate).startOf('year').add(5, 'months').endOf('month').toDate(); // Jan 1 - Jun 30
+    } else if (actualTimeFrame === 'nua_cuoi_nam') {
+      startDate = moment(origStartDate).startOf('year').add(6, 'months').toDate(); // Jul 1 - Dec 31
+      endDate = moment(origStartDate).endOf('year').toDate();
+    }
 
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
 
     const skip = (page - 1) * limit;
 
+    const invoiceWhere: Prisma.InvoiceWhereInput = {
+      userId,
+      status: 'ISSUED',
+      ...(actualTimeFrame ? { issueDate: { gte: startDate, lte: endDate } } : { periodId: periodId }),
+    };
+
+    if (taxCategoryId !== undefined) {
+      invoiceWhere.details = {
+        some: {
+          product: {
+            taxCategoryId: taxCategoryId,
+          },
+        },
+      };
+    }
+
     const [invoices, totalInvoices, syncCode, realtimeData] = await Promise.all(
       [
         this.prisma.invoice.findMany({
-          where: {
-            userId,
-            status: 'ISSUED',
-            periodId: periodId,
-          },
+          where: invoiceWhere,
           orderBy: { issueDate: 'asc' },
           skip,
           take: limit,
         }),
         this.prisma.invoice.count({
-          where: {
-            userId,
-            status: 'ISSUED',
-            periodId: periodId,
-          },
+          where: invoiceWhere,
         }),
         this.generateSyncCode(userId, periodId, startDate, endDate),
         this.financialPeriodsService.calculateRealtimeTaxData(
@@ -290,15 +354,15 @@ export class AccountingBooksService {
 
     let rows: S1ARowDto[] | S2ARowDto[] | S2BRowDto[] = [];
     let activeBookKey = '';
-    const taxGroupId = taxConfig.taxGroupId;
+    const currentTaxGroupId = taxConfig.taxGroupId;
     const pitMethod = taxConfig.chosenPitMethod;
 
-    if (taxGroupId === 1) {
+    if (currentTaxGroupId === 1) {
       rows = plainToInstance(S1ARowDto, mappedInvoices, {
         excludeExtraneousValues: true,
       });
       activeBookKey = 'S1a-HKD';
-    } else if (taxGroupId === 2) {
+    } else if (currentTaxGroupId === 2) {
       rows = plainToInstance(S2ARowDto, mappedInvoices, {
         excludeExtraneousValues: true,
       });
@@ -554,7 +618,11 @@ export class AccountingBooksService {
     return `${vCount}-${vMaxTime}`;
   }
 
-  async getCashFlowBookSummary(userId: string, periodPublicId: string) {
+  async getCashFlowBookSummary(
+    userId: string,
+    periodPublicId: string,
+    method: string = 'ALL',
+  ) {
     const { id: periodId, startDate, endDate } = await this.getPeriodTarget(periodPublicId, userId);
 
     const syncCode = await this.generateCashFlowSyncCode(
@@ -643,13 +711,26 @@ export class AccountingBooksService {
       },
     };
 
+    let activeBookKey = 'S2e-HKD';
+    const books: Record<string, any> = {};
+
+    const upperMethod = method.toUpperCase();
+    if (upperMethod === 'CASH') {
+      activeBookKey = 'S2e-cash';
+      books['S2e-cash'] = cash;
+    } else if (upperMethod === 'BANK') {
+      activeBookKey = 'S2e-bank';
+      books['S2e-bank'] = bank;
+    } else {
+      activeBookKey = 'S2e-HKD';
+      books['S2e-HKD'] = combined;
+      books['S2e-cash'] = cash;
+      books['S2e-bank'] = bank;
+    }
+
     return {
-      activeBookKey: 'S2e-HKD', // Main tab UI
-      books: {
-        'S2e-HKD': combined,
-        'S2e-cash': cash,
-        'S2e-bank': bank,
-      },
+      activeBookKey,
+      books,
       syncCode,
     };
   }
@@ -657,7 +738,7 @@ export class AccountingBooksService {
   async getCashFlowBookRecords(
     userId: string,
     periodPublicId: string,
-    bookKey: string = 'S03',
+    method: string = 'ALL',
     page: number = 1,
     limit: number = 20,
     clientSyncCode?: string,
@@ -676,14 +757,20 @@ export class AccountingBooksService {
     const isSummaryOutdated =
       !!clientSyncCode && currentSyncCode !== clientSyncCode;
 
-    const paymentMethod = bookKey === 'S03' ? 'CASH' : 'BANK';
+    const upperMethod = method.toUpperCase();
+    const paymentMethods: string[] =
+      upperMethod === 'CASH'
+        ? ['CASH']
+        : upperMethod === 'BANK'
+        ? ['BANK']
+        : ['CASH', 'BANK'];
 
     // 1. Tính toán số dư đầu kỳ (Opening Balance) bằng Prisma native
     const openingStats = await this.prisma.voucher.groupBy({
       by: ['voucherType'],
       where: {
         userId,
-        paymentMethod: paymentMethod,
+        paymentMethod: { in: paymentMethods as any },
         transactionAt: { lt: startDate },
         status: 'ACTIVE',
       },
@@ -701,7 +788,7 @@ export class AccountingBooksService {
     const total = await this.prisma.voucher.count({
       where: {
         userId,
-        paymentMethod: paymentMethod,
+        paymentMethod: { in: paymentMethods as any },
         transactionAt: { gte: startDate, lte: endDate },
         status: 'ACTIVE',
       },
@@ -716,8 +803,7 @@ export class AccountingBooksService {
         SELECT 
           id,
           transaction_at as "Ngay_Giao_Dich",
-          CASE WHEN voucher_type = 'RECEIPT' THEN voucher_code ELSE NULL END as "So_Phieu_Thu",
-          CASE WHEN voucher_type = 'PAYMENT' THEN voucher_code ELSE NULL END as "So_Phieu_Chi",
+          voucher_code as "So_Phieu",
           content as "Dien_Giai",
           CASE WHEN voucher_type = 'RECEIPT' THEN amount ELSE 0 END as "Tien_Thu",
           CASE WHEN voucher_type = 'PAYMENT' THEN amount ELSE 0 END as "Tien_Chi",
@@ -725,14 +811,13 @@ export class AccountingBooksService {
             OVER (ORDER BY transaction_at ASC, id ASC) as running_balance_in_period
         FROM vouchers
         WHERE user_id = ${userId} 
-          AND payment_method = ${paymentMethod}::"PaymentMethod" 
+          AND payment_method::text IN (${Prisma.join(paymentMethods)})
           AND transaction_at BETWEEN ${startDate} AND ${endDate}
           AND status = 'ACTIVE'
       )
       SELECT 
         "Ngay_Giao_Dich",
-        "So_Phieu_Thu",
-        "So_Phieu_Chi",
+        "So_Phieu",
         "Dien_Giai",
         "Tien_Thu",
         "Tien_Chi",
@@ -742,9 +827,18 @@ export class AccountingBooksService {
       LIMIT ${limitVal} OFFSET ${offsetVal}
     `;
 
+    let activeBookKey = 'S2e-HKD';
+    if (upperMethod === 'CASH') {
+      activeBookKey = 'S2e-cash';
+    } else if (upperMethod === 'BANK') {
+      activeBookKey = 'S2e-bank';
+    }
+
     return {
       rows: records.map((r) => ({
-        ...r,
+        Ngay_Giao_Dich: r.Ngay_Giao_Dich,
+        So_Phieu: r.So_Phieu,
+        Dien_Giai: r.Dien_Giai,
         Tien_Thu: Number(r.Tien_Thu),
         Tien_Chi: Number(r.Tien_Chi),
         So_Du_Ton: Number(r.So_Du_Ton),
@@ -754,7 +848,7 @@ export class AccountingBooksService {
         page,
         lastPage: Math.ceil(total / limit) || 1,
       },
-      activeBookKey: `${bookKey}-HKD`,
+      activeBookKey,
       syncCode: currentSyncCode,
       isSummaryOutdated,
     };

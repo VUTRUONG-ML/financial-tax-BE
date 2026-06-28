@@ -4,20 +4,29 @@ import {
   IsInt,
   Min,
   IsString,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum TimeFrame {
-  THANG_NAY = 'thang_nay',
-  THANG_TRUOC = 'thang_truoc',
-  QUY_NAY = 'quy_nay',
-  CUSTOM = 'custom',
+  NAM_NAY = 'nam_nay',
+  NUA_DAU_NAM = 'nua_dau_nam',
+  NUA_CUOI_NAM = 'nua_cuoi_nam',
 }
 
 export class GetRevenueBookDto {
   @IsNotEmpty({ message: 'periodPublicId is required' })
   @IsString()
   periodPublicId!: string;
+
+  @IsOptional()
+  @IsEnum(TimeFrame)
+  timeFrame?: TimeFrame;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  taxCategoryId?: number;
 
   @IsOptional()
   @Type(() => Number)

@@ -1,13 +1,14 @@
 import { IsEnum, IsOptional } from 'class-validator';
 import { GetRevenueBookDto } from './get-revenue-book.dto';
 
-export enum CashFlowBookKey {
-  S03 = 'S03',
-  S04 = 'S04',
+export enum CashFlowMethod {
+  ALL = 'ALL',
+  CASH = 'CASH',
+  BANK = 'BANK',
 }
 
 export class GetCashFlowBookDto extends GetRevenueBookDto {
-  @IsEnum(CashFlowBookKey)
+  @IsEnum(CashFlowMethod)
   @IsOptional()
-  bookKey?: CashFlowBookKey;
+  method?: CashFlowMethod;
 }

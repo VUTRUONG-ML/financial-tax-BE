@@ -959,11 +959,12 @@ export class StocksService {
     }
 
     if (!currentPeriod) {
-      return mapToDto(StockSummaryResponseDto, {
-        endingInventoryValue: 0,
-        trackedItemsCount: 0,
-        lowStockItemsCount: 0,
-      });
+      this.log.warn('GET_SUMMARY',{
+        status: LOG_STATUS.FAILED,
+        reason: 'PERIOD_NOT_FOUND',
+        userId,
+      })
+      throw new NotFoundException('Financial period not found.')
     }
 
     const [totalTrackedProducts, lowStockProducts, openingValue] =
@@ -1923,7 +1924,12 @@ export class StocksService {
     `;
 
     const tong_gia_tri_ton_kho = resTotalExist[0]?.ending_inventory_value ?? 0;
-
+    this.log.debug('GIA_TRI_TON_KHO1',{
+      tong_gia_tri_ton_kho,
+    });
+    this.log.debug('GIA_TRI_TON_KHO2',{
+      tong_gia_tri_ton_kho: aggregateResult._sum.totalValue,
+    });
     const totalOpeningValue = Number(
       aggregateResult._sum.totalValue || tong_gia_tri_ton_kho,
     );

@@ -40,12 +40,9 @@ Dựa trên đề xuất tại [plan_api_accounting_books.md](file:///e:/financi
   * **Cập nhật trong row:** Trả về thêm trường `s2cExpenseMapping` chứa giá trị Enum (`ITEM_A` đến `ITEM_F`).
   * **Hướng dẫn cho FE:** Frontend chỉ việc đọc trực tiếp trường `s2cExpenseMapping` từ dòng bản ghi để đưa vào cột tương ứng trên bảng hiển thị/xuất Excel. **Tuyệt đối không được tự suy đoán hoặc parse text từ tên hạng mục.**
 
-### 2.2. Điều chỉnh tham số thời gian (Query Parameters)
-* **Sai lệch ở FE Plan:** Kế hoạch của FE ghi nhận các query param là `startDate` và `endDate` dạng Date string cho các endpoint sổ sách.
-* **Thiết kế thực tế của BE:** Backend **không nhận** `startDate`/`endDate` trực tiếp qua query params. Bộ lọc thời gian hoạt động như sau:
-  * **Query chính:** `timeFrame` nhận một trong các giá trị: `"thang_nay"` | `"thang_truoc"` | `"quy_nay"` | `"custom"`.
-  * **Trường hợp `"custom"`:** FE bắt buộc phải gửi kèm **`year`** (ví dụ: `2026`) và **`quarter`** (giá trị từ `1` đến `4`).
-  * **Ví dụ gọi API Custom:** `GET /v1/accounting-books/revenue/records?timeFrame=custom&year=2026&quarter=2`
+### 2.2. Điều chỉnh tham số thời gian và bộ lọc cho Sổ doanh thu (S1a)
+* **Bộ lọc mở rộng:** Sổ doanh thu hỗ trợ lọc theo kì và nhận thêm bộ lọc thời gian `timeFrame` (`"nam_nay"` | `"nua_dau_nam"` | `"nua_cuoi_nam"`) và lọc theo danh mục ngành nghề `taxCategoryId`.
+* **Khuyến khích gọi song song:** Để tối ưu hóa trải nghiệm tải trang, Frontend được khuyến khích gọi song song hai API `summary` và `records` cho sổ doanh thu, giúp hiển thị đồng thời cả Summary Card và bảng Records chi tiết.
 
 ### 2.3. Quy cách tham số lọc sản phẩm trong Sổ tồn kho (S2d)
 * **Sai lệch ở FE Plan:** FE mô tả gửi mảng ID sản phẩm hoặc comma-separated array.
@@ -53,13 +50,12 @@ Dựa trên đề xuất tại [plan_api_accounting_books.md](file:///e:/financi
   * **Ví dụ:** `/v1/accounting-books/inventory/records?timeFrame=thang_nay&productPublicIds=prod-102,prod-105`
   * **Trường hợp chọn "TẤT CẢ" (ALL):** Frontend không truyền tham số `productPublicIds` lên API (bỏ trống).
 
-### 2.4. Lưu ý về việc gọi Sổ dòng tiền (S2e / S03 / S04)
-* **Cơ chế truy vấn:** 
-  * `GET /v1/accounting-books/cash-flow/summary` trả về thống kê hợp nhất của cả hai quỹ: S03 (Tiền mặt - `CASH`) và S04 (Tiền gửi ngân hàng - `BANK`).
-  * `GET /v1/accounting-books/cash-flow/records` yêu cầu truyền tham số `bookKey` để lọc:
-    * `bookKey=S03` để lấy sổ tiền mặt.
-    * `bookKey=S04` để lấy sổ tiền gửi ngân hàng.
-  * **Xử lý filter "TẤT CẢ" (ALL) trên giao diện S2e:** FE cần thực hiện gọi song song hoặc tuần tự cả 2 request (cho `S03` và `S04`), sau đó Mapper gộp và sắp xếp lại theo thời gian giao dịch (`ngay_chung_tu` tăng dần) để hiển thị.
+### 2.4. Cải tiến Sổ dòng tiền (S2e / S03 / S04) theo Bộ Lọc Phương thức (Method)
+* **Cơ chế truy vấn mới:** Loại bỏ hoàn toàn query parameter `bookKey`. Thay vào đó, API nhận query parameter `method` với các giá trị: `"ALL"` | `"CASH"` | `"BANK"`.
+* **Endpoint Summary:** `/v1/accounting-books/cash-flow/summary?method=ALL` trả về thống kê tương ứng với bộ lọc. Trường `activeBookKey` sẽ tự động trả về `S2e-HKD`, `S2e-cash`, hoặc `S2e-bank` tương ứng với lựa chọn.
+* **Endpoint Records:** `/v1/accounting-books/cash-flow/records?method=ALL`
+  * Dòng dữ liệu trả về DTO đồng nhất, sử dụng trường **`So_Phieu`** đại diện cho số hiệu phiếu (không phân biệt số phiếu thu hay chi).
+  * Frontend được khuyến khích gọi song song API `summary` và `records` với cùng bộ lọc để render UI dòng tiền nhanh nhất.
 
 ---
 

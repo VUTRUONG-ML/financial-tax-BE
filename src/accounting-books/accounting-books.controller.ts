@@ -23,6 +23,8 @@ export class AccountingBooksController {
     const data = await this.accountingBooksService.getRevenueBookSummary(
       user.id,
       query.periodPublicId,
+      query.timeFrame,
+      query.taxCategoryId,
     );
 
     return {
@@ -43,6 +45,8 @@ export class AccountingBooksController {
       query.page,
       query.limit,
       query.syncCode,
+      query.timeFrame,
+      query.taxCategoryId,
     );
 
     return {
@@ -60,6 +64,7 @@ export class AccountingBooksController {
     const data = await this.accountingBooksService.getCashFlowBookSummary(
       user.id,
       query.periodPublicId,
+      query.method,
     );
 
     return {
@@ -77,7 +82,7 @@ export class AccountingBooksController {
     const data = await this.accountingBooksService.getCashFlowBookRecords(
       user.id,
       query.periodPublicId,
-      query.bookKey,
+      query.method,
       query.page,
       query.limit,
       query.syncCode,
