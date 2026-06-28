@@ -6,6 +6,12 @@ export class OpeningStockSummaryResponseDto {
   totalOpeningValue!: number;
 
   @Expose()
+  productHasValue!: number;
+
+  @Expose()
+  totalProduct!: number;
+
+  @Expose()
   openingPeriod!: string;
 }
 

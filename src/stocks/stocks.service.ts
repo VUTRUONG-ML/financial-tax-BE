@@ -1896,7 +1896,11 @@ export class StocksService {
     return mapToDto(StockReceiptResponseDto, receipt);
   }
 
-  private async getOpeningValue(periodId: number, userId: string) {
+  private async getOpeningValue(
+    periodId: number,
+    userId: string,
+    preventive: boolean = true,
+  ) {
     const aggregateResult = await this.prisma.stockReceipt.aggregate({
       _sum: {
         totalValue: true,
@@ -1933,32 +1937,55 @@ export class StocksService {
     const totalOpeningValue = Number(
       aggregateResult._sum.totalValue || tong_gia_tri_ton_kho,
     );
-    return totalOpeningValue;
+    // Nếu là giá trị dự phòng thì sẽ lấy tổng giá trị tồn kho có nhập kho.
+    return preventive
+      ? totalOpeningValue
+      : (aggregateResult._sum.totalValue ?? 0);
   }
   /**
    * Lấy tổng giá trị tồn kho đầu kì của kì kế toán hiện tại đang mở
    */
-  async getOpeningSummary(userId: string, periodId: number) {
+  async getOpeningSummary(userId: string, publicId: string) {
     // 1. Tìm kì kế toán hiện tại đang mở
-    const openPeriod = await this.prisma.financialPeriod.findFirst({
-      where: { id: periodId, status: 'OPEN' },
+    const openPeriod = await this.prisma.financialPeriod.findUnique({
+      where: { publicId },
     });
 
     if (!openPeriod) {
       this.log.warn('GET_OPENING_SUMMARY', {
         userId,
-        periodId,
+        publicId,
         status: LOG_STATUS.FAILED,
         reason: 'PERIOD_NOT_FOUND_OR_CLOSED',
       });
       throw new NotFoundException('Period not found or closed.');
     }
 
-    // Tổng giá trị tồn kho thì lấy từ opening, nếu chưa có lấy từ inventoryMove
-    const totalOpeningValue = await this.getOpeningValue(openPeriod.id, userId);
+    // Giá trị tồn kho đầu kì thì chỉ tính đầu kì, không phải tổng giá trị nhập, nên truyền tham số ko lấy fallback/dự phòng từ phiếu nhập kho
+    const totalOpeningValue = await this.getOpeningValue(openPeriod.id, userId, false);
+
+    const [productHasValue, totalProduct] = await Promise.all([
+      this.prisma.stockReceiptDetail.count({
+        where: {
+          receipt: {
+            userId,
+            periodId: openPeriod.id,
+            status: 'APPROVED',
+            sourceType: 'OPENING',
+          },
+        },
+      }),
+      this.prisma.product.count({
+        where: {
+          userId,
+        },
+      }),
+    ]);
 
     return mapToDto(OpeningStockSummaryResponseDto, {
       totalOpeningValue,
+      productHasValue: productHasValue ?? 0,
+      totalProduct: totalProduct ?? 0,
       openingPeriod: openPeriod.periodName,
     });
   }
@@ -1966,16 +1993,16 @@ export class StocksService {
   /**
    * Lấy danh sách tồn kho đầu kì của kì kế toán hiện tại đang mở
    */
-  async getOpeningList(userId: string, periodId: number) {
+  async getOpeningList(userId: string, publicId: string) {
     // 1. Tìm kì kế toán hiện tại đang mở
-    const openPeriod = await this.prisma.financialPeriod.findFirst({
-      where: { id: periodId, status: 'OPEN' },
+    const openPeriod = await this.prisma.financialPeriod.findUnique({
+      where: { publicId },
     });
 
     if (!openPeriod) {
       this.log.warn('GET_OPENING_SUMMARY', {
         userId,
-        periodId,
+        publicId,
         status: LOG_STATUS.FAILED,
         reason: 'PERIOD_NOT_FOUND_OR_CLOSED',
       });

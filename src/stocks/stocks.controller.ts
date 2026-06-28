@@ -3,6 +3,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -28,16 +29,13 @@ export class StocksController {
   }
 
   @CheckPeriod()
-  @Get('opening-summary')
+  @Get('opening-summary/:periodPublicId')
   @HttpCode(HttpStatus.OK)
   async getOpeningSummary(
     @CurrentUser('id') userId: string,
-    @Req() req: Request & { financialPeriodId: number },
+    @Param('periodPublicId') publicId: string,
   ) {
-    const data = await this.stocksService.getOpeningSummary(
-      userId,
-      req.financialPeriodId,
-    );
+    const data = await this.stocksService.getOpeningSummary(userId, publicId);
     return {
       message: 'Opening stock summary retrieved successfully',
       data,
@@ -45,16 +43,13 @@ export class StocksController {
   }
 
   @CheckPeriod()
-  @Get('opening-list')
+  @Get('opening-list/:periodPublicId')
   @HttpCode(HttpStatus.OK)
   async getOpeningList(
     @CurrentUser('id') userId: string,
-    @Req() req: Request & { financialPeriodId: number },
+    @Param('periodPublicId') publicId: string,
   ) {
-    const data = await this.stocksService.getOpeningList(
-      userId,
-      req.financialPeriodId,
-    );
+    const data = await this.stocksService.getOpeningList(userId, publicId);
     return {
       message: 'Opening stock list retrieved successfully',
       data,

@@ -4037,7 +4037,7 @@ None
 
 ### 14.2. Get Opening Stock Summary
 
-- **Route:** `/stocks/opening-summary`
+- **Route:** `/stocks/opening-summary/:periodPublicId`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
@@ -4054,7 +4054,10 @@ None
   "timestamp": "Date string",
   "message": "Opening stock summary retrieved successfully",
   "data": {
-    "totalOpeningValue": "number"
+    "totalOpeningValue": "number",
+    "productHasValue": "number",
+    "totalProduct": "number",
+    "openingPeriod": "string"
   },
   "meta": null
 }
@@ -4062,7 +4065,7 @@ None
 
 ### 14.3. Get Opening Stock List
 
-- **Route:** `/stocks/opening-list`
+- **Route:** `/stocks/opening-list/:periodPublicId`
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
