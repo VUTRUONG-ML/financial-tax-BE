@@ -2064,18 +2064,57 @@ None
       "totalCurrentRevenue": "number",
       "warningLevel": "\"GREEN\" | \"YELLOW\" | \"RED\"",
       "nextThreshold": "number",
-      "percentage": "number"
+      "percentage": "number",
+      "growthRate": "number",
+      "forecastRevenue": "number",
+      "forecastLabel": "string",
+      "alertLabel": "string | null",
+      "alertMessage": "string | null"
     },
     "taxDeclarationCard": {
       "periodId": "string",
       "periodName": "string",
-      "status": "\"OPEN\" | \"CLOSED\" | \"PENDING_CLOSURE\" | \"OVERDUE_NO_DATA\" | \"OVERDUE_WITH_DATA\"",
+      "status": "string",
+      "statusLabel": "string",
       "deadlineDate": "string",
       "isOverdue": "boolean",
       "daysOverdue": "number",
-      "estimatedPenalty": "number"
+      "estimatedPenalty": "number",
+      "description": "string",
+      "actualPaymentDate": "string | null"
     } | null
   },
+  "meta": null
+}
+```
+
+### 9.2. Get Recent Transactions
+
+- **Route:** `/dashboard/recent-transactions`
+- **Method:** `GET`
+- **Authentication:** Required (Bearer Token in Authorization Header)
+
+#### Request Body
+
+None
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
+  "message": "Retrieve dashboard summary successfully",
+  "data": [
+    {
+      "transactionTime": "Date string",
+      "description": "string",
+      "type": "\"INCOME\"",
+      "totalAmount": "number",
+      "status": "DRAFT" |"PENDING_ISSUED" | "ISSUED" | "SYNC_FAILED" | "CANCELED"
+    }
+  ],
   "meta": null
 }
 ```
@@ -3437,7 +3476,8 @@ None
   "meta": null
 }
 ```
-```
+
+````
 
 ### 13.5. Get Expense Book Summary
 
@@ -3494,7 +3534,7 @@ None
   },
   "meta": null
 }
-```
+````
 
 ### 13.6. Get Expense Book Records
 

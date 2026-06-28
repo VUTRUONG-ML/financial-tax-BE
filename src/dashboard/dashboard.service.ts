@@ -8,6 +8,8 @@ import {
 } from './dto/dashboard-summary-response.dto';
 import { moment } from '../common/utils/time.util';
 import { PeriodStatus } from '@prisma/client';
+import { mapToDto } from 'src/common/utils/mapper.util';
+import { RecentTransactionsResponseDto } from './dto/response-recent-transaction.dto';
 
 @Injectable()
 export class DashboardService {
@@ -27,7 +29,11 @@ export class DashboardService {
     const totalCurrentRevenue = revenueTracker
       ? revenueTracker.revenueYtd.toNumber()
       : 0;
-    const revenueProgress = await this.calculateRevenueProgress(userId, totalCurrentRevenue, currentYear);
+    const revenueProgress = await this.calculateRevenueProgress(
+      userId,
+      totalCurrentRevenue,
+      currentYear,
+    );
 
     // 2. Tax Declaration Card
     const taxDeclarationCard = await this.getTaxDeclarationCard(userId);
@@ -43,7 +49,6 @@ export class DashboardService {
     revenue: number,
     currentYear: number,
   ): Promise<RevenueProgressDto> {
-    // Tìm kỳ tài chính hoạt động hiện tại (bao gồm hôm nay)
     const today = moment().toDate();
     let currentPeriod = await this.prisma.financialPeriod.findFirst({
       where: {
@@ -55,7 +60,7 @@ export class DashboardService {
 
     if (!currentPeriod) {
       currentPeriod = await this.prisma.financialPeriod.findFirst({
-        where: { userId, actualPaymentDate: null },
+        where: { userId },
         orderBy: { endDate: 'desc' },
       });
     }
@@ -104,7 +109,7 @@ export class DashboardService {
     let alertMessage: string | null = null;
 
     if (revenue < 1_000_000_000) {
-      if (revenue >= 400_000_000) {
+      if (revenue >= 600_000_000) {
         alertLabel = 'SẮP ĐẠT NGƯỠNG 01 TỶ';
         alertMessage = 'Doanh thu lũy kế đang tiến sát ngưỡng 01 tỷ. Vui lòng kiểm tra lại định mức kê khai thuế TNCN & GTGT.';
       }
@@ -171,8 +176,6 @@ export class DashboardService {
         startDate: 'asc',
       },
     });
-
-    // Nếu tất cả kỳ đều đã nộp thuế, lấy kỳ gần nhất đã nộp để hiển thị trạng thái hoàn thành
     if (!targetPeriod) {
       targetPeriod = await this.prisma.financialPeriod.findFirst({
         where: {
@@ -252,5 +255,16 @@ export class DashboardService {
       description,
       actualPaymentDate,
     };
+  }
+
+  async recentTransaction(userId: string) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        userId,
+      },
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+    });
+    return mapToDto(RecentTransactionsResponseDto, invoices);
   }
 }

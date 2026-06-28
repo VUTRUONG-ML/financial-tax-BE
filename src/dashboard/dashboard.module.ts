@@ -3,6 +3,7 @@ import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { TaxEngineModule } from '../tax-engine/tax-engine.module';
 import { PrismaModule } from '../core/prisma/prisma.module';
+import { InvoicesModule } from 'src/invoices/invoices.module';
 
 @Module({
   imports: [PrismaModule, TaxEngineModule],

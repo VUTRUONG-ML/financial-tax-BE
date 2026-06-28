@@ -13,7 +13,15 @@ export class DashboardController {
   async getSummary(@CurrentUser() user: RequestUser) {
     const data = await this.dashboardService.getSummary(user.id);
     return {
-      success: true,
+      message: 'Retrieve dashboard summary successfully',
+      data,
+    };
+  }
+
+  @Get('recent-transactions')
+  async getRecentTransaction(@CurrentUser() user: RequestUser) {
+    const data = await this.dashboardService.recentTransaction(user.id);
+    return {
       message: 'Retrieve dashboard summary successfully',
       data,
     };
