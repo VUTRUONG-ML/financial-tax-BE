@@ -40,7 +40,7 @@ import { TaxFormsModule } from './tax-forms/tax-forms.module';
       {
         name: 'short',
         ttl: 1000, // 1 giây
-        limit: 1,
+        limit: 10,
       },
       {
         name: 'medium',

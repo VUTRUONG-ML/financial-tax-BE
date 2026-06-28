@@ -966,7 +966,7 @@ export class StocksService {
       });
     }
 
-    const [totalTrackedProducts, lowStockProducts, sqlResult] =
+    const [totalTrackedProducts, lowStockProducts, openingValue] =
       await Promise.all([
         this.prisma.product.count({
           where: { userId, isInventoryTracked: true },
@@ -979,24 +979,11 @@ export class StocksService {
             currentStock: { lt: LOW_STOCK_THRESHOLD },
           },
         }),
-        this.prisma.$queryRaw<[{ ending_inventory_value: number | null }]>`
-          SELECT 
-            SUM(
-              CASE 
-                WHEN im.movement_type IN ('OPENING', 'PURCHASE_IN', 'PRODUCTION_IN', 'ADJUST_IN') THEN im.total_value 
-                ELSE -im.total_value 
-              END
-            ) as ending_inventory_value
-          FROM inventory_movements im
-          JOIN products p ON im.product_id = p.id
-          WHERE p.user_id = ${userId} AND p.product_type != 'SERVICE' AND im.period_id = ${currentPeriod.id}
-        `,
+        this.getOpeningValue(currentPeriod.id, userId),
       ]);
 
-    const endingInventoryValue = Number(sqlResult[0]?.ending_inventory_value || 0);
-
     const summaryData = {
-      endingInventoryValue: endingInventoryValue,
+      endingInventoryValue: openingValue,
       trackedItemsCount: totalTrackedProducts,
       lowStockItemsCount: lowStockProducts,
     };
@@ -1893,21 +1880,55 @@ export class StocksService {
           include: {
             product: {
               select: {
-                publicId: true, 
+                publicId: true,
                 productName: true,
                 skuCode: true,
-              }
-            }
-          }
-        }
-      }
+              },
+            },
+          },
+        },
+      },
     });
-    if(!receipt){
+    if (!receipt) {
       throw new NotFoundException('Receipt stock not found.');
     }
     return mapToDto(StockReceiptResponseDto, receipt);
   }
 
+  private async getOpeningValue(periodId: number, userId: string) {
+    const aggregateResult = await this.prisma.stockReceipt.aggregate({
+      _sum: {
+        totalValue: true,
+      },
+      where: {
+        id: periodId,
+        sourceType: 'OPENING',
+        status: 'APPROVED',
+      },
+    });
+
+    const resTotalExist = await this.prisma.$queryRaw<
+      { ending_inventory_value: number | null }[]
+    >`
+      SELECT 
+        SUM(
+          CASE 
+            WHEN im.movement_type IN ('OPENING', 'PURCHASE_IN', 'PRODUCTION_IN', 'ADJUST_IN') THEN im.total_value 
+            ELSE -im.total_value 
+          END
+        ) as ending_inventory_value
+      FROM inventory_movements im
+      JOIN products p ON im.product_id = p.id
+      WHERE p.user_id = ${userId} AND p.product_type != 'SERVICE' AND im.period_id = ${periodId}
+    `;
+
+    const tong_gia_tri_ton_kho = resTotalExist[0]?.ending_inventory_value ?? 0;
+
+    const totalOpeningValue = Number(
+      aggregateResult._sum.totalValue || tong_gia_tri_ton_kho,
+    );
+    return totalOpeningValue;
+  }
   /**
    * Lấy tổng giá trị tồn kho đầu kì của kì kế toán hiện tại đang mở
    */
@@ -1927,19 +1948,8 @@ export class StocksService {
       throw new NotFoundException('Period not found or closed.');
     }
 
-    // 2. Tính tổng giá trị tồn đầu kỳ (từ stockReceipt có sourceType là OPENING, status là APPROVED)
-    const aggregateResult = await this.prisma.stockReceipt.aggregate({
-      _sum: {
-        totalValue: true,
-      },
-      where: {
-        id: openPeriod.id,
-        sourceType: 'OPENING',
-        status: 'APPROVED',
-      },
-    });
-
-    const totalOpeningValue = Number(aggregateResult._sum.totalValue || 0);
+    // Tổng giá trị tồn kho thì lấy từ opening, nếu chưa có lấy từ inventoryMove
+    const totalOpeningValue = await this.getOpeningValue(openPeriod.id, userId);
 
     return mapToDto(OpeningStockSummaryResponseDto, {
       totalOpeningValue,

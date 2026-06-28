@@ -20,7 +20,8 @@ import { ConfigService } from '@nestjs/config';
 import { parseTimeToMs } from '../common/utils/time.util';
 import { TokenService } from '../token/token.service';
 import { Cookie } from '../common/decorators/cookie.decorator';
-
+import { SkipThrottle } from '@nestjs/throttler';
+@SkipThrottle()
 @Controller({
   version: '1',
   path: 'auth',
@@ -37,11 +38,11 @@ export class AuthController {
     const maxAgeMs = parseTimeToMs(refreshExpStr, '7d');
     const isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
-
+    const isDevCrossSite = !isProduction; 
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true, // Chống XSS
-      secure: isProduction, // Yêu cầu HTTPS trên production
-      sameSite: 'strict', // Chống CSRF
+      secure: isProduction || isDevCrossSite, // Yêu cầu HTTPS trên production
+      sameSite: isProduction ? 'strict' : 'none', // Chống CSRF
       maxAge: maxAgeMs,
     });
   }

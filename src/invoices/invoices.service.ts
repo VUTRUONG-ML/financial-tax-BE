@@ -1056,7 +1056,7 @@ export class InvoicesService {
         where: { userId },
       }),
       this.prisma.invoice.aggregate({
-        where: { userId, status: 'ISSUED' },
+        where: { userId, status: {in: ['PENDING_ISSUED', 'ISSUED']} },
         _sum: {
           totalPayment: true,
           taxPayable: true,
