@@ -299,7 +299,7 @@ export class InvoicesService {
         },
       );
 
-      this.log.log(LOG_ACTIONS.UPDATE_INVOICE, {
+      this.log.log('LOCK_INVOICE', {
         status: LOG_STATUS.SUCCESS,
         userId,
         invoicePublicId: publicId,
@@ -340,6 +340,10 @@ export class InvoicesService {
       },
     });
 
+    this.log.debug('CHECK_ADJUST_TAX_GROUP',{
+        activeConfig
+      }
+    )
     if (!activeConfig || !activeConfig.taxGroup) return;
 
     // 2. Lấy doanh thu lũy kế YTD từ RevenueTracker
@@ -349,9 +353,12 @@ export class InvoicesService {
       },
     });
 
+    this.log.debug('CHECK_ADJUST_TAX_GROUP',{
+      tracker
+    })
+
     const currentYtdRevenue = tracker?.revenueYtd ? Number(tracker.revenueYtd) : 0;
     const maxRevenue = activeConfig.taxGroup.maxRevenue ? Number(activeConfig.taxGroup.maxRevenue) : null;
-    const minRevenue = Number(activeConfig.taxGroup.minRevenue);
 
     // 3. CHIỀU TĂNG (Upgrade): Doanh thu > maxRevenue của nhóm hiện tại
     if (maxRevenue !== null && currentYtdRevenue > maxRevenue) {
@@ -368,6 +375,9 @@ export class InvoicesService {
       });
 
       if (nextTaxGroup && nextTaxGroup.id !== activeConfig.taxGroupId) {
+        this.log.debug('CHECK_ADJUST_TAX_GROUP',{
+          nextTaxGroup,
+        })
         await this.onboardingService.updateTaxConfiguration(
           userId,
           {
@@ -384,40 +394,6 @@ export class InvoicesService {
           currentYtdRevenue,
           oldTaxGroupId: activeConfig.taxGroupId,
           newTaxGroupId: nextTaxGroup.id,
-        });
-      }
-    }
-    // 4. CHIỀU GIẢM (Downgrade): Doanh thu < minRevenue của nhóm hiện tại
-    else if (currentYtdRevenue < minRevenue) {
-      // Tìm nhóm thuế phía trước có dải doanh thu bao phủ currentYtdRevenue
-      const prevTaxGroup = await tx.taxGroup.findFirst({
-        where: {
-          minRevenue: { lte: currentYtdRevenue },
-          OR: [
-            { maxRevenue: null },
-            { maxRevenue: { gte: currentYtdRevenue } },
-          ],
-        },
-        orderBy: { id: 'asc' },
-      });
-
-      if (prevTaxGroup && prevTaxGroup.id !== activeConfig.taxGroupId) {
-        await this.onboardingService.updateTaxConfiguration(
-          userId,
-          {
-            industryId: activeConfig.industryId,
-            isOtherIndustry: true,
-            taxGroupId: prevTaxGroup.id,
-          },
-          { isSystemAutoUpgrade: true },
-          tx,
-        );
-        this.log.log('SYSTEM_AUTO_DOWNGRADE_TAX_GROUP', {
-          userId,
-          year,
-          currentYtdRevenue,
-          oldTaxGroupId: activeConfig.taxGroupId,
-          newTaxGroupId: prevTaxGroup.id,
         });
       }
     }
@@ -680,6 +656,12 @@ export class InvoicesService {
       // Fetch the user's taxCode to pass it as C5_C9
       const infoVerified = await this.taxConnection.verifyConnection(userId);
 
+      this.log.debug('VERIFY_ACCOUNT_PUBLISH_INV',{
+        status: LOG_STATUS.SUCCESS,
+        publicId,
+        userId,
+      });
+
       // Gọi Mock API
       const result = await this.taxAuthorityService.requestTaxCode(
         publicId,
@@ -687,6 +669,12 @@ export class InvoicesService {
       );
 
       if (result.success) {
+        this.log.log(LOG_ACTIONS.INVOICE_CQT_ISSUED + '_RESULT_SUCCESS', {
+          status: LOG_STATUS.SUCCESS,
+          userId,
+          publicId,
+        });
+
         // Nếu thành công -> Chạy hàm lockInvoice
         const phaseSecond = await this.lockInvoice(
           publicId,
@@ -695,6 +683,11 @@ export class InvoicesService {
         );
         return mapToDto(InvoiceResponseDto, phaseSecond);
       } else {
+        this.log.log(LOG_ACTIONS.INVOICE_CQT_ISSUED + '_RESULT_FAILED', {
+          status: LOG_STATUS.SUCCESS,
+          userId,
+          publicId,
+        });
         const phaseFinally = await this.prisma.$transaction(async (tx) => {
           const currentInv = await tx.invoice.findUnique({
             where: { publicId },

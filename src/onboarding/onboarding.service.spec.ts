@@ -466,8 +466,8 @@ describe('OnboardingService', () => {
       expect(tx.taxConfiguration.create).not.toHaveBeenCalled();
     });
 
-    // ── Guard: actionBy là SYSTEM_AUTO khi system upgrade ───────────────────
-    it('should record audit log with SYSTEM_AUTO as actor when isSystemAutoUpgrade', async () => {
+    // ── Guard: actionBy là userId khi system upgrade ───────────────────
+    it('should record audit log with userId as actor when isSystemAutoUpgrade', async () => {
       const tx = buildMockTx();
       tx.taxConfiguration.findFirst.mockResolvedValue(mockActiveConfig());
       tx.taxConfiguration.updateMany.mockResolvedValue({ count: 1 });
@@ -478,10 +478,10 @@ describe('OnboardingService', () => {
         isSystemAutoUpgrade: true,
       });
 
-      // Cả 2 lần log phải dùng 'SYSTEM_AUTO' thay vì userId
+      // Cả 2 lần log phải dùng MOCK_USER_ID thay vì 'SYSTEM_AUTO' do khóa ngoại db
       expect(auditLog.logChange).toHaveBeenCalledWith(
         tx,
-        'SYSTEM_AUTO',
+        MOCK_USER_ID,
         'UPDATE',
         expect.anything(),
         expect.anything(),

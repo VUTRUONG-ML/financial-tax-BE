@@ -334,9 +334,7 @@ export class OnboardingService {
         throw new ConflictException('Please do not click multiple times.');
       }
 
-      const actionBy: string = options?.isSystemAutoUpgrade
-        ? 'SYSTEM_AUTO'
-        : userId;
+      const actionBy: string = userId;
 
       await this.auditLog.logChange(
         tx,
@@ -346,6 +344,7 @@ export class OnboardingService {
         currentActiveConfig.id,
         { applyToDate: currentActiveConfig.applyToDate },
         { applyToDate: now },
+        'SYSTEM_AUTO',
       );
 
       // 5. Tạo cấu hình mới

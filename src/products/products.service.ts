@@ -327,7 +327,7 @@ export class ProductsService {
 
   // ─── SUMMARY ──────────────────────────────────────────────────────────────
   async getSummary(userId: string) {
-    const [counts, finishGoodCount, serviceCount, sapHetCount] =
+    const [counts, finishGoodCount, serviceCount, sapHetCount, resTotalValue] =
       await Promise.all([
         this.prisma.product.count({ where: { userId } }),
         this.prisma.product.count({
@@ -346,17 +346,17 @@ export class ProductsService {
             currentStock: { lt: 15 },
           },
         }),
+        this.prisma.$queryRaw<{ totalValueInventory: Prisma.Decimal }[]>`
+          SELECT
+            COALESCE(SUM(current_stock*selling_price), 0) as "totalValueInventory"
+          FROM products
+          WHERE user_id = ${userId}
+            AND product_type = 'FINISHED_GOOD'
+        `,
       ]);
-
-    // 3. Tổng giá trị tồn kho (loại trừ SERVICE)
-    const resTotalExist = await this.prisma.$queryRaw<{ total: number }[]>`
-      SELECT
-        COALESCE(SUM(current_stock * opening_stock_unit_cost), 0) as total
-      FROM products
-      WHERE user_id = ${userId}
-        AND product_type <> 'SERVICE'
-    `;
-    const tong_gia_tri_ton_kho = resTotalExist[0]?.total ?? 0;
+    const tong_gia_tri_ton_kho = Number(
+      resTotalValue[0].totalValueInventory ?? 0,
+    );
     return {
       tong_san_pham: counts,
       tong_san_pham_phan_loai: {
