@@ -822,7 +822,10 @@ export class InvoicesService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedInvoice = await tx.invoice.updateMany({
-        where: { id: invoice.id, status: { in: ['ISSUED', 'SYNC_FAILED'] } },
+        where: {
+          id: invoice.id,
+          status: { in: ['ISSUED', 'SYNC_FAILED', 'PENDING_ISSUED'] },
+        },
         data: { status: 'CANCELED', cancellationReason },
       });
       if (updatedInvoice.count === 0) {
