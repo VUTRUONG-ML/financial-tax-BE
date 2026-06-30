@@ -3797,7 +3797,7 @@ None
 
 #### Response Data (JSON)
 
-```json
+````json
 {
   "success": true,
   "statusCode": 200,
@@ -3882,7 +3882,7 @@ None
     "isSummaryOutdated": "boolean"
   },
   "meta": null
-```
+````
 
 ### 13.7. Get Inventory Book Summary
 
