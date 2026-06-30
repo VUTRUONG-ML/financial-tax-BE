@@ -611,18 +611,18 @@ export class TaxDeclarationService {
 
     const chosenPeriodOption = dto.taxPeriodOption || defaultPeriodOption;
 
-    if (!availablePeriodOptions.includes(chosenPeriodOption)) {
-      this.logger.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
-        status: LOG_STATUS.FAILED,
-        reason: 'TAX_PERIOD_OPTION_DISALLOWED',
-        userId,
-        chosenOption: chosenPeriodOption,
-        available: availablePeriodOptions,
-      });
-      throw new BadRequestException(
-        `The chosen tax period option "${chosenPeriodOption}" is disallowed. Available options: ${availablePeriodOptions.join(', ')}`,
-      );
-    }
+    // if (!availablePeriodOptions.includes(chosenPeriodOption)) {
+    //   this.logger.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+    //     status: LOG_STATUS.FAILED,
+    //     reason: 'TAX_PERIOD_OPTION_DISALLOWED',
+    //     userId,
+    //     chosenOption: chosenPeriodOption,
+    //     available: availablePeriodOptions,
+    //   });
+    //   throw new BadRequestException(
+    //     `The chosen tax period option "${chosenPeriodOption}" is disallowed. Available options: ${availablePeriodOptions.join(', ')}`,
+    //   );
+    // }
 
     const calculatedRange = getTaxDeclarationPeriodRange(
       period.startDate,
@@ -694,18 +694,18 @@ export class TaxDeclarationService {
 
     const chosenPeriodOption = dto.taxPeriodOption || defaultPeriodOption;
 
-    if (!availablePeriodOptions.includes(chosenPeriodOption)) {
-      this.logger.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
-        status: LOG_STATUS.FAILED,
-        reason: 'TAX_PERIOD_OPTION_DISALLOWED',
-        userId,
-        chosenOption: chosenPeriodOption,
-        available: availablePeriodOptions,
-      });
-      throw new BadRequestException(
-        `The chosen tax period option "${chosenPeriodOption}" is disallowed. Available options: ${availablePeriodOptions.join(', ')}`,
-      );
-    }
+    // if (!availablePeriodOptions.includes(chosenPeriodOption)) {
+    //   this.logger.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+    //     status: LOG_STATUS.FAILED,
+    //     reason: 'TAX_PERIOD_OPTION_DISALLOWED',
+    //     userId,
+    //     chosenOption: chosenPeriodOption,
+    //     available: availablePeriodOptions,
+    //   });
+    //   throw new BadRequestException(
+    //     `The chosen tax period option "${chosenPeriodOption}" is disallowed. Available options: ${availablePeriodOptions.join(', ')}`,
+    //   );
+    // }
 
     const calculatedRange = getTaxDeclarationPeriodRange(
       period.startDate,
@@ -892,10 +892,72 @@ export class TaxDeclarationService {
 
     if (draft?.step3Data) return draft.step3Data as unknown as Step3Data;
 
-    return await this.stocksService.calculatePeriodInventorySummary(
-      userId,
-      period.id,
+    const draftStep1 = draft?.step1Data as any;
+    const chosenPeriodOption = draftStep1?.declarationOptions?.taxPeriodOption;
+    const { startDate, endDate, usePeriodId } = getTaxDeclarationPeriodRange(
+      period.startDate,
+      period.endDate,
+      chosenPeriodOption,
     );
+
+    if (usePeriodId) {
+      return await this.stocksService.calculatePeriodInventorySummary(
+        userId,
+        period.id,
+      );
+    } else {
+      const [ytdOpeningDetails, ytdImportedDetails, ytdExportedValueDecimal] =
+        await Promise.all([
+          this.prisma.stockReceiptDetail.aggregate({
+            where: {
+              receipt: {
+                userId,
+                status: 'APPROVED',
+                sourceType: 'OPENING',
+                receiptDate: { gte: startDate, lte: endDate },
+              },
+              product: {
+                productType: { not: 'SERVICE' },
+              },
+            },
+            _sum: {
+              totalValue: true,
+            },
+          }),
+          this.prisma.stockReceiptDetail.aggregate({
+            where: {
+              receipt: {
+                userId,
+                status: 'APPROVED',
+                sourceType: { not: 'OPENING' },
+                receiptDate: { gte: startDate, lte: endDate },
+              },
+              product: {
+                productType: { not: 'SERVICE' },
+              },
+            },
+            _sum: {
+              totalValue: true,
+            },
+          }),
+          this.stocksService.calculateExportedCost(userId, {
+            startDate,
+            endDate,
+          }),
+        ]);
+
+      const ytdOpeningValue = ytdOpeningDetails._sum.totalValue?.toNumber() ?? 0;
+      const ytdImportedValue = ytdImportedDetails._sum.totalValue?.toNumber() ?? 0;
+      const ytdExportedValue = ytdExportedValueDecimal.toNumber();
+      const ytdClosingValue = ytdOpeningValue + ytdImportedValue - ytdExportedValue;
+
+      return {
+        openingValue: ytdOpeningValue,
+        importedValue: ytdImportedValue,
+        exportedValue: ytdExportedValue,
+        closingValue: ytdClosingValue,
+      };
+    }
   }
 
   async saveStep3(userId: string, publicId: string) {
@@ -925,13 +987,22 @@ export class TaxDeclarationService {
         errorCode: 'STEP_2_NOT_COMPLETED',
       });
 
+    const draftStep1 = draft.step1Data as any;
+    const chosenPeriodOption = draftStep1?.declarationOptions?.taxPeriodOption;
+    const { startDate, endDate, usePeriodId } = getTaxDeclarationPeriodRange(
+      period.startDate,
+      period.endDate,
+      chosenPeriodOption,
+    );
+
     // Đánh chặn: kiểm tra doanh thu realtime có khớp với step2 đã snapshot không
     const step2Data = draft.step2Data as unknown as Step2Data;
     const realtimeData =
       await this.financialPeriodsService.calculateRealtimeTaxData(
         userId,
-        period.startDate,
-        period.endDate,
+        startDate,
+        endDate,
+        usePeriodId ? period.id : undefined,
       );
     if (realtimeData.revenue.toNumber() !== step2Data.confirmedRevenue) {
       throw new BadRequestException({
@@ -940,10 +1011,65 @@ export class TaxDeclarationService {
       });
     }
 
-    const step3 = await this.stocksService.calculatePeriodInventorySummary(
-      userId,
-      period.id,
-    );
+    let step3;
+    if (usePeriodId) {
+      step3 = await this.stocksService.calculatePeriodInventorySummary(
+        userId,
+        period.id,
+      );
+    } else {
+      const [ytdOpeningDetails, ytdImportedDetails, ytdExportedValueDecimal] =
+        await Promise.all([
+          this.prisma.stockReceiptDetail.aggregate({
+            where: {
+              receipt: {
+                userId,
+                status: 'APPROVED',
+                sourceType: 'OPENING',
+                receiptDate: { gte: startDate, lte: endDate },
+              },
+              product: {
+                productType: { not: 'SERVICE' },
+              },
+            },
+            _sum: {
+              totalValue: true,
+            },
+          }),
+          this.prisma.stockReceiptDetail.aggregate({
+            where: {
+              receipt: {
+                userId,
+                status: 'APPROVED',
+                sourceType: { not: 'OPENING' },
+                receiptDate: { gte: startDate, lte: endDate },
+              },
+              product: {
+                productType: { not: 'SERVICE' },
+              },
+            },
+            _sum: {
+              totalValue: true,
+            },
+          }),
+          this.stocksService.calculateExportedCost(userId, {
+            startDate,
+            endDate,
+          }),
+        ]);
+
+      const ytdOpeningValue = ytdOpeningDetails._sum.totalValue?.toNumber() ?? 0;
+      const ytdImportedValue = ytdImportedDetails._sum.totalValue?.toNumber() ?? 0;
+      const ytdExportedValue = ytdExportedValueDecimal.toNumber();
+      const ytdClosingValue = ytdOpeningValue + ytdImportedValue - ytdExportedValue;
+
+      step3 = {
+        openingValue: ytdOpeningValue,
+        importedValue: ytdImportedValue,
+        exportedValue: ytdExportedValue,
+        closingValue: ytdClosingValue,
+      };
+    }
 
     return await this.prisma.taxDeclarationDraft.update({
       where: { financialPeriodId: period.id },
@@ -976,10 +1102,18 @@ export class TaxDeclarationService {
 
     if (draft?.step4Data) return draft.step4Data as unknown as Step4Data;
 
+    const draftStep1 = draft?.step1Data as any;
+    const chosenPeriodOption = draftStep1?.declarationOptions?.taxPeriodOption;
+    const { startDate, endDate } = getTaxDeclarationPeriodRange(
+      period.startDate,
+      period.endDate,
+      chosenPeriodOption,
+    );
+
     // Tính realtime
     const [materialCost, voucherExpenses] = await Promise.all([
-      this.stocksService.calculateTotalMaterialCost(userId, period.startDate, period.endDate),
-      this.vouchersService.calculateVoucherExpensesGrouped(userId, period.startDate, period.endDate),
+      this.stocksService.calculateTotalMaterialCost(userId, startDate, endDate),
+      this.vouchersService.calculateVoucherExpensesGrouped(userId, startDate, endDate),
     ]);
 
     const totalExpense = materialCost.toNumber() +
@@ -1033,13 +1167,22 @@ export class TaxDeclarationService {
         errorCode: 'STEP_3_NOT_COMPLETED',
       });
 
+    const draftStep1 = draft.step1Data as any;
+    const chosenPeriodOption = draftStep1?.declarationOptions?.taxPeriodOption;
+    const { startDate, endDate, usePeriodId } = getTaxDeclarationPeriodRange(
+      period.startDate,
+      period.endDate,
+      chosenPeriodOption,
+    );
+
     // Đánh chặn lũy tiến: doanh thu không được lệch với Step 2 đã snapshot
     const step2Data = draft.step2Data as unknown as Step2Data;
     const realtimeData =
       await this.financialPeriodsService.calculateRealtimeTaxData(
         userId,
-        period.startDate,
-        period.endDate,
+        startDate,
+        endDate,
+        usePeriodId ? period.id : undefined,
       );
     if (realtimeData.revenue.toNumber() !== step2Data.confirmedRevenue) {
       throw new BadRequestException({
@@ -1050,8 +1193,8 @@ export class TaxDeclarationService {
 
     // Snapshot chi phí thực tế từ DB vào draft
     const [materialCost, voucherExpenses] = await Promise.all([
-      this.stocksService.calculateTotalMaterialCost(userId, period.startDate, period.endDate),
-      this.vouchersService.calculateVoucherExpensesGrouped(userId, period.startDate, period.endDate),
+      this.stocksService.calculateTotalMaterialCost(userId, startDate, endDate),
+      this.vouchersService.calculateVoucherExpensesGrouped(userId, startDate, endDate),
     ]);
 
     const totalExpense = materialCost.toNumber() +
@@ -1134,27 +1277,52 @@ export class TaxDeclarationService {
     });
 
     const ytdRevenue =
-      (mostRecentDeclaration?.ytdRevenue?.toNumber() ?? 0) + inPeriodRevenue;
+      formType === '02_CNKD_TNCN_QTT'
+        ? inPeriodRevenue
+        : (mostRecentDeclaration?.ytdRevenue?.toNumber() ?? 0) + inPeriodRevenue;
     const ytdExpense =
-      (mostRecentDeclaration?.ytdExpense?.toNumber() ?? 0) + inPeriodExpense;
+      formType === '02_CNKD_TNCN_QTT'
+        ? inPeriodExpense
+        : (mostRecentDeclaration?.ytdExpense?.toNumber() ?? 0) + inPeriodExpense;
 
-    // Tính ytdPitPaid: Tổng thuế TNCN đã tạm nộp ở các kỳ trước trong năm
-    const priorDeclarations = await this.prisma.taxDeclaration.findMany({
-      where: {
-        period: {
+    // Tính ytdPitPaid: Tổng thuế TNCN đã kê khai/tạm nộp trong năm.
+    // Với quyết toán năm, ta tính tổng pitAmount từ tất cả các kỳ CLOSED của năm hiện tại.
+    // Với tờ khai định kỳ, ta chỉ lấy tổng pitTaxAmount từ các tờ khai trước đó.
+    let ytdPitPaid = 0;
+    if (formType === '02_CNKD_TNCN_QTT') {
+      const closedPeriodsOfYear = await this.prisma.financialPeriod.findMany({
+        where: {
           userId,
           startDate: { gte: startOfYear },
-          endDate: { lt: period.startDate },
+          endDate: { lte: period.endDate },
+          status: PeriodStatus.CLOSED,
         },
-      },
-      select: {
-        pitTaxAmount: true,
-      },
-    });
-    const ytdPitPaid = priorDeclarations.reduce(
-      (sum, d) => sum + (d.pitTaxAmount?.toNumber() ?? 0),
-      0,
-    );
+        select: {
+          pitAmount: true,
+        },
+      });
+      ytdPitPaid = closedPeriodsOfYear.reduce(
+        (sum, p) => sum + (p.pitAmount?.toNumber() ?? 0),
+        0,
+      );
+    } else {
+      const priorDeclarations = await this.prisma.taxDeclaration.findMany({
+        where: {
+          period: {
+            userId,
+            startDate: { gte: startOfYear },
+            endDate: { lt: period.startDate },
+          },
+        },
+        select: {
+          pitTaxAmount: true,
+        },
+      });
+      ytdPitPaid = priorDeclarations.reduce(
+        (sum, d) => sum + (d.pitTaxAmount?.toNumber() ?? 0),
+        0,
+      );
+    }
 
     // Tính chi tiết chi phí lũy kế YTD và tồn kho YTD nếu là tờ quyết toán năm 02
     let ytdExpenseBreakdown: any = null;
@@ -1580,25 +1748,73 @@ export class TaxDeclarationService {
     file?: Express.Multer.File,
   ) {
     return await this.prisma.$transaction(async (tx) => {
-      // Chốt sổ period bên trong cùng transaction
-      const {
-        period: closedPeriod,
-        vatAmount,
-        pitAmount,
-        ytdRevenue,
-        ytdExpense,
-      } = await this.financialPeriodsService.closeFinancialPeriod(
-        userId,
-        publicId,
-        {
-          chosenPitMethod,
-          revenue,
-          expense,
-          // Nếu chốt 6 tháng đầu năm, chúng ta không đóng kỳ YEARLY gốc. Cờ chốt được quyết định dựa trên chosenPeriodOption.
-          isHalfYearSubmission: chosenPeriodOption === '6 tháng đầu năm',
-        },
-        tx,
-      );
+      let closedPeriod: any;
+      let vatAmount: Decimal;
+      let pitAmount: Decimal;
+      let ytdRevenue: Decimal;
+      let ytdExpense: Decimal;
+
+      if (formType === '02_CNKD_TNCN_QTT') {
+        const targetPeriod = await tx.financialPeriod.findUnique({
+          where: { id: periodId },
+        });
+        if (!targetPeriod || targetPeriod.userId !== userId) {
+          throw new NotFoundException('Financial period not found.');
+        }
+
+        let currentTaxConfig = await tx.taxConfiguration.findFirst({
+          where: {
+            userId,
+            applyFromDate: { lte: targetPeriod.endDate },
+            applyToDate: { gte: targetPeriod.endDate },
+          },
+        });
+        if (!currentTaxConfig) {
+          throw new ConflictException(
+            'You have not set up the tax configuration for this tax period.',
+          );
+        }
+        currentTaxConfig = await tx.taxConfiguration.update({
+          where: { id: currentTaxConfig.id },
+          data: { chosenPitMethod },
+        });
+
+        const taxResult = await this.financialPeriodsService.calculatePeriodTax(
+          userId,
+          targetPeriod,
+          currentTaxConfig,
+          new Decimal(revenue),
+          new Decimal(expense),
+          tx,
+        );
+
+        closedPeriod = targetPeriod;
+        vatAmount = taxResult.vatAmount;
+        pitAmount = taxResult.pitAmount;
+        ytdRevenue = new Decimal(revenue);
+        ytdExpense = new Decimal(expense);
+      } else {
+        // Chốt sổ period bên trong cùng transaction
+        const result = await this.financialPeriodsService.closeFinancialPeriod(
+          userId,
+          publicId,
+          {
+            chosenPitMethod,
+            revenue,
+            expense,
+            // Nếu chốt 6 tháng đầu năm, chúng ta không đóng kỳ YEARLY gốc. Cờ chốt được quyết định dựa trên chosenPeriodOption.
+            isHalfYearSubmission: chosenPeriodOption?.startsWith('6 tháng đầu năm'),
+          },
+          tx,
+        );
+        closedPeriod = result.period;
+        vatAmount = result.vatAmount;
+        pitAmount = result.pitAmount;
+        ytdRevenue = result.ytdRevenue;
+        ytdExpense = result.ytdExpense;
+      }
+
+      const finalTotalTax = formType === '02_CNKD_TNCN_QTT' ? vatAmount.add(pitAmount) : (closedPeriod.taxAmount ?? vatAmount.add(pitAmount));
 
       // Sinh tờ khai TaxDeclaration chính thức (dùng upsert để tránh lỗi unique constraint của periodId khi nộp tiếp các bán niên tiếp theo của cùng kỳ năm)
       const declaration = await tx.taxDeclaration.upsert({
@@ -1610,7 +1826,7 @@ export class TaxDeclarationService {
           ytdExpense,
           vatTaxAmount: vatAmount,
           pitTaxAmount: pitAmount,
-          totalTaxAmount: closedPeriod.taxAmount,
+          totalTaxAmount: finalTotalTax,
           chosenPitMethod,
           xmlContent: xmlContent,
         },
@@ -1622,7 +1838,7 @@ export class TaxDeclarationService {
           ytdExpense,
           vatTaxAmount: vatAmount,
           pitTaxAmount: pitAmount,
-          totalTaxAmount: closedPeriod.taxAmount,
+          totalTaxAmount: finalTotalTax,
           chosenPitMethod,
           xmlContent: xmlContent,
         },
