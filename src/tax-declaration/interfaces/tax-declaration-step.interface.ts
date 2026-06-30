@@ -9,13 +9,10 @@ export interface Step1Data {
   financialPeriodInfo: {
     periodName: string;         // Tên kỳ gốc, VD: "Năm 2026", "Quý 1/2026"
     vatFilingPeriod: string;    // Loại kỳ gốc, VD: "MONTHLY", "QUARTERLY", "YEARLY"
-    startDate: Date;            // Ngày bắt đầu kỳ gốc
-    endDate: Date;              // Ngày kết thúc kỳ gốc
-    calculatedRange: {          // Khoảng ngày thực tế tính toán sau khi co giãn động
-      startDate: Date;          // startAt thực tế
-      endDate: Date;            // endAt thực tế
-      usePeriodId: boolean;     // Cờ tối ưu hóa truy xuất theo periodId
-    };
+    declarationStartDate: Date; // startAt thực tế áp dụng cho tờ khai (co giãn theo tùy chọn)
+    declarationEndDate: Date;   // endAt thực tế áp dụng cho tờ khai (co giãn theo tùy chọn)
+    anchorStartDate: Date;      // Ngày bắt đầu của kỳ neo gốc
+    anchorEndDate: Date;        // Ngày kết thúc của kỳ neo gốc
   };
 
   // 2. Thông tin người nộp thuế (taxpayerProfile)

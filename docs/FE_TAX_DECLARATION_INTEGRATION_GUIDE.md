@@ -1,51 +1,131 @@
 # 🎨 Hướng Dẫn Tích Hợp Kê Khai Thuế Cho Frontend (FE Tax Declaration Integration Guide)
 
-Tài liệu này hướng dẫn chi tiết cho các lập trình viên Frontend (FE) cách tích hợp giao diện Wizard Kê khai thuế 5 bước với hệ thống Backend (BE).
+Tài liệu này hướng dẫn chi tiết cho các lập trình viên Frontend (FE) cách tích hợp giao diện Wizard Kê khai thuế với hệ thống Backend (BE). Tất cả các mô hình dữ liệu (Response Models) dưới đây đã được cập nhật chính xác theo những sửa đổi nghiệp vụ mới nhất.
 
 ---
 
 ## 1. Bản Đồ Tổng Quan Của Wizard Kê Khai Thuế
 
-FE cần thiết lập một luồng giao diện Wizard động gồm tối đa 5 bước, trong đó số lượng bước khả dụng và thứ tự hiển thị phụ thuộc hoàn toàn vào loại tờ khai (`declarationFormType`) được chọn ở bước khởi tạo:
+Số lượng bước khả dụng và thứ tự hiển thị của Wizard được quyết định hoàn toàn bởi loại tờ khai (`declarationFormType`) được chọn ở bước khởi tạo:
 
-| Loại Tờ Khai | Số Bước Khả Dụng | Các Bước Cần Thực Hiện |
+| Loại Tờ Khai | Số Bước | Các Bước Cần Thực Hiện |
 | :--- | :---: | :--- |
-| **`01_TKN_CNKD`** (Tờ khai khoán $\le$ 1 tỷ) | **3 bước** | Step 1 $\rightarrow$ Step 2 $\rightarrow$ Step 5 (Ẩn Step 3, 4) |
-| **`01_CNKD`** (Kê khai định kỳ) | **3 bước** | Step 1 $\rightarrow$ Step 2 $\rightarrow$ Step 5 (Ẩn Step 3, 4) |
-| **`02_CNKD_TNCN_QTT`** (Quyết toán TNCN năm) | **5 bước** | Step 1 $\rightarrow$ Step 2 $\rightarrow$ Step 3 $\rightarrow$ Step 4 $\rightarrow$ Step 5 |
+| **`01_TKN_CNKD`** (Tờ khai năm khoán) | **3 bước** | Step 1 $\rightarrow$ Step 2 $\rightarrow$ Step 5 (Ẩn Step 3, 4 trên UI) |
+| **`01_CNKD`** (Tờ khai định kỳ tháng/quý) | **3 bước** | Step 1 $\rightarrow$ Step 2 $\rightarrow$ Step 5 (Ẩn Step 3, 4 trên UI) |
+| **`02_CNKD_TNCN_QTT`** (Quyết toán thuế TNCN năm) | **5 bước** | Step 1 $\rightarrow$ Step 2 $\rightarrow$ Step 3 $\rightarrow$ Step 4 $\rightarrow$ Step 5 |
 
 > [!WARNING]
 > Nếu người dùng đang làm tờ khai `01_TKN_CNKD` hoặc `01_CNKD` mà FE gửi API của Step 3 hoặc Step 4, Backend sẽ chặn lại và trả về mã lỗi `400 Bad Request` với `errorCode: "STEP_NOT_APPLICABLE"`. FE cần ẩn hoàn toàn 2 bước này trên thanh tiến trình UI (Progress Bar) của luồng 3 bước.
 
 ---
 
-## 2. Chi Tiết Từng Bước Tích Hợp (FE Integration Details)
+## 2. Quy Trình Khởi Tạo & Các API Response Models Chi Tiết
 
-### 2.1. Bước 1: Khai Báo Thông Tin Hành Chính & Tùy Chọn Kỳ
-* **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-1/:publicId`
-* **Cấu Trúc Dữ Liệu Trả Về (Nested DTO)**:
-  Dữ liệu trả về được chia làm 4 nhóm riêng biệt giúp FE hiển thị rõ ràng trên form:
-  1. `financialPeriodInfo`: Chứa khoảng ngày co giãn thực tế (`calculatedRange`). FE dùng để hiển thị thời gian dữ liệu áp dụng cho tờ khai này.
-  2. `taxpayerProfile`: Thông tin của Hộ kinh doanh (MST, tên doanh nghiệp, địa chỉ, ngành nghề...).
-  3. `declarationOptions`:
-     * `declarationFormType`: Loại tờ khai đang lập (`01_TKN_CNKD` | `01_CNKD` | `02_CNKD_TNCN_QTT`).
-     * `availablePeriodOptions`: **Mảng các chu kỳ có sẵn để FE hiển thị Dropdown**.
-     * `taxPeriodOption`: Giá trị kỳ đang chọn/kỳ mặc định (ví dụ: `6 tháng đầu năm 2026`, `Quý 2/2026`, hoặc `Năm 2026`).
-  4. `authorizedAgentInfo`: Các trường thông tin phục vụ đại lý thuế hoặc ủy quyền khai thay.
+### 🛠️ API Khởi Tạo Lập Tờ Khai (Init)
+* **Endpoint**: `GET /tax-declaration/init`
+* **Response Model (`200 OK`)**:
+```json
+{
+  "message": "Tax declaration init success.",
+  "data": {
+    "isFirstTime": false,
+    "availablePeriods": [
+      {
+        "id": 12,
+        "publicId": "period-abc-123",
+        "periodName": "Quý 2/2026",
+        "startDate": "2026-04-01T00:00:00.000Z",
+        "endDate": "2026-06-30T23:59:59.000Z",
+        "status": "OPEN"
+      },
+      {
+        "id": 10,
+        "publicId": "period-xyz-456",
+        "periodName": "Quý 1/2026",
+        "startDate": "2026-01-01T00:00:00.000Z",
+        "endDate": "2026-03-31T23:59:59.000Z",
+        "status": "CLOSED"
+      }
+    ]
+  }
+}
+```
 
-* **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-1/save/:publicId`
-* **Request Body (Flat DTO)**:
-  FE gửi dữ liệu dưới dạng cấu trúc phẳng (Flat JSON) để thuận tiện cho việc submit form:
-  ```json
+### 📋 API Lấy Danh Sách Tờ Khai Khả Dụng Theo Kỳ
+* **Endpoint**: `GET /tax-declaration/options/:publicId`
+* **Response Model (`200 OK`)**:
+```json
+[
   {
+    "code": "01_CNKD",
+    "name": "Tờ khai thuế đối với hộ kinh doanh, cá nhân kinh doanh (Mẫu 01/CNKD)",
+    "description": "Dành cho hộ kê khai nộp thuế theo định kỳ (tháng/quý)."
+  },
+  {
+    "code": "02_CNKD_TNCN_QTT",
+    "name": "Tờ khai quyết toán thuế TNCN (Mẫu 02/CNKD-TNCN-QTT)",
+    "description": "Dành cho cá nhân kinh doanh quyết toán thuế TNCN cuối năm."
+  }
+]
+```
+
+### 🚀 API Bắt Đầu Phiên Làm Việc (Start Session)
+* **Endpoint**: `POST /tax-declaration/start/:publicId`
+* **Request Body**:
+```json
+{
+  "declarationFormType": "02_CNKD_TNCN_QTT"
+}
+```
+* **Response Model (`201 Created`)**:
+```json
+{
+  "message": "Start declaration session success.",
+  "data": {
+    "financialPeriodId": 12,
+    "currentStep": 1,
+    "declarationFormType": "02_CNKD_TNCN_QTT"
+  }
+}
+```
+
+---
+
+## 3. Các Bước Trong Wizard Kê Khai Thuế
+
+### 📌 Bước 1: Khai Báo Thông Tin Hành Chính & Tùy Chọn Kỳ
+* **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-1/:publicId`
+* **Response Model (`200 OK`)**:
+  > [!NOTE]
+  > Trường `financialPeriodInfo` đã được **phẳng hóa (flatten)** hoàn toàn, không lồng `calculatedRange` để tránh gây nhầm lẫn về ngày tính toán so với ngày kỳ neo.
+```json
+{
+  "financialPeriodInfo": {
+    "periodName": "Quý 2/2026",
+    "vatFilingPeriod": "QUARTERLY",
+    "declarationStartDate": "2026-04-01T00:00:00.000Z",
+    "declarationEndDate": "2026-06-30T23:59:59.000Z",
+    "anchorStartDate": "2026-04-01T00:00:00.000Z",
+    "anchorEndDate": "2026-06-30T23:59:59.000Z"
+  },
+  "taxpayerProfile": {
     "taxCode": "0102030405",
     "businessName": "Hộ kinh doanh Nguyễn Văn A",
     "ownerName": "Nguyễn Văn A",
+    "phone": "0987654321",
     "cccdNumber": "001095001234",
+    "address": "Số 123, Đường Lý Thường Kiệt, Phường Trần Hưng Đạo, Quận Hoàn Kiếm, TP. Hà Nội",
     "provinceCity": "Hà Nội",
-    "taxpayerOption": "Hộ kinh doanh, cá nhân kinh doanh có doanh thu năm từ 01 tỷ đồng trở xuống",
-    "taxPeriodOption": "6 tháng đầu năm 2026",
+    "industry": "Bán buôn, bán lẻ quần áo"
+  },
+  "declarationOptions": {
+    "declarationFormType": "02_CNKD_TNCN_QTT",
+    "taxpayerOption": "Cá nhân kinh doanh có doanh thu nộp thuế theo phương pháp kê khai",
+    "taxPeriodOption": "Năm 2026",
     "declarationTypeOption": "Tờ khai lần đầu",
+    "availablePeriodOptions": ["Năm 2026"]
+  },
+  "authorizedAgentInfo": {
     "authorizedFilerName": "",
     "authorizedFilerTaxCode": "",
     "authorizedFilerDocNumber": "",
@@ -53,70 +133,189 @@ FE cần thiết lập một luồng giao diện Wizard động gồm tối đa 
     "taxAgentName": "",
     "taxAgentTaxCode": ""
   }
-  ```
+}
+```
+
+* **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-1/save/:publicId`
+* **Request Body**:
+```json
+{
+  "taxCode": "0102030405",
+  "businessName": "Hộ kinh doanh Nguyễn Văn A",
+  "ownerName": "Nguyễn Văn A",
+  "cccdNumber": "001095001234",
+  "provinceCity": "Hà Nội",
+  "taxpayerOption": "Cá nhân kinh doanh có doanh thu nộp thuế theo phương pháp kê khai",
+  "taxPeriodOption": "Năm 2026",
+  "declarationTypeOption": "Tờ khai lần đầu",
+  "authorizedFilerName": "",
+  "authorizedFilerTaxCode": "",
+  "authorizedFilerDocNumber": "",
+  "authorizedFilerDocDate": null,
+  "taxAgentName": "",
+  "taxAgentTaxCode": ""
+}
+```
 
 ---
 
-### 2.2. Bước 2: Xác Nhận Doanh Thu Chịu Thuế
+### 📌 Bước 2: Xác Nhận Doanh Thu Chịu Thuế
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-2/:publicId`
-  Hiển thị danh sách ngành nghề và doanh thu tương ứng trong kỳ kế khai.
+* **Response Model (`200 OK`)**:
+```json
+{
+  "periodName": "Quý 2/2026",
+  "industries": [
+    {
+      "categoryName": "Phân phối, cung cấp hàng hóa",
+      "vatRate": 0.01,
+      "pitRate": 0.005,
+      "revenue": 250000000
+    },
+    {
+      "categoryName": "Dịch vụ, xây dựng không bao thầu nguyên vật liệu",
+      "vatRate": 0.05,
+      "pitRate": 0.02,
+      "revenue": 50000000
+    }
+  ],
+  "estimatedVat": 5000000,
+  "transactionCount": 142,
+  "confirmedRevenue": 300000000
+}
+```
+
 * **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-2/save/:publicId`
-  * **Lưu ý quan trọng**: API này **không yêu cầu truyền Request Body**. Khi FE gọi API này, Backend sẽ tự động lấy dữ liệu realtime từ hệ thống hóa đơn để chụp lại mốc dữ liệu (Snapshot) doanh thu tại thời điểm đó và lưu vào bản nháp.
+  * **Lưu ý**: API này **không yêu cầu Request Body**. Backend tự động ghi nhận dữ liệu hóa đơn tại thời điểm lưu.
 
 ---
 
-### 2.3. Bước 3: Xác Nhận Tồn Kho (Chỉ áp dụng cho Quyết toán năm `02_QTT`)
+### 📌 Bước 3: Xác Nhận Tồn Kho (Chỉ biểu mẫu `02_CNKD_TNCN_QTT`)
+
+> [!IMPORTANT]
+> **Ràng buộc loại tờ khai**: Endpoint này chỉ khả dụng khi loại tờ khai đã lưu ở Step 1 là quyết toán năm `02_CNKD_TNCN_QTT`.
+> Nếu truy cập với tờ khai định kỳ `01_CNKD` hoặc `01_TKN_CNKD`, Backend sẽ chặn lại và trả về lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE`. Frontend cần ẩn hoàn toàn bước này trên UI và không thực hiện call API.
+
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-3/:publicId`
-  Trả về bảng số liệu tồn kho tổng hợp gồm: Giá trị đầu kỳ (`openingValue`), Nhập trong kỳ (`importedValue`), Xuất trong kỳ (`exportedValue`) và Cuối kỳ (`closingValue`).
+* **Response Model (`200 OK`)**:
+```json
+{
+  "openingValue": 45000000,
+  "importedValue": 120000000,
+  "exportedValue": 105000000,
+  "closingValue": 60000000
+}
+```
+
 * **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-3/save/:publicId`
-  * **Lưu ý**: Tương tự Step 2, API này **không yêu cầu Request Body**. Backend tự động snapshot giá trị kho hiện tại.
+  * **Lưu ý**: Không cần Request Body. Backend tự động snapshot trạng thái kho.
 
 ---
 
-### 2.4. Bước 4: Xác Nhận Chi Phí Hợp Lệ (Chỉ áp dụng cho Quyết toán năm `02_QTT`)
+### 📌 Bước 4: Xác Nhận Chi Phí Hợp Lệ (Chỉ biểu mẫu `02_CNKD_TNCN_QTT`)
+
+> [!IMPORTANT]
+> **Ràng buộc loại tờ khai**: Endpoint này chỉ khả dụng khi loại tờ khai đã lưu ở Step 1 là quyết toán năm `02_CNKD_TNCN_QTT`.
+> Nếu truy cập với tờ khai định kỳ `01_CNKD` hoặc `01_TKN_CNKD`, Backend sẽ chặn lại và trả về lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE`. Frontend cần ẩn hoàn toàn bước này trên UI và không thực hiện call API.
+
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-4/:publicId`
-  Trả về chi tiết các nhóm chi phí theo Thông tư 152/2025/TT-BTC.
+* **Response Model (`200 OK`)**:
+```json
+{
+  "totalExpense": 165000000,
+  "chiPhiNguyenVatLieu": 105000000,
+  "chiPhiNhanCong": 35000000,
+  "chiPhiKhauHao": 10000000,
+  "chiPhiDichVuMuaNgoai": 8000000,
+  "chiPhiLaiVay": 2000000,
+  "chiPhiKhac": 500000
+}
+```
+
 * **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-4/save/:publicId`
   * **Lưu ý**: API này **không yêu cầu Request Body**. Backend tự động snapshot các chứng từ chi phí và giá vốn.
 
 ---
 
-### 2.5. Bước 5: Xem Trước & Ký Nộp
-* **Endpoint Xem Trước**: `GET /tax-declaration/step-5/preview/:publicId`
-  FE dùng dữ liệu này để hiển thị trang tổng quan trước khi nộp:
-  * `pitComparison`: Đối chiếu số thuế TNCN phải nộp giữa 2 phương pháp (Lợi nhuận vs Tỷ lệ Doanh thu).
-  * `ytdRevenue` & `ytdExpense`: Doanh thu & chi phí lũy kế từ đầu năm.
-  * `operatedIndustries`: Danh sách chi tiết ngành nghề hoạt động kèm hạn mức giảm trừ doanh thu YTD (`ytdExemption`).
+### 📌 Bước 5: Xem Trước & Ký Nộp
 
-* **Endpoint Nộp Tờ Khai Chính Thức**:
-  Hệ thống sử dụng luồng nộp tờ khai kèm xử lý biến động số liệu:
-  
-  ```
-  [FE gọi submit] ──> BE kiểm tra lệch số liệu DB vs Draft
-                     ├── Khớp: Lưu tờ khai thành công.
-                     └── Lệch (409 Conflict): Trả về mã lỗi "DATA_CHANGED".
-                          └── FE hiển thị Popup cảnh báo lệch số liệu.
-                               ├── Chọn "Cập nhật & Nộp": Gọi submit-force
-                               └── Chọn "Giữ số cũ & Nộp": Gọi submit-ignore-warning
-  ```
+#### API Xem Trước (Preview)
+* **Endpoint**: `GET /tax-declaration/step-5/preview/:publicId`
+* **Response Model (`200 OK`)**:
+```json
+{
+  "period": {
+    "id": 12,
+    "periodName": "Quý 2/2026"
+  },
+  "step1Data": { /* Thông tin đã lưu ở Step 1 */ },
+  "step2Data": { /* Thông tin đã lưu ở Step 2 */ },
+  "step3Data": { /* Thông tin đã lưu ở Step 3 (Hoặc null nếu tờ 01) */ },
+  "step4Data": { /* Thông tin đã lưu ở Step 4 (Hoặc null nếu tờ 01) */ },
+  "pitComparison": {
+    "profitMethodAmount": 2800000,
+    "percentageMethodAmount": 1500000
+  },
+  "vatAmount": 5000000,
+  "ytdRevenue": 750000000,
+  "ytdExpense": 320000000,
+  "ytdPitPaid": 3000000,
+  "ytdExpenseBreakdown": {
+    "totalExpense": 320000000,
+    "chiPhiNguyenVatLieu": 210000000,
+    "chiPhiNhanCong": 70000000,
+    "chiPhiKhauHao": 20000000,
+    "chiPhiDichVuMuaNgoai": 15000000,
+    "chiPhiLaiVay": 4000000,
+    "chiPhiKhac": 1000000
+  },
+  "ytdInventoryBreakdown": {
+    "openingValue": 45000000,
+    "importedValue": 225000000,
+    "exportedValue": 210000000,
+    "closingValue": 60000000
+  },
+  "operatedIndustries": [
+    {
+      "categoryName": "Phân phối, cung cấp hàng hóa",
+      "revenue": 250000000,
+      "ytdRevenue": 600000000,
+      "pitRate": 0.005,
+      "ytdExemption": 100000000,
+      "ytdTaxableRevenue": 500000000
+    }
+  ]
+}
+```
 
-#### Các API phục vụ Ký nộp (Yêu cầu `multipart/form-data`):
-1. **Nộp thông thường**: `POST /tax-declaration/submit/:publicId`
-2. **Nộp đè (Đồng bộ số liệu mới)**: `POST /tax-declaration/submit-force/:publicId`
-3. **Nộp bỏ qua cảnh báo (Giữ nguyên số liệu cũ)**: `POST /tax-declaration/submit-ignore-warning/:publicId`
+#### API Ký Nộp Chính Thức (Kèm xử lý biến động số liệu)
+* **Ký nộp thông thường**: `POST /tax-declaration/submit/:publicId`
+* **Ký nộp đè (Đồng bộ số mới)**: `POST /tax-declaration/submit-force/:publicId`
+* **Ký nộp bỏ qua cảnh báo (Giữ số cũ)**: `POST /tax-declaration/submit-ignore-warning/:publicId`
 
-#### Request Payload gửi lên dưới dạng Multipart Form-Data:
-* `xmlContent` (Text/String): Chuỗi XML tờ khai hoàn chỉnh do FE biên dựng.
-* `chosenPitMethod` (String): Phương pháp tính thuế TNCN được chọn (`PERCENTAGE` | `PROFIT_15` | `PROFIT_17` | `PROFIT_20`).
-* `file` (File Binary - Optional): File PDF kết xuất của tờ khai để lưu trữ.
+* **Request Payload (Multipart Form-Data)**:
+  * `xmlContent` (String): Chuỗi XML tờ khai đã biên dựng ở Client.
+  * `chosenPitMethod` (String): Phương pháp thuế TNCN (`PERCENTAGE` | `PROFIT_15` | `PROFIT_17` | `PROFIT_20`).
+  * `file` (File Binary - Optional): File PDF của tờ khai.
 
 ---
 
-## 3. Cách Xử Lý Lỗi Và Trạng Thái Đặc Biệt
+## 4. Xử Lý Các Trạng Thái Lỗi Từ Backend
 
-1. **Lệch Số Liệu (409 Conflict)**:
-   Khi nhận được phản hồi lỗi `409 DATA_CHANGED`, Backend sẽ gửi kèm số liệu nháp (`draftData`) và số liệu thực tế hiện tại (`realTimeData`). FE cần render một bảng so sánh trực quan trên Popup để người dùng hiểu vì sao có sự chênh lệch trước khi quyết định chọn nộp đè hoặc giữ số cũ.
-2. **Lỗi Bước Không Khả Dụng (400 Bad Request - STEP_NOT_APPLICABLE)**:
-   Xảy ra khi cố truy cập Step 3, 4 ở tờ khai 3 bước. FE nên điều hướng người dùng quay lại Step 2 hoặc nhảy trực tiếp sang Step 5.
-3. **Khóa Cục Bộ (400 Bad Request - TRANSACTIONS_LOCKED)**:
-   Nếu người dùng cố gắng thêm/sửa/xóa hóa đơn có ngày phát sinh $\le$ `30/06` sau khi đã nộp tờ khai bán niên 1, API của hóa đơn/chứng từ đó sẽ trả về lỗi này. FE cần hiển thị thông báo yêu cầu người dùng mở lại tờ khai bán niên hoặc chỉ chỉnh sửa các giao dịch phát sinh từ ngày `01/07` trở đi.
+1. **Lệch Số Liệu DB so với Bản nháp (409 Conflict - DATA_CHANGED)**:
+   Khi FE gọi nộp thông thường mà dữ liệu hóa đơn/kho thực tế thay đổi, BE trả về lỗi `409`:
+```json
+{
+  "statusCode": 409,
+  "message": "Dữ liệu hóa đơn hoặc tồn kho đã thay đổi so với bản nháp.",
+  "errorCode": "DATA_CHANGED",
+  "draftData": { "revenue": 300000000, "expense": 165000000 },
+  "realTimeData": { "revenue": 305000000, "expense": 165000000 }
+}
+```
+   * **FE xử lý**: Hiển thị bảng so sánh chênh lệch và popup lựa chọn:
+     * Nút **Cập nhật & Nộp**: Gọi API `/submit-force`.
+     * Nút **Giữ số cũ & Nộp**: Gọi API `/submit-ignore-warning`.
+
+2. **Truy cập sai bước (400 Bad Request - STEP_NOT_APPLICABLE)**:
+   Báo lỗi khi gửi Step 3/4 ở tờ khai định kỳ mẫu `01`. FE điều hướng trực tiếp sang Step 5.

@@ -55,6 +55,7 @@ describe('TaxDeclarationService', () => {
           useValue: {
             financialPeriod: {
               findUnique: jest.fn(),
+              findMany: jest.fn(),
             },
             taxDeclarationDraft: {
               findUnique: jest.fn(),
@@ -80,9 +81,15 @@ describe('TaxDeclarationService', () => {
               upsert: jest.fn(),
               count: jest.fn(),
               findFirst: jest.fn(),
+              findMany: jest.fn(),
             },
             taxFormExport: {
               create: jest.fn(),
+              findFirst: jest.fn(),
+              findMany: jest.fn(),
+            },
+            stockReceiptDetail: {
+              aggregate: jest.fn(),
             },
             $transaction: jest.fn((cb) => cb(prisma)),
             $queryRaw: jest.fn(),
@@ -116,6 +123,7 @@ describe('TaxDeclarationService', () => {
           useValue: {
             calculatePeriodInventorySummary: jest.fn(),
             calculateTotalMaterialCost: jest.fn(),
+            calculateExportedCost: jest.fn(),
           },
         },
         {
@@ -142,6 +150,7 @@ describe('TaxDeclarationService', () => {
     vouchersService = module.get<VouchersService>(VouchersService);
 
     stocksService.calculateTotalMaterialCost.mockResolvedValue(new Decimal(0));
+    stocksService.calculateExportedCost.mockResolvedValue(new Decimal(0));
     vouchersService.calculateVoucherExpensesGrouped.mockResolvedValue({
       chi_phi_nhan_cong: 0,
       chi_phi_khau_hao: 0,
@@ -149,6 +158,11 @@ describe('TaxDeclarationService', () => {
       chi_phi_lai_vay: 0,
       chi_phi_khac: 0,
     });
+    prisma.financialPeriod.findMany.mockResolvedValue([]);
+    prisma.stockReceiptDetail.aggregate.mockResolvedValue({ _sum: { totalValue: new Decimal(0) } });
+    prisma.taxFormExport.findFirst.mockResolvedValue(null);
+    prisma.taxFormExport.findMany.mockResolvedValue([]);
+    prisma.taxDeclaration.findMany.mockResolvedValue([]);
   });
 
   describe('getStep2 and saveStep2', () => {
@@ -203,7 +217,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationOptions: { declarationFormType: '02_CNKD_TNCN_QTT' } },
+        step1Data: { declarationOptions: { declarationFormType: '01_CNKD' } },
         step2Data: { confirmedRevenue: 250000000, estimatedVat: 2500000 },
         step4Data: { totalExpense: 100000000 },
       });
@@ -211,6 +225,11 @@ describe('TaxDeclarationService', () => {
       financialPeriodsService.comparePit.mockResolvedValue({
         profitMethodAmount: new Decimal(5000000),
         percentageMethodAmount: new Decimal(1250000),
+      });
+
+      financialPeriodsService.calculateRealtimeTaxData.mockResolvedValue({
+        revenue: new Decimal(250000000),
+        expense: new Decimal(100000000),
       });
 
       prisma.taxDeclaration.findFirst.mockResolvedValue({

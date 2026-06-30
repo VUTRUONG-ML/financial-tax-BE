@@ -305,6 +305,22 @@ export class InvoicesService {
         invoicePublicId: publicId,
       });
 
+      // Tăng doanh thu tích lũy trong RevenueTracker YTD của năm cho mọi loại hóa đơn
+      const year = updated.issueDate.getFullYear();
+      await tx.revenueTracker.upsert({
+        where: {
+          userId_year: { userId, year },
+        },
+        update: {
+          revenueYtd: { increment: updated.totalPayment },
+        },
+        create: {
+          userId,
+          year,
+          revenueYtd: updated.totalPayment,
+        },
+      });
+
       // Kiểm tra và điều chỉnh TaxGroup dựa trên RevenueTracker YTD của năm
       await this.checkAndAdjustTaxGroup(userId, updated.issueDate, tx);
 
@@ -875,6 +891,21 @@ export class InvoicesService {
         { status: invoice.status },
         { status: 'CANCELED' },
       );
+
+      // Giảm doanh thu tích lũy trong RevenueTracker YTD của năm khi hủy hóa đơn (chỉ khi hóa đơn trước đó đã ISSUED)
+      if (invoice.status === 'ISSUED') {
+        const year = invoice.issueDate.getFullYear();
+        await tx.revenueTracker.updateMany({
+          where: {
+            userId,
+            year,
+            revenueYtd: { gte: invoice.totalPayment },
+          },
+          data: {
+            revenueYtd: { decrement: invoice.totalPayment },
+          },
+        });
+      }
 
       // Kiểm tra và điều chỉnh TaxGroup dựa trên RevenueTracker YTD của năm
       await this.checkAndAdjustTaxGroup(userId, invoice.issueDate, tx);

@@ -678,7 +678,7 @@ export class StocksService {
       }
 
       // Calculate and update cumulative revenue in RevenueTracker
-      if (createDto.issueType === StockIssueType.SALE) {
+      if (createDto.issueType === StockIssueType.SALE && createDto.sourceDocumentType !== StockIssueDocument.INVOICE) {
         let totalRevenue = new Decimal(0);
         for (const productEntity of products) {
           const quantity = qtyDetailMap.get(productEntity.publicId) ?? 0;
@@ -873,7 +873,7 @@ export class StocksService {
       }
 
       // Decrement cumulative revenue in RevenueTracker for SALE issue type
-      if (current.issueType === StockIssueType.SALE) {
+      if (current.issueType === StockIssueType.SALE && current.sourceDocumentType !== 'INVOICE') {
         const productIds = current.details.map((d) => d.productId);
         const products = await client.product.findMany({
           where: { id: { in: productIds } },
@@ -1008,7 +1008,7 @@ export class StocksService {
       throw new NotFoundException('Financial period not found.')
     }
 
-    const [totalTrackedProducts, lowStockProducts, openingValue] =
+    const [totalTrackedProducts, lowStockProducts, summaryVal] =
       await Promise.all([
         this.prisma.product.count({
           where: { userId, isInventoryTracked: true },
@@ -1021,11 +1021,11 @@ export class StocksService {
             currentStock: { lt: LOW_STOCK_THRESHOLD },
           },
         }),
-        this.getEndingInventoryValue(currentPeriod.id, userId),
+        this.calculatePeriodInventorySummary(userId, currentPeriod.id),
       ]);
 
     const summaryData = {
-      endingInventoryValue: Number(openingValue),
+      endingInventoryValue: summaryVal.closingValue,
       trackedItemsCount: totalTrackedProducts,
       lowStockItemsCount: lowStockProducts,
     };
