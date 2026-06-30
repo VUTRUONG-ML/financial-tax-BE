@@ -87,6 +87,32 @@ export class FinancialPeriodValidationService {
           `Financial period ${currentPeriod.periodName} is locked, transactions cannot be processed during this period.`,
         );
       }
+
+      // 4. CHẶN CỤC BỘ: Nếu kỳ đó là YEARLY và đã nộp tờ khai "6 tháng đầu năm", không cho phép sửa/xóa/thêm chứng từ <= 30/06
+      if (currentPeriod.vatFilingPeriod === 'YEARLY') {
+        const startOfYear = moment(currentPeriod.startDate).startOf('year');
+        const endOfFirstHalf = startOfYear.clone().month(5).endOf('month').toDate(); // 30/06
+
+        if (issueDate <= endOfFirstHalf) {
+          const taxDeclaration = await tx.taxDeclaration.findUnique({
+            where: { periodId: currentPeriod.id },
+          });
+          const hasSubmittedFirstHalf =
+            taxDeclaration && taxDeclaration.xmlContent.includes('6 tháng đầu năm');
+
+          if (hasSubmittedFirstHalf) {
+            this.log.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
+              status: LOG_STATUS.FAILED,
+              reason: 'HALF_YEAR_PERIOD_LOCKED',
+              userId,
+            });
+            throw new BadRequestException(
+              `The transactions in the first half of the year are locked because the half-yearly tax declaration has already been submitted.`,
+            );
+          }
+        }
+      }
+
       this.log.debug(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
         status: LOG_STATUS.SUCCESS,
         userId,

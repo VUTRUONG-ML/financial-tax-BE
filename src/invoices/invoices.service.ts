@@ -564,6 +564,7 @@ export class InvoicesService {
         where: {
           sourceDocumentType: 'INVOICE',
           sourceDocumentId: invoice.id,
+          status: { not: 'CANCELLED' },
         },
       });
 
@@ -914,6 +915,25 @@ export class InvoicesService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      // Hoàn lại tồn kho bằng cách hủy StockIssue nếu có trước khi cập nhật chi tiết mới
+      const stockIssue = await tx.stockIssue.findFirst({
+        where: {
+          sourceDocumentType: 'INVOICE',
+          sourceDocumentId: invoice.id,
+          status: { not: 'CANCELLED' },
+        },
+      });
+
+      if (stockIssue) {
+        await this.stocksService.cancelIssue(
+          userId,
+          stockIssue.periodId,
+          stockIssue.issueCode,
+          true,
+          tx,
+        );
+      }
+
       await tx.invoice.update({
         where: { publicId },
         data: {},
@@ -1046,6 +1066,26 @@ export class InvoicesService {
         'UPDATE',
         tx,
       );
+
+      // Hoàn lại tồn kho bằng cách hủy StockIssue nếu có trước khi xóa
+      const stockIssue = await tx.stockIssue.findFirst({
+        where: {
+          sourceDocumentType: 'INVOICE',
+          sourceDocumentId: invoice.id,
+          status: { not: 'CANCELLED' },
+        },
+      });
+
+      if (stockIssue) {
+        await this.stocksService.cancelIssue(
+          userId,
+          stockIssue.periodId,
+          stockIssue.issueCode,
+          true,
+          tx,
+        );
+      }
+
       // Xóa detail
       await tx.invoiceDetail.deleteMany({
         where: { invoiceId: invoice.id },
@@ -1080,7 +1120,7 @@ export class InvoicesService {
         where: { userId },
       }),
       this.prisma.invoice.aggregate({
-        where: { userId, status: {in: ['PENDING_ISSUED', 'ISSUED']} },
+        where: { userId, status: {in: ['PENDING_ISSUED', 'ISSUED', 'SYNC_FAILED']} },
         _sum: {
           totalPayment: true,
           taxPayable: true,

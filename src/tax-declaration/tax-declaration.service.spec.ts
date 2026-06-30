@@ -77,6 +77,7 @@ describe('TaxDeclarationService', () => {
             },
             taxDeclaration: {
               create: jest.fn(),
+              upsert: jest.fn(),
               count: jest.fn(),
               findFirst: jest.fn(),
             },
@@ -202,7 +203,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '02_CNKD_TNCN_QTT' },
+        step1Data: { declarationOptions: { declarationFormType: '02_CNKD_TNCN_QTT' } },
         step2Data: { confirmedRevenue: 250000000, estimatedVat: 2500000 },
         step4Data: { totalExpense: 100000000 },
       });
@@ -261,7 +262,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '01_TKN_CNKD' },
+        step1Data: { declarationOptions: { declarationFormType: '01_TKN_CNKD' } },
       });
 
       await expect(service.getStep3('user-01', 'period-01')).rejects.toThrow(
@@ -276,7 +277,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '01_TKN_CNKD' },
+        step1Data: { declarationOptions: { declarationFormType: '01_TKN_CNKD' } },
       });
 
       await expect(service.getStep4('user-01', 'period-01')).rejects.toThrow(
@@ -291,7 +292,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '02_CNKD_TNCN_QTT' },
+        step1Data: { declarationOptions: { declarationFormType: '02_CNKD_TNCN_QTT' } },
       });
       stocksService.calculatePeriodInventorySummary.mockResolvedValue({
         openingValue: 10000000,
@@ -315,7 +316,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '01_TKN_CNKD' },
+        step1Data: { declarationOptions: { declarationFormType: '01_TKN_CNKD' } },
         step2Data: { confirmedRevenue: 250000000 },
         step4Data: null, // Step 4 is skipped
       });
@@ -333,7 +334,7 @@ describe('TaxDeclarationService', () => {
         ytdExpense: new Decimal(0),
       });
 
-      prisma.taxDeclaration.create.mockResolvedValue({ id: 99 });
+      prisma.taxDeclaration.upsert.mockResolvedValue({ id: 99 });
 
       const res = await service.submit('user-01', 'period-01', {
         chosenPitMethod: 'EXEMPT',
@@ -347,7 +348,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '01_CNKD' },
+        step1Data: { declarationOptions: { declarationFormType: '01_CNKD' } },
         step2Data: { confirmedRevenue: 250000000 },
         step4Data: null, // Step 4 is skipped
       });
@@ -365,7 +366,7 @@ describe('TaxDeclarationService', () => {
         ytdExpense: new Decimal(0),
       });
 
-      prisma.taxDeclaration.create.mockResolvedValue({ id: 99 });
+      prisma.taxDeclaration.upsert.mockResolvedValue({ id: 99 });
 
       const res = await service.submit('user-01', 'period-01', {
         chosenPitMethod: 'PERCENTAGE',
@@ -379,7 +380,7 @@ describe('TaxDeclarationService', () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
       prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
       prisma.taxDeclarationDraft.findUnique.mockResolvedValue({
-        step1Data: { declarationFormType: '02_CNKD_TNCN_QTT' },
+        step1Data: { declarationOptions: { declarationFormType: '02_CNKD_TNCN_QTT' } },
         step2Data: { confirmedRevenue: 250000000 },
         step4Data: null, // Step 4 is missing
       });

@@ -942,6 +942,47 @@ export class StocksService {
     return this.prisma.$transaction(run);
   }
 
+  private async getEndingInventoryValue(
+    periodId: number,
+    userId: string,
+  ): Promise<Decimal> {
+    const [receiptResult, issueResult] = await Promise.all([
+      this.prisma.stockReceipt.aggregate({
+        where: {
+          userId,
+          periodId,
+          status: 'APPROVED',
+        },
+        _sum: {
+          totalValue: true,
+        },
+      }),
+
+      this.prisma.stockIssueDetail.aggregate({
+        where: {
+          issue: {
+            userId,
+            periodId,
+            status: 'APPROVED',
+          },
+        },
+        _sum: {
+          finalCogsValue: true,
+          provisionalUnitCost: true,
+        },
+      }),
+    ]);
+
+    const receiptValue = receiptResult._sum.totalValue ?? new Prisma.Decimal(0);
+
+    const issueValue =
+      issueResult._sum.finalCogsValue ??
+      issueResult._sum.provisionalUnitCost ??
+      new Prisma.Decimal(0);
+
+    return receiptValue.sub(issueValue);
+  }
+
   async getSummary(userId: string) {
     const LOW_STOCK_THRESHOLD = 15;
 
@@ -980,11 +1021,11 @@ export class StocksService {
             currentStock: { lt: LOW_STOCK_THRESHOLD },
           },
         }),
-        this.getOpeningValue(currentPeriod.id, userId),
+        this.getEndingInventoryValue(currentPeriod.id, userId),
       ]);
 
     const summaryData = {
-      endingInventoryValue: openingValue,
+      endingInventoryValue: Number(openingValue),
       trackedItemsCount: totalTrackedProducts,
       lowStockItemsCount: lowStockProducts,
     };

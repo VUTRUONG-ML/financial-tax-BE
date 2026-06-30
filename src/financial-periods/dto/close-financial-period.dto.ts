@@ -27,4 +27,7 @@ export class CloseFinancialPeriodDto {
   @IsNumber()
   @Type(() => Number)
   expense?: number;
+
+  @IsOptional()
+  isHalfYearSubmission?: boolean;
 }

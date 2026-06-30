@@ -207,22 +207,29 @@ export class OnboardingService {
       // Check thêm taxGroup tồn tại hay không ở đây (tương tự như industry)
       const defaultPitMethod = await this.findTaxGroupValid(dto.taxGroupId, tx);
 
-      const now = moment().startOf('day').toDate();
+      // Use timezone-aware start of day to avoid UTC offset issues
+      const now = moment().tz().startOf('day').toDate();
 
-      // 3. Tạo cấu hình mới (Mở applyFromDate từ đầu quý hiện tại để khớp kì tính thuế đầu tiên) và lưu Snapshot của Tỷ lệ thuế
+      const isGroup1 = dto.taxGroupId === 1;
+
+      // 3. Tạo cấu hình mới (Mở applyFromDate từ đầu năm đối với nhóm 1 để khớp kỳ YEARLY, ngược lại từ đầu quý hiện tại) và lưu Snapshot của Tỷ lệ thuế
       const newConfig = await tx.taxConfiguration.create({
         data: {
           userId: userId,
           industryId: finalCategoryId,
           taxGroupId: dto.taxGroupId,
           chosenPitMethod: defaultPitMethod,
-          applyFromDate: moment(now).startOf('quarter').toDate(),
+          // Apply-from date should respect the same timezone handling
+          applyFromDate: isGroup1
+            ? moment(now).tz().startOf('year').toDate()
+            : moment(now).tz().startOf('quarter').toDate(),
           applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
           pitRateSnapShot: this.mapPitMethodToRate(
             defaultPitMethod,
             taxRates.pitRate,
           ),
+          vatFilingPeriod: isGroup1 ? 'YEARLY' : 'QUARTERLY',
         },
       });
 
@@ -347,6 +354,8 @@ export class OnboardingService {
         'SYSTEM_AUTO',
       );
 
+      const isGroup1 = dto.taxGroupId === 1;
+
       // 5. Tạo cấu hình mới
       const newConfig = await tx.taxConfiguration.create({
         data: {
@@ -361,6 +370,7 @@ export class OnboardingService {
             defaultPitMethod,
             taxRates.pitRate,
           ),
+          vatFilingPeriod: isGroup1 ? 'YEARLY' : 'QUARTERLY',
         },
       });
       await this.auditLog.logChange(

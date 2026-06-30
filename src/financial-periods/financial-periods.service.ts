@@ -57,20 +57,39 @@ export class FinancialPeriodsService {
 
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
     const now = moment(issueDate);
-
-    // xác định startDate/endDate
-    const unit: 'quarter' | 'month' =
-      filingPeriod === 'QUARTERLY' ? 'quarter' : 'month';
-    const start = now.clone().startOf(unit);
-    const end = now.clone().endOf(unit);
-
-    // tính toán DeadlineDate
+    let start: Dayjs;
+    let end: Dayjs;
     let deadline: Dayjs;
-    if (filingPeriod === 'MONTHLY') {
-      deadline = end.clone().add(1, 'month').date(20).endOf('day');
-    } else {
-      // Ngày cuối cùng của tháng đầu tiên quý sau
+    let periodName: string;
+
+    if (filingPeriod === 'YEARLY') {
+      start = now.clone().startOf('year');
+      end = now.clone().endOf('year');
+      // Hạn nộp tờ khai năm là ngày cuối cùng của tháng thứ 3 năm sau (31/03)
+      deadline = end.clone().add(3, 'months').date(31).endOf('day');
+      periodName = `Năm ${now.year()}`;
+    } else if (filingPeriod === 'HALF_YEARLY') {
+      const isFirstHalf = now.month() < 6;
+      start = isFirstHalf ? now.clone().startOf('year') : now.clone().month(6).startOf('month');
+      end = isFirstHalf ? now.clone().month(5).endOf('month') : now.clone().endOf('year');
+      // Hạn nộp tờ khai bán niên là ngày cuối cùng của tháng thứ nhất của kỳ tiếp theo (31/07 hoặc 31/01 năm sau)
       deadline = end.clone().add(1, 'month').endOf('month').endOf('day');
+      periodName = isFirstHalf ? `6 tháng đầu năm ${now.year()}` : `6 tháng cuối năm ${now.year()}`;
+    } else {
+      const unit: 'quarter' | 'month' =
+        filingPeriod === 'QUARTERLY' ? 'quarter' : 'month';
+      start = now.clone().startOf(unit);
+      end = now.clone().endOf(unit);
+
+      if (filingPeriod === 'MONTHLY') {
+        deadline = end.clone().add(1, 'month').date(20).endOf('day');
+      } else {
+        deadline = end.clone().add(1, 'month').endOf('month').endOf('day');
+      }
+      periodName =
+        filingPeriod === 'QUARTERLY'
+          ? `Quý ${now.quarter()}/${now.year()}`
+          : `Tháng ${now.format('MM/YYYY')}`;
     }
 
     // dời hạn nộp thuế nếu trùng Thứ 7, Chủ nhật
@@ -78,10 +97,6 @@ export class FinancialPeriodsService {
       deadline = deadline.add(1, 'day');
     }
 
-    const periodName =
-      filingPeriod === 'QUARTERLY'
-        ? `Quý ${now.quarter()}/${now.year()}`
-        : `Tháng ${now.format('MM/YYYY')}`;
     return {
       start: start.toDate(),
       end: end.toDate(),
@@ -686,6 +701,8 @@ export class FinancialPeriodsService {
       const pitAmount = taxResult.pitAmount;
       const totalTax = taxResult.totalTax;
 
+      const isHalfYear = dto?.isHalfYearSubmission === true;
+
       const updatedFp = await client.financialPeriod.update({
         where: { id: targetFp.id },
         data: {
@@ -694,7 +711,7 @@ export class FinancialPeriodsService {
           pitAmount: pitAmount,
           vatRateSnapShot: currentTaxConfig.vatRateSnapShot,
           pitRateSnapShot: currentTaxConfig.pitRateSnapShot,
-          status: PeriodStatus.CLOSED,
+          status: isHalfYear ? PeriodStatus.OPEN : PeriodStatus.CLOSED,
         },
       });
       await this.auditLog.logChange(
@@ -719,12 +736,13 @@ export class FinancialPeriodsService {
           pitRateSnapShot: updatedFp.pitRateSnapShot,
           status: updatedFp.status,
         },
-        'User close financial period.',
+        isHalfYear ? 'User submitted half-yearly tax declaration, period remains open.' : 'User close financial period.',
       );
       this.log.log(LOG_ACTIONS.CLOSE_FINANCIAL_PERIOD, {
         status: LOG_STATUS.SUCCESS,
         userId,
         financialPeriodId: targetFp.id,
+        isHalfYear,
       });
       return {
         period: mapToDto(

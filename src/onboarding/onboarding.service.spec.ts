@@ -487,6 +487,7 @@ describe('OnboardingService', () => {
         expect.anything(),
         expect.anything(),
         expect.anything(),
+        expect.anything(),
       );
     });
   });

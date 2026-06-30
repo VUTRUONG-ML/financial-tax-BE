@@ -2791,21 +2791,44 @@ None
   "timestamp": "Date string",
   "message": "string",
   "data": {
-    "taxCode": "string",
-    "businessName": "string",
-    "ownerName": "string",
-    "cccdNumber": "string",
-    "provinceCity": "string",
-    "taxpayerOption": "string",
-    "taxPeriodOption": "string",
-    "declarationTypeOption": "string",
-    "authorizedFilerName": "string",
-    "authorizedFilerTaxCode": "string",
-    "authorizedFilerDocNumber": "string",
-    "authorizedFilerDocDate": "string | null",
-    "taxAgentName": "string",
-    "taxAgentTaxCode": "string",
-    "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\""
+    "financialPeriodInfo": {
+      "periodName": "string",
+      "vatFilingPeriod": "\"MONTHLY\" | \"QUARTERLY\" | \"YEARLY\" | \"HALF_YEARLY\" | \"PER_OCCURRENCE\"",
+      "startDate": "Date string",
+      "endDate": "Date string",
+      "calculatedRange": {
+        "startDate": "Date string",
+        "endDate": "Date string",
+        "usePeriodId": "boolean"
+      }
+    },
+    "taxpayerProfile": {
+      "taxCode": "string",
+      "businessName": "string",
+      "ownerName": "string",
+      "phone": "string",
+      "cccdNumber": "string",
+      "address": "string",
+      "provinceCity": "string",
+      "industry": "string"
+    },
+    "declarationOptions": {
+      "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\"",
+      "taxpayerOption": "string",
+      "taxPeriodOption": "string",
+      "declarationTypeOption": "string",
+      "availablePeriodOptions": [
+        "string"
+      ]
+    },
+    "authorizedAgentInfo": {
+      "authorizedFilerName": "string",
+      "authorizedFilerTaxCode": "string",
+      "authorizedFilerDocNumber": "string",
+      "authorizedFilerDocDate": "Date string | null",
+      "taxAgentName": "string",
+      "taxAgentTaxCode": "string"
+    }
   },
   "meta": null
 }
@@ -2851,21 +2874,44 @@ None
     "userId": "string",
     "financialPeriodId": "number",
     "step1Data": {
-      "taxCode": "string",
-      "businessName": "string",
-      "ownerName": "string",
-      "cccdNumber": "string",
-      "provinceCity": "string",
-      "taxpayerOption": "string",
-      "taxPeriodOption": "string",
-      "declarationTypeOption": "string",
-      "authorizedFilerName": "string",
-      "authorizedFilerTaxCode": "string",
-      "authorizedFilerDocNumber": "string",
-      "authorizedFilerDocDate": "string | null",
-      "taxAgentName": "string",
-      "taxAgentTaxCode": "string",
-      "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\""
+      "financialPeriodInfo": {
+        "periodName": "string",
+        "vatFilingPeriod": "\"MONTHLY\" | \"QUARTERLY\" | \"YEARLY\" | \"HALF_YEARLY\" | \"PER_OCCURRENCE\"",
+        "startDate": "Date string",
+        "endDate": "Date string",
+        "calculatedRange": {
+          "startDate": "Date string",
+          "endDate": "Date string",
+          "usePeriodId": "boolean"
+        }
+      },
+      "taxpayerProfile": {
+        "taxCode": "string",
+        "businessName": "string",
+        "ownerName": "string",
+        "phone": "string",
+        "cccdNumber": "string",
+        "address": "string",
+        "provinceCity": "string",
+        "industry": "string"
+      },
+      "declarationOptions": {
+        "declarationFormType": "\"01_TKN_CNKD\" | \"01_CNKD\" | \"02_CNKD_TNCN_QTT\"",
+        "taxpayerOption": "string",
+        "taxPeriodOption": "string",
+        "declarationTypeOption": "string",
+        "availablePeriodOptions": [
+          "string"
+        ]
+      },
+      "authorizedAgentInfo": {
+        "authorizedFilerName": "string",
+        "authorizedFilerTaxCode": "string",
+        "authorizedFilerDocNumber": "string",
+        "authorizedFilerDocDate": "Date string | null",
+        "taxAgentName": "string",
+        "taxAgentTaxCode": "string"
+      }
     },
     "step2Data": "object | null",
     "step3Data": "object | null",
