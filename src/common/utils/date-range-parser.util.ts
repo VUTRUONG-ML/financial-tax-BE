@@ -13,7 +13,7 @@ export function parseDateRange(
     quarter?: number;
   },
 ): DateRange {
-  const now = moment();
+  const now = moment().tz('Asia/Ho_Chi_Minh');
   let startDate: Date;
   let endDate: Date;
 
@@ -43,7 +43,7 @@ export function parseDateRange(
       }
       const { year, quarter } = customRange;
       const startMonth = (quarter - 1) * 3;
-      const qStart = moment()
+      const qStart = moment().tz('Asia/Ho_Chi_Minh')
         .date(1)
         .year(year)
         .month(startMonth)

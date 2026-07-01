@@ -66,6 +66,7 @@ export class AccountingBooksService {
     }
     this.logger.debug('START_PERIOD', { startPeriod: periodTarget.startDate });
     const startYear = moment(periodTarget.startDate)
+      .tz('Asia/Ho_Chi_Minh')
       .startOf('day')
       .startOf('year')
       .toDate();
@@ -173,14 +174,14 @@ export class AccountingBooksService {
     let endDate = origEndDate;
 
     if (actualTimeFrame === 'nam_nay') {
-      startDate = moment(origStartDate).startOf('year').toDate();
-      endDate = moment(origStartDate).endOf('year').toDate();
+      startDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
+      endDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').endOf('year').toDate();
     } else if (actualTimeFrame === 'nua_dau_nam') {
-      startDate = moment(origStartDate).startOf('year').toDate();
-      endDate = moment(origStartDate).startOf('year').add(5, 'months').endOf('month').toDate(); // Jan 1 - Jun 30
+      startDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
+      endDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').add(5, 'months').endOf('month').toDate(); // Jan 1 - Jun 30
     } else if (actualTimeFrame === 'nua_cuoi_nam') {
-      startDate = moment(origStartDate).startOf('year').add(6, 'months').toDate(); // Jul 1 - Dec 31
-      endDate = moment(origStartDate).endOf('year').toDate();
+      startDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').add(6, 'months').toDate(); // Jul 1 - Dec 31
+      endDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').endOf('year').toDate();
     }
 
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
@@ -295,14 +296,14 @@ export class AccountingBooksService {
     let endDate = origEndDate;
 
     if (actualTimeFrame === 'nam_nay') {
-      startDate = moment(origStartDate).startOf('year').toDate();
-      endDate = moment(origStartDate).endOf('year').toDate();
+      startDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
+      endDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').endOf('year').toDate();
     } else if (actualTimeFrame === 'nua_dau_nam') {
-      startDate = moment(origStartDate).startOf('year').toDate();
-      endDate = moment(origStartDate).startOf('year').add(5, 'months').endOf('month').toDate(); // Jan 1 - Jun 30
+      startDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
+      endDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').add(5, 'months').endOf('month').toDate(); // Jan 1 - Jun 30
     } else if (actualTimeFrame === 'nua_cuoi_nam') {
-      startDate = moment(origStartDate).startOf('year').add(6, 'months').toDate(); // Jul 1 - Dec 31
-      endDate = moment(origStartDate).endOf('year').toDate();
+      startDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').startOf('year').add(6, 'months').toDate(); // Jul 1 - Dec 31
+      endDate = moment(origStartDate).tz('Asia/Ho_Chi_Minh').endOf('year').toDate();
     }
 
     const taxConfig = await this.getValidTaxConfig(userId, startDate, endDate);
@@ -329,7 +330,7 @@ export class AccountingBooksService {
       [
         this.prisma.invoice.findMany({
           where: invoiceWhere,
-          orderBy: { issueDate: 'asc' },
+          orderBy: [{ issueDate: 'asc' }, { id: 'asc' }],
           skip,
           take: limit,
         }),
@@ -348,7 +349,7 @@ export class AccountingBooksService {
 
     const mappedInvoices = invoices.map((inv) => ({
       ...inv,
-      Dien_Giai: inv.buyerName || taxConfig.industry.categoryName,
+      Dien_Giai: `Giao dịch ${inv.invoiceSymbol}`,
       Thue_GTGT: Number(inv.taxPayable),
     }));
 
@@ -393,13 +394,13 @@ export class AccountingBooksService {
       tongThueGTGT = periodTax.vatAmount;
       tongThueTNCN = periodTax.pitAmount;
 
-      const startOfYear = moment(startDate).startOf('year').toDate();
+      const startOfYear = moment(startDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
 
       const ytdBeforeIndustries =
         await this.financialPeriodsService.getRevenueByIndustry(
           userId,
           startOfYear,
-          moment(startDate).subtract(1, 'ms').toDate(),
+          moment(startDate).tz('Asia/Ho_Chi_Minh').subtract(1, 'ms').toDate(),
           undefined,
         );
 
@@ -608,6 +609,7 @@ export class AccountingBooksService {
       where: {
         userId,
         transactionAt: { gte: startDate, lte: endDate },
+        status: 'ACTIVE',
       },
       _count: { id: true },
       _max: { updatedAt: true },
@@ -859,6 +861,7 @@ export class AccountingBooksService {
     userId: string,
     startDate: Date,
     endDate: Date,
+    periodId: number,
   ): Promise<string> {
     const [voucherAgg, stockIssueAgg, invoiceAgg] = await Promise.all([
       this.prisma.voucher.aggregate({
@@ -891,6 +894,7 @@ export class AccountingBooksService {
         where: {
           userId,
           status: 'ISSUED',
+          periodId,
         },
       }),
     ]);
@@ -937,7 +941,7 @@ export class AccountingBooksService {
         orderBy: { applyFromDate: 'desc' },
       }),
       this.generateBookMetadata('S2C', userId),
-      this.generateExpenseSyncCode(userId, startDate, endDate),
+      this.generateExpenseSyncCode(userId, startDate, endDate, periodId),
     ]);
 
     const chi_phi_nguyen_vat_lieu = materialCostDecimal.toNumber();
@@ -1015,6 +1019,7 @@ export class AccountingBooksService {
         include: {
           details: true,
         },
+        orderBy: [{ issueDate: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.voucher.findMany({
         where: {
@@ -1032,8 +1037,9 @@ export class AccountingBooksService {
           inboundInvoice: true,
           stockReceipt: true,
         },
+        orderBy: [{ transactionAt: 'asc' }, { id: 'asc' }],
       }),
-      this.generateExpenseSyncCode(userId, startDate, endDate),
+      this.generateExpenseSyncCode(userId, startDate, endDate, periodId),
     ]);
 
     const invoiceIds = stockIssues
@@ -1066,6 +1072,7 @@ export class AccountingBooksService {
       }, 0);
 
       return {
+        sortId: si.id,
         transactionAt: si.issueDate,
         voucherCode: si.issueCode,
         category: {
@@ -1088,7 +1095,13 @@ export class AccountingBooksService {
         b.transactionAt instanceof Date
           ? b.transactionAt.getTime()
           : new Date(b.transactionAt).getTime();
-      return dateA - dateB;
+      if (dateA !== dateB) return dateA - dateB;
+      const codeA = a.voucherCode || '';
+      const codeB = b.voucherCode || '';
+      if (codeA !== codeB) return codeA.localeCompare(codeB);
+      const idA = Number((a as any).sortId || (a as any).id || 0);
+      const idB = Number((b as any).sortId || (b as any).id || 0);
+      return idA - idB;
     });
 
     const total = allRecords.length;
@@ -1114,23 +1127,30 @@ export class AccountingBooksService {
 
   async generateInventorySyncCode(
     userId: string,
-    startDate: Date,
-    endDate: Date,
     publicIdPeriod: string,
+    productId?: number,
   ): Promise<string> {
     const periodTarget = await this.getPeriodTarget(
       publicIdPeriod,
       userId,
       LOG_ACTIONS.ACC_BOOK_S2d_VERSION,
     );
-    const latestMovement = await this.prisma.inventoryMovement.findFirst({
-      where: { periodId: periodTarget.id },
-      orderBy: { createdAt: 'desc' },
-      select: { publicId: true },
+    const movementStats = await this.prisma.inventoryMovement.aggregate({
+      where: {
+        periodId: periodTarget.id,
+        ...(productId ? { productId } : {}),
+      },
+      _count: { id: true },
+      _max: {
+        id: true,
+        updatedAt: true,
+      },
     });
 
-    const version = latestMovement ? latestMovement.publicId : 0;
-    return `${version}`;
+    const count = movementStats._count.id || 0;
+    const maxId = movementStats._max.id || 0;
+    const maxUpdatedAt = movementStats._max.updatedAt?.getTime() || 0;
+    return `${count}-${maxId}-${maxUpdatedAt}`;
   }
 
   async getInventoryBookSummary(
@@ -1144,16 +1164,6 @@ export class AccountingBooksService {
       LOG_ACTIONS.ACC_BOOK_S2d_SUMMARY,
     );
     const { startDate: startDatePeriod, endDate: endDatePeriod } = periodTarget;
-
-    const [bookMetadata, syncCode] = await Promise.all([
-      this.generateBookMetadata('S2D', userId),
-      this.generateInventorySyncCode(
-        userId,
-        startDatePeriod,
-        endDatePeriod,
-        periodPublicId,
-      ),
-    ]);
 
     const product = await this.prisma.product.findFirst({
       where: {
@@ -1173,6 +1183,11 @@ export class AccountingBooksService {
     if (!product) {
       throw new NotFoundException('Product not found.');
     }
+
+    const [bookMetadata, syncCode] = await Promise.all([
+      this.generateBookMetadata('S2D', userId),
+      this.generateInventorySyncCode(userId, periodPublicId, product.id),
+    ]);
 
     const {
       stockStartPeriod,
@@ -1225,13 +1240,6 @@ export class AccountingBooksService {
     );
     const { startDate: startDatePeriod, endDate: endDatePeriod } = periodTarget;
 
-    const syncCode = await this.generateInventorySyncCode(
-      userId,
-      startDatePeriod,
-      endDatePeriod,
-      periodPublicId,
-    );
-
     const product = await this.prisma.product.findFirst({
       where: {
         userId,
@@ -1253,20 +1261,38 @@ export class AccountingBooksService {
       throw new NotFoundException('Product not found.');
     }
 
+    const syncCode = await this.generateInventorySyncCode(
+      userId,
+      periodPublicId,
+      product.id,
+    );
+
     const result = await this.prisma.$queryRaw<InventoryBookRowRaw[]>`
       WITH fluctuations AS (
         SELECT
           im.id,
           im.movement_date,
           im.movement_type,
-          im.unit_cost,
+          CASE
+            WHEN im.movement_type IN (
+              'SALE_OUT',
+              'PRODUCTION_OUT',
+              'ADJUST_OUT'
+            )
+            THEN COALESCE(
+              sid.final_weighted_unit_cost,
+              sid.provisional_unit_cost,
+              im.unit_cost
+            )
+            ELSE im.unit_cost
+          END AS unit_cost,
           CASE
             WHEN im.movement_type IN (
               'PURCHASE_IN',
               'PRODUCTION_IN',
               'ADJUST_IN'
             )
-            THEN quantity
+            THEN im.quantity
             ELSE 0
           END AS receipt_quantity,
 
@@ -1286,7 +1312,7 @@ export class AccountingBooksService {
               'PRODUCTION_OUT',
               'ADJUST_OUT'
             )
-            THEN quantity
+            THEN im.quantity
             ELSE 0
           END AS issue_quantity,
 
@@ -1296,7 +1322,12 @@ export class AccountingBooksService {
               'PRODUCTION_OUT',
               'ADJUST_OUT'
             )
-            THEN im.total_value
+            THEN COALESCE(
+              sid.final_cogs_value,
+              sid.quantity * sid.final_weighted_unit_cost,
+              sid.quantity * sid.provisional_unit_cost,
+              im.total_value
+            )
             ELSE 0
           END AS issue_value,
 
@@ -1338,7 +1369,12 @@ export class AccountingBooksService {
               'ADJUST_IN'
             )
             THEN im.total_value
-            ELSE -im.total_value
+            ELSE -COALESCE(
+              sid.final_cogs_value,
+              sid.quantity * sid.final_weighted_unit_cost,
+              sid.quantity * sid.provisional_unit_cost,
+              im.total_value
+            )
           END AS value_delta
 
         FROM inventory_movements im
@@ -1348,6 +1384,14 @@ export class AccountingBooksService {
         LEFT JOIN stock_issues si
           ON im.source_document_type = 'OUTBOUND_INVOICE'
           AND im.source_document_id = si.id
+        LEFT JOIN stock_issue_details sid
+          ON sid.issue_id = im.source_document_id
+          AND sid.product_id = im.product_id
+          AND im.movement_type IN (
+            'SALE_OUT',
+            'PRODUCTION_OUT',
+            'ADJUST_OUT'
+          )
         WHERE im.product_id = ${product.id}
           AND im.period_id = ${periodTarget.id}
           AND im.movement_type <> 'OPENING'
@@ -1412,18 +1456,17 @@ export class AccountingBooksService {
 
         ob.so_luong_ton_dau_ky + 
         SUM(f.quantity_delta) OVER (
-          ORDER BY f.movement_date, f.id
+          ORDER BY f.id
         ) as running_stock,
 
         ob.gia_tri_ton_dau_ky +
         SUM(f.value_delta) OVER (
-          ORDER BY f.movement_date, f.id
+          ORDER BY f.id
         ) as running_value
       FROM fluctuations f
       CROSS JOIN opening_balances ob
       ORDER BY
         sort_order,
-        movement_date,
         id
     `;
 

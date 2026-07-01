@@ -35,8 +35,8 @@ export class PeriodLockGuard implements CanActivate {
       request.body?.transactionAt ||
       request.body?.receiptDate) as string | undefined;
     const checkDate = checkDateRaw
-      ? moment(checkDateRaw).toDate()
-      : moment().toDate();
+      ? moment.tz(checkDateRaw, 'Asia/Ho_Chi_Minh').toDate()
+      : moment().tz('Asia/Ho_Chi_Minh').toDate();
     this.log.debug('CHECK_PERIOD', { checkDate });
     // 3. Gọi Service check
     const period = await this.validationService.getOrCreateAndValidatePeriod(

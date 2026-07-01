@@ -243,16 +243,12 @@ export class StocksService {
           data: {
             currentStock: {
               increment: Math.round(item.quantity),
-              ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
-                openingStockQuantity: item.quantity,
-              }),
-              ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
-                openingStockUnitCost: item.unitCost,
-              }),
-              ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
-                openingStockValue: item.quantity * item.unitCost,
-              }),
             },
+            ...(createDto.sourceType === StockReceiptSourceType.OPENING && {
+              openingStockQuantity: Math.round(item.quantity),
+              openingStockUnitCost: item.unitCost,
+              openingStockValue: item.quantity * item.unitCost,
+            }),
           },
         });
 
@@ -1574,20 +1570,6 @@ export class StocksService {
           periodId,
           status: StockReceiptStatus.APPROVED,
           sourceType: { in: sourceTypes },
-          OR: [
-            {
-              sourceType: {
-                in: [
-                  StockReceiptSourceType.PRODUCTION,
-                  StockReceiptSourceType.ADJUSTMENT,
-                ],
-              },
-            },
-            {
-              sourceType: StockReceiptSourceType.PURCHASE,
-              receiptInvoices: { some: {} },
-            },
-          ],
         },
       },
       select: {

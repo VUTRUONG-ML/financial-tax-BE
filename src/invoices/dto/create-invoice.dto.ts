@@ -11,7 +11,11 @@ import {
   IsDateString,
 } from 'class-validator';
 import { CreateInvoiceDetailDto } from './create-invoice-detail.dto';
-import { PaymentMethod } from '@prisma/client';
+import {
+  CustomerType,
+  DeclarationActivityType,
+  PaymentMethod,
+} from '@prisma/client';
 
 export class CreateInvoiceDto {
   /**
@@ -43,6 +47,31 @@ export class CreateInvoiceDto {
   @IsString()
   @IsOptional()
   buyerIdNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  buyerPhone?: string;
+
+  @IsString()
+  @IsOptional()
+  buyerNote?: string;
+
+  @IsEnum(CustomerType)
+  @IsOptional()
+  customerType?: CustomerType = CustomerType.WALK_IN;
+
+  @IsEnum(DeclarationActivityType)
+  @IsOptional()
+  declarationActivityType?: DeclarationActivityType =
+    DeclarationActivityType.FIXED_LOCATION;
+
+  @IsString()
+  @IsOptional()
+  businessLocationCode?: string;
+
+  @IsString()
+  @IsOptional()
+  businessLocationName?: string;
 
   @IsEnum(PaymentMethod)
   paymentMethod!: PaymentMethod;

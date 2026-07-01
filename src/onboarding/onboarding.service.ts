@@ -208,7 +208,7 @@ export class OnboardingService {
       const defaultPitMethod = await this.findTaxGroupValid(dto.taxGroupId, tx);
 
       // Use timezone-aware start of day to avoid UTC offset issues
-      const now = moment().tz().startOf('day').toDate();
+      const now = moment().tz('Asia/Ho_Chi_Minh').startOf('day').toDate();
 
       const isGroup1 = dto.taxGroupId === 1;
 
@@ -221,8 +221,8 @@ export class OnboardingService {
           chosenPitMethod: defaultPitMethod,
           // Apply-from date should respect the same timezone handling
           applyFromDate: isGroup1
-            ? moment(now).tz().startOf('year').toDate()
-            : moment(now).tz().startOf('quarter').toDate(),
+            ? moment(now).tz('Asia/Ho_Chi_Minh').startOf('year').toDate()
+            : moment(now).tz('Asia/Ho_Chi_Minh').startOf('quarter').toDate(),
           applyToDate: MAX_EFFECTIVE_DATE,
           vatRateSnapShot: taxRates.vatRate,
           pitRateSnapShot: this.mapPitMethodToRate(
@@ -275,7 +275,7 @@ export class OnboardingService {
   ) {
     const { industryId, taxGroupId } = dto;
     const run = async (tx: Prisma.TransactionClient) => {
-      const now = moment().startOf('day').toDate();
+      const now = moment().tz('Asia/Ho_Chi_Minh').startOf('day').toDate();
       // 1. Tìm cấu hình đang Active
       const currentActiveConfig = await tx.taxConfiguration.findFirst({
         where: {

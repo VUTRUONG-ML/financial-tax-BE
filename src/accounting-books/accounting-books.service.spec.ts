@@ -163,6 +163,7 @@ describe('AccountingBooksService', () => {
             },
             inventoryMovement: {
               findFirst: jest.fn(),
+              aggregate: jest.fn(),
             },
             inboundInvoice: {
               aggregate: jest.fn(),
@@ -652,6 +653,13 @@ describe('AccountingBooksService', () => {
         { id: 101, openingStockQuantity: 10, openingStockValue: 100000 },
         { id: 102, openingStockQuantity: 5, openingStockValue: 50000 },
       ]);
+      prisma.inventoryMovement.aggregate.mockResolvedValue({
+        _count: { id: 2 },
+        _max: {
+          id: 12,
+          updatedAt: new Date('2026-05-10T10:00:00.000Z'),
+        },
+      } as any);
       prisma.inboundInvoice.aggregate.mockResolvedValue({
         _count: { id: 1 },
         _max: { updatedAt: new Date() },
@@ -711,6 +719,14 @@ describe('AccountingBooksService', () => {
       expect(s2d.summary.Tong_So_Luong_Xuat).toBe(17);
       expect(s2d.summary.Tong_Thanh_Tien_Xuat).toEqual(new Decimal(150000));
       expect(s2d.summary.Tong_So_Luong_Ton_Cuoi_Ky).toBe(23);
+      expect(prisma.inventoryMovement.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            periodId: 1,
+            productId: 101,
+          }),
+        }),
+      );
     });
 
     it('should retrieve records mapped to InventoryBookRowDto', async () => {

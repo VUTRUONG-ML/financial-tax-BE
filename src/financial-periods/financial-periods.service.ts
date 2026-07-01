@@ -56,7 +56,7 @@ export class FinancialPeriodsService {
   ) { }
 
   private calculatePeriodMetadata(issueDate: Date, filingPeriod: FilingPeriod) {
-    const now = moment(issueDate);
+    const now = moment(issueDate).tz('Asia/Ho_Chi_Minh');
     let start: Dayjs;
     let end: Dayjs;
     let deadline: Dayjs;
@@ -236,7 +236,7 @@ export class FinancialPeriodsService {
     tx: Prisma.TransactionClient = this.prisma,
     date: Date,
   ) {
-    const targetDate = moment(date).toDate();
+    const targetDate = moment(date).tz('Asia/Ho_Chi_Minh').toDate();
     let period = await tx.financialPeriod.findFirst({
       where: {
         userId,
@@ -367,17 +367,23 @@ export class FinancialPeriodsService {
     endDate: Date,
     tx: Prisma.TransactionClient = this.prisma,
     periodId?: number,
+    includeDeclarationGrouping = false,
   ): Promise<
     {
       taxCategoryId: number;
       pitRate: Decimal;
       vatRate: Decimal;
       revenue: Decimal;
+      declarationActivityType: string;
+      customerType: string;
+      hasCqtCode: boolean;
+      declarationSection: string;
     }[]
   > {
-    const rawResult =
-      periodId !== undefined
-        ? await tx.$queryRaw<any[]>`
+    if (!includeDeclarationGrouping) {
+      const rawResult =
+        periodId !== undefined
+          ? await tx.$queryRaw<any[]>`
       SELECT 
         COALESCE(p.tax_category_id, 0) as "taxCategoryId",
         COALESCE(tc.pit_rate, 0) as "pitRate",
@@ -392,7 +398,7 @@ export class FinancialPeriodsService {
         AND i.status = 'ISSUED'
       GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate
     `
-        : await tx.$queryRaw<any[]>`
+          : await tx.$queryRaw<any[]>`
       SELECT 
         COALESCE(p.tax_category_id, 0) as "taxCategoryId",
         COALESCE(tc.pit_rate, 0) as "pitRate",
@@ -409,11 +415,80 @@ export class FinancialPeriodsService {
       GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate
     `;
 
+      return rawResult.map((r) => ({
+        taxCategoryId: Number(r.taxCategoryId),
+        pitRate: new Decimal(r.pitRate || 0),
+        vatRate: new Decimal(r.vatRate || 0),
+        revenue: new Decimal(r.revenue || 0),
+        declarationActivityType: 'FIXED_LOCATION',
+        customerType: 'WALK_IN',
+        hasCqtCode: false,
+        declarationSection: 'SECTION_I',
+      }));
+    }
+
+    const rawResult =
+      periodId !== undefined
+        ? await tx.$queryRaw<any[]>`
+      SELECT 
+        COALESCE(p.tax_category_id, 0) as "taxCategoryId",
+        COALESCE(tc.pit_rate, 0) as "pitRate",
+        COALESCE(tc.vat_rate, 0) as "vatRate",
+        COALESCE(i.declaration_activity_type::text, 'FIXED_LOCATION') as "declarationActivityType",
+        COALESCE(i.customer_type::text, 'WALK_IN') as "customerType",
+        (i.cqt_code IS NOT NULL AND i.cqt_code <> '') as "hasCqtCode",
+        CASE
+          WHEN (i.cqt_code IS NOT NULL AND i.cqt_code <> '') THEN 'SECTION_III'
+          WHEN i.declaration_activity_type = 'ECOM_NO_ORDER_PAYMENT' THEN 'SECTION_II'
+          WHEN i.declaration_activity_type = 'PER_OCCURRENCE' THEN 'SECTION_III'
+          ELSE 'SECTION_I'
+        END as "declarationSection",
+        COALESCE(SUM(id.total_amount), 0) as "revenue"
+      FROM invoice_details id
+      JOIN invoices i ON id.invoice_id = i.id
+      LEFT JOIN products p ON id.product_id = p.id
+      LEFT JOIN tax_categories_dictionary tc ON p.tax_category_id = tc.id
+      WHERE i.user_id = ${userId}
+        AND i.period_id = ${periodId}
+        AND i.status = 'ISSUED'
+      GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate, i.declaration_activity_type, i.customer_type, (i.cqt_code IS NOT NULL AND i.cqt_code <> '')
+    `
+        : await tx.$queryRaw<any[]>`
+      SELECT 
+        COALESCE(p.tax_category_id, 0) as "taxCategoryId",
+        COALESCE(tc.pit_rate, 0) as "pitRate",
+        COALESCE(tc.vat_rate, 0) as "vatRate",
+        COALESCE(i.declaration_activity_type::text, 'FIXED_LOCATION') as "declarationActivityType",
+        COALESCE(i.customer_type::text, 'WALK_IN') as "customerType",
+        (i.cqt_code IS NOT NULL AND i.cqt_code <> '') as "hasCqtCode",
+        CASE
+          WHEN (i.cqt_code IS NOT NULL AND i.cqt_code <> '') THEN 'SECTION_III'
+          WHEN i.declaration_activity_type = 'ECOM_NO_ORDER_PAYMENT' THEN 'SECTION_II'
+          WHEN i.declaration_activity_type = 'PER_OCCURRENCE' THEN 'SECTION_III'
+          ELSE 'SECTION_I'
+        END as "declarationSection",
+        COALESCE(SUM(id.total_amount), 0) as "revenue"
+      FROM invoice_details id
+      JOIN invoices i ON id.invoice_id = i.id
+      LEFT JOIN products p ON id.product_id = p.id
+      LEFT JOIN tax_categories_dictionary tc ON p.tax_category_id = tc.id
+      WHERE i.user_id = ${userId}
+        AND i.issue_date >= ${startDate}
+        AND i.issue_date <= ${endDate}
+        AND i.status = 'ISSUED'
+      GROUP BY p.tax_category_id, tc.pit_rate, tc.vat_rate, i.declaration_activity_type, i.customer_type, (i.cqt_code IS NOT NULL AND i.cqt_code <> '')
+    `;
+
     return rawResult.map((r) => ({
       taxCategoryId: Number(r.taxCategoryId),
       pitRate: new Decimal(r.pitRate || 0),
       vatRate: new Decimal(r.vatRate || 0),
       revenue: new Decimal(r.revenue || 0),
+      declarationActivityType:
+        r.declarationActivityType || 'FIXED_LOCATION',
+      customerType: r.customerType || 'WALK_IN',
+      hasCqtCode: Boolean(r.hasCqtCode),
+      declarationSection: r.declarationSection || 'SECTION_I',
     }));
   }
 
@@ -423,12 +498,12 @@ export class FinancialPeriodsService {
     currentTaxConfig: TaxConfiguration,
     client: Prisma.TransactionClient,
   ): Promise<{ vatAmount: Decimal; pitAmount: Decimal }> {
-    const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+    const startOfYear = moment(targetFp.startDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
 
     const ytdBeforeIndustries = await this.getRevenueByIndustry(
       userId,
       startOfYear,
-      moment(targetFp.startDate).subtract(1, 'ms').toDate(),
+      moment(targetFp.startDate).tz('Asia/Ho_Chi_Minh').subtract(1, 'ms').toDate(),
       client,
     );
 
@@ -658,7 +733,7 @@ export class FinancialPeriodsService {
         inPeriodExpense = realtimeData.expense;
       }
 
-      const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+      const startOfYear = moment(targetFp.startDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
       const mostRecentDeclaration = await client.taxDeclaration.findFirst({
         where: {
           period: {
@@ -883,7 +958,7 @@ export class FinancialPeriodsService {
     publicId: string,
     dto: ConfirmTaxPaymentDto,
   ) {
-    const paymentDate = moment(dto.paymentDate).toDate();
+    const paymentDate = moment.tz(dto.paymentDate, 'Asia/Ho_Chi_Minh').toDate();
     return await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra điều kiện status và tờ khai
       const period = await tx.financialPeriod.findUnique({
@@ -1009,7 +1084,7 @@ export class FinancialPeriodsService {
     const inPeriodRevenue = realtimeData.revenue;
     const inPeriodExpense = realtimeData.expense;
 
-    const startOfYear = moment(targetFp.startDate).startOf('year').toDate();
+    const startOfYear = moment(targetFp.startDate).tz('Asia/Ho_Chi_Minh').startOf('year').toDate();
     const ytdEndIndustries = await this.getRevenueByIndustry(
       userId,
       startOfYear,
@@ -1113,7 +1188,7 @@ export class FinancialPeriodsService {
       }
       if (upperStatus === 'EXPIRE' || upperStatus === 'QUA_HAN'){
         where.status = PeriodStatus.OPEN;
-        const now = moment().toDate();
+        const now = moment().tz('Asia/Ho_Chi_Minh').toDate();
         where.endDate = {
           lt: now,
         };
@@ -1166,10 +1241,13 @@ export class FinancialPeriodsService {
   }
 
   enrichPeriodWithPenalty(period: any) {
-    const countExpireDate = period.actualPaymentDate
-      ? moment(period.actualPaymentDate).diff(period.deadlineDate, 'day')
-      : moment().diff(period.deadlineDate, 'day') > 0
-        ? moment().diff(period.deadlineDate, 'day')
+    const payment = period.actualPaymentDate ? moment(period.actualPaymentDate).tz('Asia/Ho_Chi_Minh') : null;
+    const deadline = moment(period.deadlineDate).tz('Asia/Ho_Chi_Minh');
+    const now = moment().tz('Asia/Ho_Chi_Minh');
+    const countExpireDate = payment
+      ? payment.diff(deadline, 'day')
+      : now.diff(deadline, 'day') > 0
+        ? now.diff(deadline, 'day')
         : 0;
 
     const lateDays = Math.max(0, countExpireDate);

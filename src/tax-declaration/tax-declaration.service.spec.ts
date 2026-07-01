@@ -165,6 +165,38 @@ describe('TaxDeclarationService', () => {
     prisma.taxDeclaration.findMany.mockResolvedValue([]);
   });
 
+  describe('getDeclarationOptions', () => {
+    it('should include period metadata for periodic and annual forms', async () => {
+      prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
+      prisma.taxConfiguration.findFirst.mockResolvedValue(mockTaxConfigNonExempt);
+
+      const result = await service.getDeclarationOptions(
+        'user-01',
+        'period-01',
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({
+        code: '01_CNKD',
+        taxPeriodOptions: ['Tháng 05/2026'],
+        defaultTaxPeriodOption: 'Tháng 05/2026',
+        declarationStartDate: mockPeriod.startDate,
+        declarationEndDate: mockPeriod.endDate,
+      });
+      expect(result[1]).toMatchObject({
+        code: '02_CNKD_TNCN_QTT',
+        taxPeriodOptions: ['Năm 2026'],
+        defaultTaxPeriodOption: 'Năm 2026',
+      });
+      expect(result[1].declarationStartDate).toEqual(
+        new Date('2025-12-31T17:00:00.000Z'),
+      );
+      expect(result[1].declarationEndDate).toEqual(
+        new Date('2026-12-31T16:59:59.999Z'),
+      );
+    });
+  });
+
   describe('getStep2 and saveStep2', () => {
     it('should build and return expanded Step2Data correctly', async () => {
       prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
@@ -208,6 +240,11 @@ describe('TaxDeclarationService', () => {
         vatRate: 0.01,
         pitRate: 0.005,
         revenue: 250000000,
+        taxCategoryId: 10,
+        declarationActivityType: 'FIXED_LOCATION',
+        customerType: 'WALK_IN',
+        hasCqtCode: false,
+        declarationSection: 'SECTION_I',
       });
     });
   });
@@ -254,7 +291,7 @@ describe('TaxDeclarationService', () => {
         totalPit: new Decimal(1250000),
         details: [
           {
-            taxCategoryId: 10,
+            taxCategoryId: 0,
             pitRate: new Decimal(0.005),
             ytdRevenue: new Decimal(250000000),
             taxableRevenue: new Decimal(250000000),
@@ -273,6 +310,28 @@ describe('TaxDeclarationService', () => {
       expect(result.operatedIndustries).toHaveLength(1);
       expect(result.operatedIndustries[0].categoryName).toBe('Buôn bán, bán lẻ');
       expect(result.operatedIndustries[0].revenue).toBe(250000000);
+      expect(result.operatedIndustries[0].taxCategoryId).toBe(10);
+      expect(result.operatedIndustries[0].declarationSection).toBe('SECTION_I');
+    });
+  });
+
+  describe('resetDraftSession', () => {
+    it('should delete only the draft session for the requested user and period', async () => {
+      prisma.financialPeriod.findUnique.mockResolvedValue(mockPeriod);
+      prisma.taxDeclarationDraft.deleteMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.resetDraftSession('user-01', 'period-01');
+
+      expect(prisma.taxDeclarationDraft.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-01',
+          financialPeriodId: 1,
+        },
+      });
+      expect(result).toEqual({
+        publicId: 'period-01',
+        deletedCount: 1,
+      });
     });
   });
 

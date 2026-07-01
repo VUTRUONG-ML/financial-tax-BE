@@ -372,6 +372,8 @@ export class VouchersService {
     txParam?: Prisma.TransactionClient,
   ) {
     const run = async (tx: Prisma.TransactionClient) => {
+      const amountDecimal = new Decimal(createVoucherDto.amount);
+
       // --- BƯỚC KHÓA CHIẾN THUẬT ---
       // Khóa dòng User này lại. Bất kỳ request nào của cùng userId
       // chạy đến đây sẽ phải xếp hàng chờ ở đây trước khi làm bất cứ việc gì.
@@ -396,7 +398,7 @@ export class VouchersService {
         tx,
         userId,
         createVoucherDto.voucherType,
-        createVoucherDto.amount,
+        amountDecimal,
         createVoucherDto.paymentMethod,
         createVoucherDto.isDeductibleExpense,
         createVoucherDto.inboundInvoicePublicId,
@@ -443,7 +445,7 @@ export class VouchersService {
           transactionAt: transactionDate,
           categoryId: createVoucherDto.categoryId,
           content: createVoucherDto.content,
-          amount: createVoucherDto.amount,
+          amount: amountDecimal,
           paymentMethod: createVoucherDto.paymentMethod,
           contactName: createVoucherDto.contactName ?? null,
           isDeductibleExpense: createVoucherDto.isDeductibleExpense ?? false,

@@ -50,10 +50,15 @@ export interface Step1Data {
 export interface Step2Data {
   periodName: string;
   industries: {
+    taxCategoryId: number;
     categoryName: string;
     vatRate: number;
     pitRate: number;
     revenue: number;
+    declarationActivityType: string;
+    customerType: string;
+    hasCqtCode: boolean;
+    declarationSection: string;
   }[];
   estimatedVat: number;
   transactionCount: number;

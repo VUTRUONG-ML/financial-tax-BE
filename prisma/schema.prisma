@@ -231,6 +231,17 @@ enum InvoiceStatus {
   CANCELED
 }
 
+enum CustomerType {
+  WALK_IN
+  ONLINE
+}
+
+enum DeclarationActivityType {
+  FIXED_LOCATION
+  ECOM_NO_ORDER_PAYMENT
+  PER_OCCURRENCE
+}
+
 // 6. Invoices (Thông tin chung Hóa đơn Bán ra)
 model Invoice {
   id       Int    @id @default(autoincrement())
@@ -250,6 +261,13 @@ model Invoice {
   buyerAddress  String? @map("buyer_address")
   buyerEmail    String? @map("buyer_email")
   buyerIdNumber String? @map("buyer_id_number")
+  buyerPhone    String? @map("buyer_phone")
+  buyerNote     String? @map("buyer_note")
+
+  customerType            CustomerType            @default(WALK_IN) @map("customer_type")
+  declarationActivityType DeclarationActivityType @default(FIXED_LOCATION) @map("declaration_activity_type")
+  businessLocationCode    String?                 @map("business_location_code")
+  businessLocationName    String?                 @map("business_location_name")
 
   paymentMethod PaymentMethod @default(CASH) @map("payment_method")
 
@@ -278,6 +296,7 @@ model Invoice {
 
   @@index([userId, issueDate, status])
   @@index([periodId])
+  @@index([declarationActivityType, cqtCode])
   @@map("invoices")
 }
 

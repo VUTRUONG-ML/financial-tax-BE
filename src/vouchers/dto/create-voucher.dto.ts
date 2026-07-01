@@ -28,7 +28,7 @@ export class CreateVoucherDto {
   @IsNumber()
   @Min(0)
   @IsNotEmpty()
-  amount!: Decimal;
+  amount!: number | Decimal;
 
   @IsEnum(PaymentMethod)
   @IsNotEmpty()

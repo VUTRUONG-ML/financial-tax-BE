@@ -56,6 +56,25 @@ export class TaxDeclarationController {
     );
   }
 
+  @Post('reset/:publicId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset tax declaration draft session when user exits the wizard',
+  })
+  async resetDraftSession(
+    @CurrentUser() user: RequestUser,
+    @Param('publicId') publicId: string,
+  ) {
+    const data = await this.taxDeclarationService.resetDraftSession(
+      user.id,
+      publicId,
+    );
+    return {
+      message: 'Tax declaration draft session reset successfully.',
+      data,
+    };
+  }
+
   @Get('step-1/:publicId')
   @ApiOperation({ summary: 'Lấy dữ liệu Bước 1: Thông tin Hộ kinh doanh' })
   async getStep1(

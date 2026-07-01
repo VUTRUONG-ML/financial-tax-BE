@@ -1,10 +1,28 @@
-# 🎨 Hướng Dẫn Tích Hợp Kê Khai Thuế Cho Frontend (FE Tax Declaration Integration Guide)
+# 🎨 Hướng Dẫn Tích Hợp Kê Khai Thuế & Báo Cáo Đối Chiếu Nghiệp Vụ (Unified Tax Integration & Audit Guide)
 
-Tài liệu này hướng dẫn chi tiết cho các lập trình viên Frontend (FE) cách tích hợp giao diện Wizard Kê khai thuế với hệ thống Backend (BE). Tất cả các mô hình dữ liệu (Response Models) dưới đây đã được cập nhật chính xác theo những sửa đổi nghiệp vụ mới nhất.
+Tài liệu này tổng hợp hướng dẫn tích hợp Frontend (FE) và Báo cáo đối chiếu nghiệp vụ Backend (BE) sau đợt tái cấu trúc hệ thống Kê khai thuế & Quyết toán thuế thu nhập cá nhân năm.
 
 ---
 
-## 1. Bản Đồ Tổng Quan Của Wizard Kê Khai Thuế
+## I. Báo Cáo Đối Chiếu & Đánh Giá Nghiệp Vụ (Tax Resolution Audit)
+
+Dưới đây là bảng theo dõi trạng thái khắc phục các lỗi nghiệp vụ và nâng cấp kiến trúc của Backend theo tài liệu đặc tả [plan_be_tax_declaration_resolution.md](file:///E:/financial-tax-system_BE/docs-coding-guidelines/plan_be_tax_declaration_resolution.md):
+
+| ID | Mức độ | Hạng mục lỗi | Giải pháp kỹ thuật trên Backend | Trạng thái |
+|---|:---:|---|---|:---:|
+| **BE-TAX-01** | P0 | YEARLY/HALF_YEARLY bị tạo thành kỳ tháng | Đã đồng bộ cách tính toán phạm vi ngày co giãn động và cấu trúc tên trong `financial-periods.service.ts`. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-02** | P0 | Mẫu 02 phải có kỳ Năm YYYY | Trả về duy nhất tùy chọn `'Năm YYYY'` cho Form 02. Phẳng hóa `financialPeriodInfo` để tách biệt ngày tính toán và ngày kỳ neo. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-03** | P0 | Entry point quyết toán sau khi kỳ đóng | Mở rộng hàm `init()` để hiển thị kỳ đã `CLOSED`. Tích hợp cờ `process.env.NODE_ENV` bypass để phục vụ Dev/Test lập QTT mọi lúc. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-04** | P0 | Step 2 mẫu 02 lấy dữ liệu năm | Step 2 lấy doanh thu thực tế cả năm. Triệt tiêu hoàn toàn lỗi cộng trùng YTD trong Step 5 Preview bằng cách gán thẳng doanh thu/chi phí thực tế cả năm cho Form 02. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-05** | P0 | Step 3/4 snapshot cả năm | Các hàm Step 3 & Step 4 sử dụng khoảng ngày cả năm tài chính co giãn động (`declarationStartDate` đến `declarationEndDate`) thay vì kỳ neo. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-06** | P1 | `ytdPitPaid`, expense/inventory breakdown | `ytdPitPaid` được tính bằng cách sum trường `pitAmount` của tất cả các kỳ đã `CLOSED` trong năm tài chính. Bổ sung đầy đủ breakdown kho và chi phí năm ở Preview. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-07** | P0 | Submit mẫu 02 không được đóng period | Tạo phương thức `processAnnualSubmission()` chạy trong transaction riêng, lưu tờ khai mà **không gọi đóng kỳ hoặc thay đổi trạng thái kỳ tài chính con**. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-08** | P0 | Bán niên đầu không đóng kỳ YEARLY | Sửa điều kiện so sánh chuỗi thành `chosenPeriodOption?.startsWith('6 tháng đầu năm')`, hỗ trợ tùy chọn bán niên đầu có năm đi kèm. | **✅ ĐÃ XỬ LÝ** |
+| **BE-TAX-09** | P1 | Phân loại Mục I/II/III | Đây thuộc về Phase 5 (tương lai), yêu cầu thay đổi bảng Invoice để lưu địa điểm và hình thức kinh doanh. Hiện đã được làm rõ cơ chế chặn để FE không tự ý suy đoán số liệu. | **🔄 CHỜ PHASE 5** |
+
+---
+
+## II. Bản Đồ Tổng Quan Của Wizard Kê Khai Thuế
 
 Số lượng bước khả dụng và thứ tự hiển thị của Wizard được quyết định hoàn toàn bởi loại tờ khai (`declarationFormType`) được chọn ở bước khởi tạo:
 
@@ -19,10 +37,14 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 
 ---
 
-## 2. Quy Trình Khởi Tạo & Các API Response Models Chi Tiết
+## III. Quy Trình Khởi Tạo & Các API Response Models Chi Tiết
 
-### 🛠️ API Khởi Tạo Lập Tờ Khai (Init)
+### 🛠️ 1. API Khởi Tạo Lập Tờ Khai (Init)
 * **Endpoint**: `GET /tax-declaration/init`
+* **Mô tả**: Trả về danh sách kỳ tài chính khả dụng cho việc lập tờ khai.
+  * Kỳ `OPEN`: Khả dụng cho các tờ khai định kỳ mẫu `01`.
+  * Kỳ `CLOSED`: Chỉ khả dụng cho tờ quyết toán mẫu `02` (với điều kiện tất cả các kỳ khác trong năm cũng đã chốt).
+  * *Lưu ý*: Trong môi trường `development` hoặc `test`, hệ thống sẽ bypass kiểm tra kỳ `CLOSED` để nhà phát triển có thể tạo tờ khai quyết toán thuế bất kỳ lúc nào phục vụ việc test.
 * **Response Model (`200 OK`)**:
 ```json
 {
@@ -51,8 +73,9 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 }
 ```
 
-### 📋 API Lấy Danh Sách Tờ Khai Khả Dụng Theo Kỳ
+### 📋 2. API Lấy Danh Sách Tờ Khai Khả Dụng Theo Kỳ
 * **Endpoint**: `GET /tax-declaration/options/:publicId`
+* **Mô tả**: Trả về các mẫu tờ khai hợp lệ tương ứng với trạng thái kỳ.
 * **Response Model (`200 OK`)**:
 ```json
 [
@@ -69,8 +92,9 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 ]
 ```
 
-### 🚀 API Bắt Đầu Phiên Làm Việc (Start Session)
+### 🚀 3. API Bắt Đầu Phiên Làm Việc (Start Session)
 * **Endpoint**: `POST /tax-declaration/start/:publicId`
+* **Mô tả**: Khởi tạo phiên làm việc mới cho tờ khai đã chọn.
 * **Request Body**:
 ```json
 {
@@ -91,13 +115,13 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 
 ---
 
-## 3. Các Bước Trong Wizard Kê Khai Thuế
+## IV. Chi Tiết Các Bước Trong Wizard Kê Khai Thuế
 
 ### 📌 Bước 1: Khai Báo Thông Tin Hành Chính & Tùy Chọn Kỳ
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-1/:publicId`
+* **Mô tả**: Lấy thông tin hành chính của hộ kinh doanh và các tùy chọn kỳ.
+  * Trường `financialPeriodInfo` được **phẳng hóa (flatten)** hoàn toàn để tránh nhầm lẫn ngày tính toán với ngày kỳ neo.
 * **Response Model (`200 OK`)**:
-  > [!NOTE]
-  > Trường `financialPeriodInfo` đã được **phẳng hóa (flatten)** hoàn toàn, không lồng `calculatedRange` để tránh gây nhầm lẫn về ngày tính toán so với ngày kỳ neo.
 ```json
 {
   "financialPeriodInfo": {
@@ -161,6 +185,7 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 
 ### 📌 Bước 2: Xác Nhận Doanh Thu Chịu Thuế
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-2/:publicId`
+* **Mô tả**: Hiển thị danh sách ngành nghề và doanh thu tương ứng trong kỳ kế khai.
 * **Response Model (`200 OK`)**:
 ```json
 {
@@ -186,17 +211,15 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 ```
 
 * **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-2/save/:publicId`
-  * **Lưu ý**: API này **không yêu cầu Request Body**. Backend tự động ghi nhận dữ liệu hóa đơn tại thời điểm lưu.
+  * **Lưu ý**: API này **không yêu cầu Request Body**. Backend tự động lấy dữ liệu hóa đơn tại thời điểm lưu để làm snapshot.
 
 ---
 
 ### 📌 Bước 3: Xác Nhận Tồn Kho (Chỉ biểu mẫu `02_CNKD_TNCN_QTT`)
-
-> [!IMPORTANT]
-> **Ràng buộc loại tờ khai**: Endpoint này chỉ khả dụng khi loại tờ khai đã lưu ở Step 1 là quyết toán năm `02_CNKD_TNCN_QTT`.
-> Nếu truy cập với tờ khai định kỳ `01_CNKD` hoặc `01_TKN_CNKD`, Backend sẽ chặn lại và trả về lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE`. Frontend cần ẩn hoàn toàn bước này trên UI và không thực hiện call API.
-
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-3/:publicId`
+* **Mô tả**: Trả về bảng số liệu tồn kho tổng hợp của toàn năm.
+  > [!IMPORTANT]
+  > **Ràng buộc loại tờ khai**: Endpoint này chỉ khả dụng khi loại tờ khai đã lưu ở Step 1 là quyết toán năm `02_CNKD_TNCN_QTT`. Nếu truy cập với tờ định kỳ `01`, Backend trả về lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE`. Frontend cần ẩn bước này trên UI và không thực hiện call API.
 * **Response Model (`200 OK`)**:
 ```json
 {
@@ -213,12 +236,10 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 ---
 
 ### 📌 Bước 4: Xác Nhận Chi Phí Hợp Lệ (Chỉ biểu mẫu `02_CNKD_TNCN_QTT`)
-
-> [!IMPORTANT]
-> **Ràng buộc loại tờ khai**: Endpoint này chỉ khả dụng khi loại tờ khai đã lưu ở Step 1 là quyết toán năm `02_CNKD_TNCN_QTT`.
-> Nếu truy cập với tờ khai định kỳ `01_CNKD` hoặc `01_TKN_CNKD`, Backend sẽ chặn lại và trả về lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE`. Frontend cần ẩn hoàn toàn bước này trên UI và không thực hiện call API.
-
 * **Endpoint Lấy Dữ Liệu**: `GET /tax-declaration/step-4/:publicId`
+* **Mô tả**: Trả về chi tiết các nhóm chi phí theo Thông tư của toàn năm.
+  > [!IMPORTANT]
+  > **Ràng buộc loại tờ khai**: Endpoint này chỉ khả dụng khi loại tờ khai đã lưu ở Step 1 là quyết toán năm `02_CNKD_TNCN_QTT`. Nếu truy cập với tờ định kỳ `01`, Backend trả về lỗi `400 Bad Request` với mã lỗi `STEP_NOT_APPLICABLE`. Frontend cần ẩn bước này trên UI và không thực hiện call API.
 * **Response Model (`200 OK`)**:
 ```json
 {
@@ -233,14 +254,15 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 ```
 
 * **Endpoint Lưu Dữ Liệu**: `POST /tax-declaration/step-4/save/:publicId`
-  * **Lưu ý**: API này **không yêu cầu Request Body**. Backend tự động snapshot các chứng từ chi phí và giá vốn.
+  * **Lưu ý**: Không cần Request Body. Backend tự động snapshot chi phí.
 
 ---
 
 ### 📌 Bước 5: Xem Trước & Ký Nộp
 
-#### API Xem Trước (Preview)
+#### 1. API Xem Trước (Preview)
 * **Endpoint**: `GET /tax-declaration/step-5/preview/:publicId`
+* **Mô tả**: Tổng hợp dữ liệu thuế, doanh thu, chi phí của toàn chu kỳ để người dùng xem trước.
 * **Response Model (`200 OK`)**:
 ```json
 {
@@ -248,10 +270,10 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
     "id": 12,
     "periodName": "Quý 2/2026"
   },
-  "step1Data": { /* Thông tin đã lưu ở Step 1 */ },
-  "step2Data": { /* Thông tin đã lưu ở Step 2 */ },
-  "step3Data": { /* Thông tin đã lưu ở Step 3 (Hoặc null nếu tờ 01) */ },
-  "step4Data": { /* Thông tin đã lưu ở Step 4 (Hoặc null nếu tờ 01) */ },
+  "step1Data": { /* Dữ liệu Step 1 */ },
+  "step2Data": { /* Dữ liệu Step 2 */ },
+  "step3Data": { /* Dữ liệu Step 3 (Hoặc null nếu tờ 01) */ },
+  "step4Data": { /* Dữ liệu Step 4 (Hoặc null nếu tờ 01) */ },
   "pitComparison": {
     "profitMethodAmount": 2800000,
     "percentageMethodAmount": 1500000
@@ -288,19 +310,19 @@ Số lượng bước khả dụng và thứ tự hiển thị của Wizard đư
 }
 ```
 
-#### API Ký Nộp Chính Thức (Kèm xử lý biến động số liệu)
+#### 2. Các API Ký Nộp Chính Thức (Yêu cầu `multipart/form-data`)
 * **Ký nộp thông thường**: `POST /tax-declaration/submit/:publicId`
 * **Ký nộp đè (Đồng bộ số mới)**: `POST /tax-declaration/submit-force/:publicId`
-* **Ký nộp bỏ qua cảnh báo (Giữ số cũ)**: `POST /tax-declaration/submit-ignore-warning/:publicId`
+* **Ký nộp giữ nguyên số cũ**: `POST /tax-declaration/submit-ignore-warning/:publicId`
 
 * **Request Payload (Multipart Form-Data)**:
   * `xmlContent` (String): Chuỗi XML tờ khai đã biên dựng ở Client.
   * `chosenPitMethod` (String): Phương pháp thuế TNCN (`PERCENTAGE` | `PROFIT_15` | `PROFIT_17` | `PROFIT_20`).
-  * `file` (File Binary - Optional): File PDF của tờ khai.
+  * `file` (File Binary - Optional): File PDF của tờ khai để lưu trữ.
 
 ---
 
-## 4. Xử Lý Các Trạng Thái Lỗi Từ Backend
+## V. Xử Lý Các Trạng Thái Lỗi Từ Backend
 
 1. **Lệch Số Liệu DB so với Bản nháp (409 Conflict - DATA_CHANGED)**:
    Khi FE gọi nộp thông thường mà dữ liệu hóa đơn/kho thực tế thay đổi, BE trả về lỗi `409`:

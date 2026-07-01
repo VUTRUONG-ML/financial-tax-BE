@@ -46,29 +46,6 @@ export class FinancialPeriodValidationService {
 
       // 2. Nếu chưa có kì, tiến hành khởi tạo tự động
       if (!currentPeriod) {
-        const startOfMonth = moment(issueDate).startOf('month').toDate();
-
-        // Tìm các kì kết thúc trước tháng của issueDate (startOfMonth)
-        const isPreviousOpenPeriod =
-          (await tx.financialPeriod.count({
-            where: {
-              userId,
-              endDate: { lte: startOfMonth },
-              status: PeriodStatus.OPEN,
-            },
-          })) > 0;
-
-        if (isPreviousOpenPeriod) {
-          this.log.warn(LOG_ACTIONS.VALIDATE_FINANCIAL_PERIOD, {
-            status: LOG_STATUS.FAILED,
-            reason: 'PRE_OPEN_PERIOD_EXISTS',
-            userId,
-          });
-          throw new BadRequestException(
-            `Cannot create new period. Previous open period exists.`,
-          );
-        }
-
         currentPeriod = await this.period.ensurePeriodExists(
           userId,
           tx,
@@ -90,7 +67,7 @@ export class FinancialPeriodValidationService {
 
       // 4. CHẶN CỤC BỘ: Nếu kỳ đó là YEARLY và đã nộp tờ khai "6 tháng đầu năm", không cho phép sửa/xóa/thêm chứng từ <= 30/06
       if (currentPeriod.vatFilingPeriod === 'YEARLY') {
-        const startOfYear = moment(currentPeriod.startDate).startOf('year');
+        const startOfYear = moment(currentPeriod.startDate).tz('Asia/Ho_Chi_Minh').startOf('year');
         const endOfFirstHalf = startOfYear.clone().month(5).endOf('month').toDate(); // 30/06
 
         if (issueDate <= endOfFirstHalf) {

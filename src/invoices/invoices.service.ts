@@ -19,6 +19,8 @@ import { generateInvoiceSymbol } from '../common/utils/invoice-symbol.util';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { TaxAuthorityService } from '../tax-authority/tax-authority.service';
 import {
+  CustomerType,
+  DeclarationActivityType,
   InvoiceStatus,
   Prisma,
   Product,
@@ -118,6 +120,21 @@ export class InvoicesService {
   ) {
     if (!isB2C && (!buyerAddress || !buyerName || !buyerTaxCode))
       throw new BadRequestException('Business information is required.');
+  }
+
+  private validateInvoiceCustomer(
+    customerType?: CustomerType,
+    buyerName?: string | null,
+    buyerPhone?: string | null,
+  ) {
+    if (
+      customerType === CustomerType.ONLINE &&
+      (!buyerName?.trim() || !buyerPhone?.trim())
+    ) {
+      throw new BadRequestException(
+        'Buyer name and phone are required for online customers.',
+      );
+    }
   }
 
   /**
@@ -423,6 +440,11 @@ export class InvoicesService {
       dto.buyerAddress,
       dto.buyerName,
     );
+    this.validateInvoiceCustomer(
+      dto.customerType ?? CustomerType.WALK_IN,
+      dto.buyerName,
+      dto.buyerPhone,
+    );
     // // Tra cứu tất cả sản phẩm một lần, validate ownership & stock
     const { totalPayment, resolvedItems } =
       await this.validateStockAvailability(userId, dto.details);
@@ -462,6 +484,14 @@ export class InvoicesService {
           buyerAddress: dto.buyerAddress,
           buyerEmail: dto.buyerEmail,
           buyerIdNumber: dto.buyerIdNumber,
+          buyerPhone: dto.buyerPhone,
+          buyerNote: dto.buyerNote,
+          customerType: dto.customerType ?? CustomerType.WALK_IN,
+          declarationActivityType:
+            dto.declarationActivityType ??
+            DeclarationActivityType.FIXED_LOCATION,
+          businessLocationCode: dto.businessLocationCode,
+          businessLocationName: dto.businessLocationName,
           paymentMethod: dto.paymentMethod,
           taxRate,
           taxPayable,
@@ -498,6 +528,10 @@ export class InvoicesService {
           invoiceSymbol,
           totalPayment,
           isB2C: dto.isB2C,
+          customerType: dto.customerType ?? CustomerType.WALK_IN,
+          declarationActivityType:
+            dto.declarationActivityType ??
+            DeclarationActivityType.FIXED_LOCATION,
           itemCount: resolvedItems.length,
         },
       );
@@ -944,6 +978,11 @@ export class InvoicesService {
       dto.buyerAddress ?? invoice.buyerAddress ?? undefined,
       dto.buyerName ?? invoice.buyerName ?? undefined,
     );
+    this.validateInvoiceCustomer(
+      dto.customerType ?? invoice.customerType,
+      dto.buyerName ?? invoice.buyerName,
+      dto.buyerPhone ?? invoice.buyerPhone,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       // Hoàn lại tồn kho bằng cách hủy StockIssue nếu có trước khi cập nhật chi tiết mới
@@ -1038,6 +1077,12 @@ export class InvoicesService {
 
           buyerEmail: dto.buyerEmail ?? undefined,
           buyerIdNumber: dto.buyerIdNumber ?? undefined,
+          buyerPhone: dto.buyerPhone ?? undefined,
+          buyerNote: dto.buyerNote ?? undefined,
+          customerType: dto.customerType ?? undefined,
+          declarationActivityType: dto.declarationActivityType ?? undefined,
+          businessLocationCode: dto.businessLocationCode ?? undefined,
+          businessLocationName: dto.businessLocationName ?? undefined,
           paymentMethod: dto.paymentMethod ?? undefined,
           issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
           periodId: periodId,
@@ -1058,11 +1103,17 @@ export class InvoicesService {
         {
           isB2C: invoice.isB2C,
           buyerName: invoice.buyerName,
+          buyerPhone: invoice.buyerPhone,
+          customerType: invoice.customerType,
+          declarationActivityType: invoice.declarationActivityType,
           totalPayment: invoice.totalPayment,
         },
         {
           isB2C: updatedInvoice.isB2C,
           buyerName: updatedInvoice.buyerName,
+          buyerPhone: updatedInvoice.buyerPhone,
+          customerType: updatedInvoice.customerType,
+          declarationActivityType: updatedInvoice.declarationActivityType,
           totalPayment: updatedInvoice.totalPayment,
         },
       );
@@ -1151,7 +1202,7 @@ export class InvoicesService {
         where: { userId },
       }),
       this.prisma.invoice.aggregate({
-        where: { userId, status: {in: ['PENDING_ISSUED', 'ISSUED', 'SYNC_FAILED']} },
+        where: { userId, status: 'ISSUED' },
         _sum: {
           totalPayment: true,
           taxPayable: true,

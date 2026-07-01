@@ -79,6 +79,14 @@ export class TransformInterceptor<T> implements NestInterceptor<
       return moment(data).tz().format('YYYY-MM-DD HH:mm:ss');
     }
 
+    // Nếu là chuỗi định dạng ISO Date (ví dụ sau khi đi qua mapToDto/class-transformer đã bị chuyển thành string)
+    if (
+      typeof data === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/.test(data)
+    ) {
+      return moment(data).tz().format('YYYY-MM-DD HH:mm:ss');
+    }
+
     // Nếu là mảng (ví dụ danh sách hóa đơn)
     if (Array.isArray(data)) {
       return data.map((item) => this.transformDates(item));

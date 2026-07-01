@@ -19,7 +19,7 @@ export class DashboardService {
   ) {}
 
   async getSummary(userId: string): Promise<DashboardSummaryResponseDto> {
-    const currentYear = moment().year();
+    const currentYear = moment().tz('Asia/Ho_Chi_Minh').year();
 
     // 1. Revenue Progress
     const revenueTracker = await this.prisma.revenueTracker.findUnique({
@@ -49,7 +49,7 @@ export class DashboardService {
     revenue: number,
     currentYear: number,
   ): Promise<RevenueProgressDto> {
-    const today = moment().toDate();
+    const today = moment().tz('Asia/Ho_Chi_Minh').toDate();
     let currentPeriod = await this.prisma.financialPeriod.findFirst({
       where: {
         userId,
@@ -87,11 +87,11 @@ export class DashboardService {
     let forecastRevenue = revenue;
     let forecastLabel = 'Dự báo';
     if (currentPeriod) {
-      const yearStart = moment(`${currentYear}-01-01`).startOf('day');
-      const periodEnd = moment(currentPeriod.endDate).endOf('day');
+      const yearStart = moment(`${currentYear}-01-01`).tz('Asia/Ho_Chi_Minh').startOf('day');
+      const periodEnd = moment(currentPeriod.endDate).tz('Asia/Ho_Chi_Minh').endOf('day');
       const totalDaysToPeriodEnd = periodEnd.diff(yearStart, 'days') + 1;
 
-      const now = moment();
+      const now = moment().tz('Asia/Ho_Chi_Minh');
       let elapsedDaysYtd = now.diff(yearStart, 'days') + 1;
       if (elapsedDaysYtd > totalDaysToPeriodEnd) {
         elapsedDaysYtd = totalDaysToPeriodEnd;
@@ -164,7 +164,7 @@ export class DashboardService {
   private async getTaxDeclarationCard(
     userId: string,
   ): Promise<TaxDeclarationCardDto | null> {
-    const today = moment().startOf('day');
+    const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day');
 
     // Ưu tiên tìm kỳ tài chính CHƯA nộp thuế (actualPaymentDate == null) cũ nhất để thúc đẩy xử lý
     let targetPeriod = await this.prisma.financialPeriod.findFirst({
@@ -190,8 +190,8 @@ export class DashboardService {
 
     if (!targetPeriod) return null;
 
-    const deadline = moment(targetPeriod.deadlineDate).startOf('day');
-    const endDate = moment(targetPeriod.endDate).endOf('day');
+    const deadline = moment(targetPeriod.deadlineDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+    const endDate = moment(targetPeriod.endDate).tz('Asia/Ho_Chi_Minh').endOf('day');
 
     const isOverdue = today.isAfter(deadline);
     const daysOverdue = isOverdue ? today.diff(deadline, 'days') : 0;
@@ -227,7 +227,7 @@ export class DashboardService {
     let statusLabel = 'CHƯA HOÀN THÀNH';
     let description = '';
     const actualPaymentDate = targetPeriod.actualPaymentDate
-      ? moment(targetPeriod.actualPaymentDate).format('YYYY-MM-DD')
+      ? moment(targetPeriod.actualPaymentDate).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD')
       : null;
 
     if (targetPeriod.actualPaymentDate) {

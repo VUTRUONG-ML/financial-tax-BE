@@ -191,22 +191,77 @@ export class TaxDeclarationService {
       },
     });
     const taxGroupId = taxConfig?.taxGroupId ?? 1;
+    const defaultTaxPeriod = this.getDefaultTaxPeriod(taxConfig);
+
+    const buildOption = async (formOption: {
+      code: DeclarationFormType;
+      name: string;
+    }) => {
+      const { availablePeriodOptions, defaultPeriodOption } =
+        await this.getAvailablePeriodOptions(
+          taxGroupId,
+          period.id,
+          defaultTaxPeriod,
+          period.startDate,
+          period.periodName,
+          formOption.code,
+        );
+      const calculatedRange = getTaxDeclarationPeriodRange(
+        period.startDate,
+        period.endDate,
+        defaultPeriodOption,
+      );
+
+      return {
+        ...formOption,
+        taxPeriodOptions: availablePeriodOptions,
+        defaultTaxPeriodOption: defaultPeriodOption,
+        declarationStartDate: calculatedRange.startDate,
+        declarationEndDate: calculatedRange.endDate,
+        anchorStartDate: period.startDate,
+        anchorEndDate: period.endDate,
+      };
+    };
 
     // Nếu kỳ đang CLOSED, chỉ được lập tờ Quyết toán 02_CNKD_TNCN_QTT (trừ khi ở môi trường dev/test)
     const isDevOrTest = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
     if (period.status === PeriodStatus.CLOSED && !isDevOrTest) {
       if (taxGroupId !== 1) {
-        return [DECLARATION_FORM_OPTIONS.FORM_02_CNKD_TNCN_QTT];
+        return [
+          await buildOption(
+            DECLARATION_FORM_OPTIONS.FORM_02_CNKD_TNCN_QTT as {
+              code: DeclarationFormType;
+              name: string;
+            },
+          ),
+        ];
       }
       return [];
     }
 
     if (taxGroupId === 1) {
-      return [DECLARATION_FORM_OPTIONS.FORM_01_TKN_CNKD];
+      return [
+        await buildOption(
+          DECLARATION_FORM_OPTIONS.FORM_01_TKN_CNKD as {
+            code: DeclarationFormType;
+            name: string;
+          },
+        ),
+      ];
     } else {
       return [
-        DECLARATION_FORM_OPTIONS.FORM_01_CNKD,
-        DECLARATION_FORM_OPTIONS.FORM_02_CNKD_TNCN_QTT,
+        await buildOption(
+          DECLARATION_FORM_OPTIONS.FORM_01_CNKD as {
+            code: DeclarationFormType;
+            name: string;
+          },
+        ),
+        await buildOption(
+          DECLARATION_FORM_OPTIONS.FORM_02_CNKD_TNCN_QTT as {
+            code: DeclarationFormType;
+            name: string;
+          },
+        ),
       ];
     }
   }
@@ -221,6 +276,16 @@ export class TaxDeclarationService {
       return (step1 as any).declarationFormType;
     }
     return taxGroupId === 1 ? '01_TKN_CNKD' : '01_CNKD';
+  }
+
+  private getIndustryGroupingKey(industry: any): string {
+    return [
+      industry.taxCategoryId,
+      industry.declarationActivityType || 'FIXED_LOCATION',
+      industry.customerType || 'WALK_IN',
+      industry.hasCqtCode ? '1' : '0',
+      industry.declarationSection || 'SECTION_I',
+    ].join('|');
   }
 
   // khi nhấn vào nút bắt đầu
@@ -291,6 +356,28 @@ export class TaxDeclarationService {
         step1Data: initialStep1Data as unknown as Prisma.InputJsonValue,
       },
     });
+  }
+
+  async resetDraftSession(userId: string, publicId: string) {
+    const period = await this.findPeriodAndCheckOwnership(userId, publicId);
+    const result = await this.prisma.taxDeclarationDraft.deleteMany({
+      where: {
+        userId,
+        financialPeriodId: period.id,
+      },
+    });
+
+    this.logger.log('RESET_TAX_DECLARATION_DRAFT', {
+      status: LOG_STATUS.SUCCESS,
+      userId,
+      publicId,
+      deletedCount: result.count,
+    });
+
+    return {
+      publicId,
+      deletedCount: result.count,
+    };
   }
 
   private getDefaultTaxpayerOption(taxConfig?: (TaxConfiguration & { industry?: { categoryName: string } }) | null): string {
@@ -796,6 +883,7 @@ export class TaxDeclarationService {
         period.endDate,
         undefined,
         period.id,
+        true,
       ),
       this.prisma.invoice.count({
         where: {
@@ -831,6 +919,12 @@ export class TaxDeclarationService {
         vatRate: vatRateVal,
         pitRate: pitRateVal,
         revenue: rev,
+        taxCategoryId: ind.taxCategoryId,
+        declarationActivityType:
+          (ind as any).declarationActivityType || 'FIXED_LOCATION',
+        customerType: (ind as any).customerType || 'WALK_IN',
+        hasCqtCode: Boolean((ind as any).hasCqtCode),
+        declarationSection: (ind as any).declarationSection || 'SECTION_I',
       };
     });
 
@@ -879,6 +973,9 @@ export class TaxDeclarationService {
         userId,
         startDate,
         endDate,
+        undefined,
+        undefined,
+        true,
       ),
       this.prisma.invoice.count({
         where: {
@@ -914,6 +1011,12 @@ export class TaxDeclarationService {
         vatRate: vatRateVal,
         pitRate: pitRateVal,
         revenue: rev,
+        taxCategoryId: ind.taxCategoryId,
+        declarationActivityType:
+          (ind as any).declarationActivityType || 'FIXED_LOCATION',
+        customerType: (ind as any).customerType || 'WALK_IN',
+        hasCqtCode: Boolean((ind as any).hasCqtCode),
+        declarationSection: (ind as any).declarationSection || 'SECTION_I',
       };
     });
 
@@ -1411,13 +1514,27 @@ export class TaxDeclarationService {
     );
 
     const [periodIndustries, ytdIndustries] = await Promise.all([
-      this.financialPeriodsService.getRevenueByIndustry(userId, period.startDate, period.endDate),
-      this.financialPeriodsService.getRevenueByIndustry(userId, startOfYear, period.endDate),
+      this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        period.startDate,
+        period.endDate,
+        undefined,
+        undefined,
+        true,
+      ),
+      this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        startOfYear,
+        period.endDate,
+        undefined,
+        undefined,
+        true,
+      ),
     ]);
 
     const pitCalc = this.taxEngineService.calculatePitPercentageMultipleIndustries(
-      ytdIndustries.map((ind) => ({
-        taxCategoryId: ind.taxCategoryId,
+      ytdIndustries.map((ind, index) => ({
+        taxCategoryId: index,
         pitRate: ind.pitRate,
         ytdRevenue: ind.revenue,
       })),
@@ -1430,14 +1547,18 @@ export class TaxDeclarationService {
     });
     const categoryMap = new Map(categories.map((c) => [c.id, c.categoryName]));
     const periodRevenueMap = new Map(
-      periodIndustries.map((p) => [p.taxCategoryId, p.revenue.toNumber()]),
+      periodIndustries.map((p) => [
+        this.getIndustryGroupingKey(p),
+        p.revenue.toNumber(),
+      ]),
     );
 
     const detailMap = new Map(pitCalc.details.map((d) => [d.taxCategoryId, d]));
 
-    const operatedIndustries = ytdIndustries.map((ytd) => {
-      const detail = detailMap.get(ytd.taxCategoryId);
-      const periodRevenue = periodRevenueMap.get(ytd.taxCategoryId) || 0;
+    const operatedIndustries = ytdIndustries.map((ytd, index) => {
+      const detail = detailMap.get(index);
+      const periodRevenue =
+        periodRevenueMap.get(this.getIndustryGroupingKey(ytd)) || 0;
       const ytdRevenueVal = ytd.revenue.toNumber();
       const taxableRevenueVal = detail ? detail.taxableRevenue.toNumber() : 0;
       const exemptionAllocatedVal = detail
@@ -1451,6 +1572,12 @@ export class TaxDeclarationService {
         pitRate: ytd.pitRate.toNumber(),
         ytdExemption: exemptionAllocatedVal,
         ytdTaxableRevenue: taxableRevenueVal,
+        taxCategoryId: ytd.taxCategoryId,
+        declarationActivityType:
+          (ytd as any).declarationActivityType || 'FIXED_LOCATION',
+        customerType: (ytd as any).customerType || 'WALK_IN',
+        hasCqtCode: Boolean((ytd as any).hasCqtCode),
+        declarationSection: (ytd as any).declarationSection || 'SECTION_I',
       };
     });
 
@@ -1601,13 +1728,27 @@ export class TaxDeclarationService {
 
     // 4. Danh sách ngành nghề đã kinh doanh
     const [periodIndustries, ytdIndustries] = await Promise.all([
-      this.financialPeriodsService.getRevenueByIndustry(userId, period.startDate, period.endDate),
-      this.financialPeriodsService.getRevenueByIndustry(userId, startOfYear, period.endDate),
+      this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        period.startDate,
+        period.endDate,
+        undefined,
+        undefined,
+        true,
+      ),
+      this.financialPeriodsService.getRevenueByIndustry(
+        userId,
+        startOfYear,
+        period.endDate,
+        undefined,
+        undefined,
+        true,
+      ),
     ]);
 
     const pitCalc = this.taxEngineService.calculatePitPercentageMultipleIndustries(
-      ytdIndustries.map((ind) => ({
-        taxCategoryId: ind.taxCategoryId,
+      ytdIndustries.map((ind, index) => ({
+        taxCategoryId: index,
         pitRate: ind.pitRate,
         ytdRevenue: ind.revenue,
       })),
@@ -1620,14 +1761,18 @@ export class TaxDeclarationService {
     });
     const categoryMap = new Map(categories.map((c) => [c.id, c.categoryName]));
     const periodRevenueMap = new Map(
-      periodIndustries.map((p) => [p.taxCategoryId, p.revenue.toNumber()]),
+      periodIndustries.map((p) => [
+        this.getIndustryGroupingKey(p),
+        p.revenue.toNumber(),
+      ]),
     );
 
     const detailMap = new Map(pitCalc.details.map((d) => [d.taxCategoryId, d]));
 
-    const operatedIndustries = ytdIndustries.map((ytd) => {
-      const detail = detailMap.get(ytd.taxCategoryId);
-      const periodRevenue = periodRevenueMap.get(ytd.taxCategoryId) || 0;
+    const operatedIndustries = ytdIndustries.map((ytd, index) => {
+      const detail = detailMap.get(index);
+      const periodRevenue =
+        periodRevenueMap.get(this.getIndustryGroupingKey(ytd)) || 0;
       const ytdRevenueVal = ytd.revenue.toNumber();
       const taxableRevenueVal = detail ? detail.taxableRevenue.toNumber() : 0;
       const exemptionAllocatedVal = detail
@@ -1641,6 +1786,12 @@ export class TaxDeclarationService {
         pitRate: ytd.pitRate.toNumber(),
         ytdExemption: exemptionAllocatedVal,
         ytdTaxableRevenue: taxableRevenueVal,
+        taxCategoryId: ytd.taxCategoryId,
+        declarationActivityType:
+          (ytd as any).declarationActivityType || 'FIXED_LOCATION',
+        customerType: (ytd as any).customerType || 'WALK_IN',
+        hasCqtCode: Boolean((ytd as any).hasCqtCode),
+        declarationSection: (ytd as any).declarationSection || 'SECTION_I',
       };
     });
 

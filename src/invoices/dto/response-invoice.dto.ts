@@ -1,4 +1,10 @@
-import { InvoiceStatus, PaymentMethod, ProductType } from '@prisma/client';
+import {
+  CustomerType,
+  DeclarationActivityType,
+  InvoiceStatus,
+  PaymentMethod,
+  ProductType,
+} from '@prisma/client';
 import { Expose, Transform, Type } from 'class-transformer';
 
 export class InvoiceDetailResponseDto {
@@ -49,6 +55,24 @@ export class InvoiceResponseDto {
 
   @Expose()
   buyerAddress!: string;
+
+  @Expose()
+  buyerPhone!: string;
+
+  @Expose()
+  buyerNote!: string;
+
+  @Expose()
+  customerType!: CustomerType;
+
+  @Expose()
+  declarationActivityType!: DeclarationActivityType;
+
+  @Expose()
+  businessLocationCode!: string;
+
+  @Expose()
+  businessLocationName!: string;
 
   @Expose()
   status!: InvoiceStatus;
