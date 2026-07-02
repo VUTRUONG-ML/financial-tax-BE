@@ -1,5 +1,9 @@
 import { Expose, Transform, Type } from 'class-transformer';
-import { StockReceiptSourceType, StockReceiptStatus } from '@prisma/client';
+import {
+  StockReceiptSourceType,
+  StockReceiptStatus,
+  Voucher,
+} from '@prisma/client';
 
 export class StockReceiptDetailResponseDto {
   @Expose()
@@ -78,6 +82,14 @@ export class StockReceiptResponseDto {
 
   @Expose()
   isPaid!: boolean;
+
+  @Expose()
+  @Transform(({ obj }) => {
+    if (!obj.isPaid) return 'UNPAID';
+    const activeVoucher: Voucher = obj.vouchers?.[0];
+    return activeVoucher ? activeVoucher.paymentMethod : 'PAID';
+  })
+  payment!: string;
 
   @Expose()
   @Type(() => StockReceiptDetailResponseDto)

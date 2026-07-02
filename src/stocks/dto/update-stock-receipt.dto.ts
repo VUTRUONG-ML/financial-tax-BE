@@ -1,12 +1,11 @@
 import {
   IsBoolean,
-  IsDateString,
   IsEnum,
   IsOptional,
   IsString,
   NotEquals,
 } from 'class-validator';
-import { StockReceiptSourceType } from '@prisma/client';
+import { PaymentMethod, StockReceiptSourceType } from '@prisma/client';
 
 export class UpdateStockReceiptDto {
   @IsString()
@@ -27,6 +26,10 @@ export class UpdateStockReceiptDto {
   @IsBoolean()
   @IsOptional()
   isPaid?: boolean;
+
+  @IsEnum(PaymentMethod)
+  @IsOptional()
+  paymentMethod?: PaymentMethod;
 
   @IsString()
   @IsOptional()

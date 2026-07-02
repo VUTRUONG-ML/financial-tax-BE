@@ -1,4 +1,4 @@
-# API Endpoints & Data Models Documentation
+﻿# API Endpoints & Data Models Documentation
 
 This document describes the request and response data structures of the core API endpoints. Responses use the global application wrapper structure. The values inside the JSON structures denote the **data types** rather than example data.
 
@@ -462,7 +462,7 @@ None
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
 > [!NOTE]
-> Khi hóa đơn phát hành thành công (`status` chuyển sang `ISSUED`), hệ thống sẽ tự động khởi tạo một phiếu thu (`Voucher` loại `RECEIPT`) liên kết với hóa đơn đó để thu toàn bộ số tiền hóa đơn. Trạng thái thanh toán của hóa đơn sẽ tự động được cập nhật thành `isPaid = true` và `paidAmount` bằng đúng `totalPayment`.
+> Khi hÃ³a Ä‘Æ¡n phÃ¡t hÃ nh thÃ nh cÃ´ng (`status` chuyá»ƒn sang `ISSUED`), há»‡ thá»‘ng sáº½ tá»± Ä‘á»™ng khá»Ÿi táº¡o má»™t phiáº¿u thu (`Voucher` loáº¡i `RECEIPT`) liÃªn káº¿t vá»›i hÃ³a Ä‘Æ¡n Ä‘Ã³ Ä‘á»ƒ thu toÃ n bá»™ sá»‘ tiá»n hÃ³a Ä‘Æ¡n. Tráº¡ng thÃ¡i thanh toÃ¡n cá»§a hÃ³a Ä‘Æ¡n sáº½ tá»± Ä‘á»™ng Ä‘Æ°á»£c cáº­p nháº­t thÃ nh `isPaid = true` vÃ  `paidAmount` báº±ng Ä‘Ãºng `totalPayment`.
 
 #### Request Body
 
@@ -524,7 +524,7 @@ None
 
 - `page`: `number (Optional)`
 - `limit`: `number (Optional)`
-- `status`: `string (Optional) - Options: "DRAFT" / "BAN_NHAP" / "BẢN NHÁP", "ISSUED" / "DA_PHAT_HANH" / "ĐÃ PHÁT HÀNH", "SYNC_FAILED" / "LOI_DONG_BO" / "LỖI ĐỒNG BỘ", "CANCELED" / "DA_HUY" / "ĐÃ HỦY" (case-insensitive)`
+- `status`: `string (Optional) - Options: "DRAFT" / "BAN_NHAP" / "Báº¢N NHÃP", "ISSUED" / "DA_PHAT_HANH" / "ÄÃƒ PHÃT HÃ€NH", "SYNC_FAILED" / "LOI_DONG_BO" / "Lá»–I Äá»’NG Bá»˜", "CANCELED" / "DA_HUY" / "ÄÃƒ Há»¦Y" (case-insensitive)`
 
 #### Request Body
 
@@ -2281,7 +2281,7 @@ None
   "success": true,
   "statusCode": 200,
   "timestamp": "Date string",
-  "message": "Cập nhật kỳ tài chính thành công",
+  "message": "Cáº­p nháº­t ká»³ tÃ i chÃ­nh thÃ nh cÃ´ng",
   "data": {
     "publicId": "string",
     "periodName": "string",
@@ -2320,7 +2320,7 @@ None
   "success": true,
   "statusCode": 200,
   "timestamp": "Date string",
-  "message": "Lấy chi tiết kỳ tài chính thành công",
+  "message": "Láº¥y chi tiáº¿t ká»³ tÃ i chÃ­nh thÃ nh cÃ´ng",
   "data": {
     "publicId": "string",
     "periodName": "string",
@@ -4197,17 +4197,20 @@ None
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
+> When `isPaid = true`, backend automatically creates a linked `PAYMENT` voucher. `paymentMethod` controls that voucher payment method. If `paymentMethod` is omitted, backend falls back to `BANK` for backward compatibility.
+
 #### Request Body (JSON)
 
 ```json
 {
-  "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+  "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\"",
   "receiptDate": "Date string",
   "supplierName": "string (Optional)",
   "sourceInvoiceNo": "string (Optional)",
   "sourceDocumentUrl": "string (Optional)",
   "note": "string (Optional)",
   "isPaid": "boolean (Optional)",
+  "paymentMethod": "\"CASH\" | \"BANK\" (Optional)",
   "products": [
     {
       "productPublicId": "string",
@@ -4239,6 +4242,7 @@ None
     "createdAt": "Date string",
     "note": "string | null",
     "isPaid": "boolean",
+    "payment": "\"UNPAID\" | \"CASH\" | \"BANK\" | \"PAID\"",
     "details": [
       {
         "productPublicId": "string",
@@ -4260,6 +4264,8 @@ None
 - **Route:** `/stock-receipts/:receiptCode/cancel`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+
+> Period lock is resolved from the existing stock receipt `receiptDate`; frontend does not need to send `receiptDate` in the body.
 
 #### Request Body
 
@@ -4286,6 +4292,7 @@ None
     "createdAt": "Date string",
     "note": "string | null",
     "isPaid": "boolean",
+    "payment": "\"UNPAID\" | \"CASH\" | \"BANK\" | \"PAID\"",
     "details": [
       {
         "productPublicId": "string",
@@ -4308,6 +4315,8 @@ None
 - **Method:** `POST`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
+> Period lock is resolved from the existing stock receipt `receiptDate`; frontend only sends the inbound invoice public id.
+
 #### Request Body (JSON)
 
 ```json
@@ -4323,8 +4332,13 @@ None
   "success": true,
   "statusCode": 200,
   "timestamp": "Date string",
-  "message": "Linked stock receipt to invoice successfully.",
-  "data": null,
+  "message": "Linked stock receipt to invoice successfully",
+  "data": {
+    "id": "number",
+    "receiptId": "number",
+    "invoiceId": "number",
+    "linkedAt": "Date string"
+  },
   "meta": null
 }
 ```
@@ -4334,6 +4348,8 @@ None
 - **Route:** `/stock-receipts/:receiptCode/link-invoice/:invoicePublicId`
 - **Method:** `DELETE`
 - **Authentication:** Required (Bearer Token in Authorization Header)
+
+> Period lock is resolved from the existing stock receipt `receiptDate`; frontend does not need to send a body.
 
 #### Request Body
 
@@ -4433,6 +4449,7 @@ None
       "createdAt": "Date string",
       "note": "string | null",
       "isPaid": "boolean",
+      "payment": "\"UNPAID\" | \"CASH\" | \"BANK\" | \"PAID\"",
       "details": [
         {
           "productPublicId": "string",
@@ -4479,53 +4496,60 @@ None
 }
 ```
 
----
-
 ### 15.8. Update Stock Receipt
 
 - **Route:** `/stock-receipts/:receiptCode`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
-- **Period:** `CheckPeriod()` — period được suy ra từ ngày hiện tại hoặc `receiptDate` mới nếu có thay đổi.
 
-**Request Body** (`UpdateStockReceiptDto`):
+> Period lock is resolved from the existing stock receipt `receiptDate`. Frontend does not send `receiptDate`; `receiptDate` is not updateable in this endpoint.
+> If `paymentMethod` is sent while the receipt is already paid, backend updates the active linked payment voucher.
 
-| Trường                  | Kiểu                          | Bắt buộc | Mô tả                                                                           |
-| :---------------------- | :---------------------------- | :------: | :------------------------------------------------------------------------------ |
-| `note`                  | `string`                      |  Không   | Ghi chú cho phiếu nhập.                                                         |
-| `sourceType`            | `enum StockReceiptSourceType` |  Không   | Nguồn nhập: `PURCHASE`, `PRODUCTION`, `ADJUSTMENT`, `OPENING`.                  |
-| `supplierName`          | `string`                      |  Không   | Tên nhà cung cấp.                                                               |
-| `isPaid`                | `boolean`                     |  Không   | Nếu `true` → tự động tạo phiếu chi. Nếu `false` → hủy phiếu chi đang hoạt động. |
-| `linkInvoicePublicId`   | `string`                      |  Không   | `publicId` của hóa đơn cần liên kết thêm.                                       |
-| `unlinkInvoicePublicId` | `string`                      |  Không   | `publicId` của hóa đơn cần gỡ liên kết.                                         |
-
-> ⚠️ Không được cập nhật: danh sách sản phẩm, số lượng, đơn giá, tổng tiền, receiptDate.
-> ⚠️ Phiếu đã `CANCELLED` không thể cập nhật.
-
-**Response thành công** (`200 OK`):
+#### Request Body (JSON)
 
 ```json
 {
+  "note": "string (Optional)",
+  "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" (Optional)",
+  "supplierName": "string (Optional)",
+  "isPaid": "boolean (Optional)",
+  "paymentMethod": "\"CASH\" | \"BANK\" (Optional)",
+  "linkInvoicePublicId": "string (Optional)",
+  "unlinkInvoicePublicId": "string (Optional)"
+}
+```
+
+#### Response Data (JSON)
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "timestamp": "Date string",
   "message": "Stock receipt updated successfully",
   "data": {
-    "receiptCode": "PNK-0626-0001",
-    "receiptDate": "2026-06-15T00:00:00.000Z",
-    "sourceType": "PURCHASE",
-    "supplierName": "Công ty TNHH ABC",
-    "totalValue": 15000000,
-    "status": "APPROVED",
-    "periodName": "Kỳ 01/2026 - 06/2026",
-    "note": "Ghi chú cập nhật",
-    "isPaid": true,
-    "createdAt": "2026-06-01T10:00:00.000Z",
+    "receiptCode": "string",
+    "receiptDate": "Date string",
+    "sourceType": "\"PURCHASE\" | \"PRODUCTION\" | \"ADJUSTMENT\" | \"OPENING\"",
+    "supplierName": "string | null",
+    "sourceInvoiceNo": "string | null",
+    "sourceDocumentUrl": "string | null",
+    "totalValue": "number",
+    "status": "\"DRAFT\" | \"APPROVED\" | \"CANCELLED\"",
+    "periodName": "string",
+    "createdAt": "Date string",
+    "note": "string | null",
+    "isPaid": "boolean",
+    "payment": "\"UNPAID\" | \"CASH\" | \"BANK\" | \"PAID\"",
     "details": [
       {
-        "productPublicId": "prod-uuid-001",
-        "productName": "Nguyên liệu A",
-        "skuCode": "NVL-001",
-        "quantity": 100,
-        "unitCost": 150000,
-        "totalValue": 15000000
+        "productPublicId": "string",
+        "productName": "string",
+        "skuCode": "string",
+        "quantity": "number",
+        "unitCost": "number",
+        "totalValue": "number",
+        "taxCategoryIdSnapshot": "number | null"
       }
     ]
   },
@@ -4534,7 +4558,6 @@ None
 ```
 
 ---
-
 ## 16. Stock Issues
 
 ### 16.1. Get All Stock Issues
@@ -4698,7 +4721,7 @@ None
 - **Method:** `GET`
 - **Authentication:** Required (Bearer Token in Authorization Header)
 
-**Response thành công** (`200 OK`):
+**Response thÃ nh cÃ´ng** (`200 OK`):
 
 ```json
 {
@@ -4710,13 +4733,13 @@ None
     "sourceDocumentType": null,
     "sourceDocumentId": null,
     "status": "APPROVED",
-    "periodName": "Kỳ 01/2026 - 06/2026",
-    "note": "Xuất điều chỉnh hàng hỏng",
+    "periodName": "Ká»³ 01/2026 - 06/2026",
+    "note": "Xuáº¥t Ä‘iá»u chá»‰nh hÃ ng há»ng",
     "createdAt": "2026-06-20T09:00:00.000Z",
     "details": [
       {
         "productPublicId": "prod-uuid-002",
-        "productName": "Hàng hóa B",
+        "productName": "HÃ ng hÃ³a B",
         "skuCode": "HH-002",
         "quantity": 10,
         "provisionalUnitCost": 200000,
@@ -4737,19 +4760,19 @@ None
 - **Route:** `/stock-issues/:issueCode`
 - **Method:** `PATCH`
 - **Authentication:** Required (Bearer Token in Authorization Header)
-- **Period:** `CheckPeriod()` — period được suy ra từ ngày hiện tại hoặc `issueDate` mới nếu có thay đổi.
+- **Period:** `CheckPeriod()` â€” period Ä‘Æ°á»£c suy ra tá»« ngÃ y hiá»‡n táº¡i hoáº·c `issueDate` má»›i náº¿u cÃ³ thay Ä‘á»•i.
 
 **Request Body** (`UpdateStockIssueDto`):
 
-| Trường      | Kiểu                  | Bắt buộc | Mô tả                                          |
+| TrÆ°á»ng      | Kiá»ƒu                  | Báº¯t buá»™c | MÃ´ táº£                                          |
 | :---------- | :-------------------- | :------: | :--------------------------------------------- |
-| `issueType` | `enum StockIssueType` |  Không   | Loại xuất: `SALE`, `PRODUCTION`, `ADJUSTMENT`. |
-| `note`      | `string`              |  Không   | Ghi chú cho phiếu xuất.                        |
+| `issueType` | `enum StockIssueType` |  KhÃ´ng   | Loáº¡i xuáº¥t: `SALE`, `PRODUCTION`, `ADJUSTMENT`. |
+| `note`      | `string`              |  KhÃ´ng   | Ghi chÃº cho phiáº¿u xuáº¥t.                        |
 
-> ⚠️ Không được cập nhật: danh sách sản phẩm, số lượng, tổng tiền, issueDate.
-> ⚠️ Phiếu đã `CANCELLED` không thể cập nhật.
+> âš ï¸ KhÃ´ng Ä‘Æ°á»£c cáº­p nháº­t: danh sÃ¡ch sáº£n pháº©m, sá»‘ lÆ°á»£ng, tá»•ng tiá»n, issueDate.
+> âš ï¸ Phiáº¿u Ä‘Ã£ `CANCELLED` khÃ´ng thá»ƒ cáº­p nháº­t.
 
-**Response thành công** (`200 OK`):
+**Response thÃ nh cÃ´ng** (`200 OK`):
 
 ```json
 {
@@ -4761,13 +4784,13 @@ None
     "sourceDocumentType": null,
     "sourceDocumentId": null,
     "status": "APPROVED",
-    "periodName": "Kỳ 01/2026 - 06/2026",
-    "note": "Ghi chú đã cập nhật",
+    "periodName": "Ká»³ 01/2026 - 06/2026",
+    "note": "Ghi chÃº Ä‘Ã£ cáº­p nháº­t",
     "createdAt": "2026-06-20T09:00:00.000Z",
     "details": [
       {
         "productPublicId": "prod-uuid-002",
-        "productName": "Hàng hóa B",
+        "productName": "HÃ ng hÃ³a B",
         "skuCode": "HH-002",
         "quantity": 10,
         "provisionalUnitCost": 200000,
@@ -4891,18 +4914,18 @@ None
 
 ## 19. Business Bank Accounts
 
-Module quản lý tài khoản ngân hàng / ví điện tử của hộ kinh doanh. Phục vụ xuất biểu mẫu 01/BK-STK (frontend tự render PDF/XML).
+Module quáº£n lÃ½ tÃ i khoáº£n ngÃ¢n hÃ ng / vÃ­ Ä‘iá»‡n tá»­ cá»§a há»™ kinh doanh. Phá»¥c vá»¥ xuáº¥t biá»ƒu máº«u 01/BK-STK (frontend tá»± render PDF/XML).
 
 **Enum `ProviderType`:** `"BANK"` | `"E_WALLET"`
 
 **Enum `DeclarationStatus`:** `"INITIAL_REGISTRATION"` | `"INFORMATION_UPDATE"` | `"ACCOUNT_CLOSURE"`
 
-> **Business Rule:** `isActive` được tự động set theo `declarationStatus`:
+> **Business Rule:** `isActive` Ä‘Æ°á»£c tá»± Ä‘á»™ng set theo `declarationStatus`:
 >
-> - `ACCOUNT_CLOSURE` → `isActive = false`
-> - `INITIAL_REGISTRATION` / `INFORMATION_UPDATE` → `isActive = true`
+> - `ACCOUNT_CLOSURE` â†’ `isActive = false`
+> - `INITIAL_REGISTRATION` / `INFORMATION_UPDATE` â†’ `isActive = true`
 >
-> DELETE là soft delete: set `isActive = false` và `declarationStatus = ACCOUNT_CLOSURE`.
+> DELETE lÃ  soft delete: set `isActive = false` vÃ  `declarationStatus = ACCOUNT_CLOSURE`.
 
 ---
 
@@ -4965,7 +4988,7 @@ None
 }
 ```
 
-> Tất cả các field đều **bắt buộc**.
+> Táº¥t cáº£ cÃ¡c field Ä‘á»u **báº¯t buá»™c**.
 
 #### Response Data (JSON)
 
@@ -5014,8 +5037,8 @@ None
 }
 ```
 
-> `userId` không được phép thay đổi.
-> Nếu `declarationStatus` được cập nhật, `isActive` sẽ được tự động điều chỉnh theo business rule.
+> `userId` khÃ´ng Ä‘Æ°á»£c phÃ©p thay Ä‘á»•i.
+> Náº¿u `declarationStatus` Ä‘Æ°á»£c cáº­p nháº­t, `isActive` sáº½ Ä‘Æ°á»£c tá»± Ä‘á»™ng Ä‘iá»u chá»‰nh theo business rule.
 
 #### Response Data (JSON)
 
@@ -5054,7 +5077,7 @@ None
 
 None
 
-> Không xóa vật lý. Soft delete: set `isActive = false` và `declarationStatus = "ACCOUNT_CLOSURE"`.
+> KhÃ´ng xÃ³a váº­t lÃ½. Soft delete: set `isActive = false` vÃ  `declarationStatus = "ACCOUNT_CLOSURE"`.
 
 #### Response Data (JSON)
 
@@ -5085,7 +5108,7 @@ None
 
 ## 20. Tax Forms
 
-Cung cấp dữ liệu cho frontend render biểu mẫu thuế. Backend **không** generate PDF/XML.
+Cung cáº¥p dá»¯ liá»‡u cho frontend render biá»ƒu máº«u thuáº¿. Backend **khÃ´ng** generate PDF/XML.
 
 ---
 
@@ -5099,7 +5122,7 @@ Cung cấp dữ liệu cho frontend render biểu mẫu thuế. Backend **không
 
 None
 
-> Chỉ trả các tài khoản có `isActive = true`.
+> Chá»‰ tráº£ cÃ¡c tÃ i khoáº£n cÃ³ `isActive = true`.
 
 #### Response Data (JSON)
 
@@ -5113,7 +5136,7 @@ None
     "businessName": "string",
     "taxCode": "string",
     "ownerName": "string",
-    "address": "string (hiện tại luôn trống \"\")",
+    "address": "string (hiá»‡n táº¡i luÃ´n trá»‘ng \"\")",
     "phone": "string",
     "accounts": [
       {
@@ -5150,7 +5173,7 @@ None
 }
 ```
 
-> **Business Rule:** Nếu bản ghi `TaxFormExport` cho kỳ kế toán (`periodId`) này đã tồn tại (ví dụ được tự động sinh ra khi submit tờ khai), API này sẽ thực hiện cập nhật đè (upsert) `pdfUrl` và `xmlContent` thay vì tạo mới.
+> **Business Rule:** Náº¿u báº£n ghi `TaxFormExport` cho ká»³ káº¿ toÃ¡n (`periodId`) nÃ y Ä‘Ã£ tá»“n táº¡i (vÃ­ dá»¥ Ä‘Æ°á»£c tá»± Ä‘á»™ng sinh ra khi submit tá» khai), API nÃ y sáº½ thá»±c hiá»‡n cáº­p nháº­t Ä‘Ã¨ (upsert) `pdfUrl` vÃ  `xmlContent` thay vÃ¬ táº¡o má»›i.
 
 #### Response Data (JSON)
 
@@ -5173,3 +5196,4 @@ None
   "meta": null
 }
 ```
+

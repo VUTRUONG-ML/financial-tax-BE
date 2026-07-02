@@ -33,6 +33,7 @@ import {
   StockIssueStatus,
   StockIssueDocument,
   SourceDocumentType,
+  PaymentMethod,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { mapToDto } from 'src/common/utils/mapper.util';
@@ -40,7 +41,10 @@ import { InventoryMovementsService } from '../inventory-movements/inventory-move
 import { moment } from 'src/common/utils/time.util';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { InboundResponseDto } from '../inbound-invoices/dto/response-inbound-invoice.dto';
-import { OpeningStockSummaryResponseDto, OpeningStockListItemDto } from './dto/opening-stock.dto';
+import {
+  OpeningStockSummaryResponseDto,
+  OpeningStockListItemDto,
+} from './dto/opening-stock.dto';
 
 @Injectable()
 export class StocksService {
@@ -51,7 +55,7 @@ export class StocksService {
     private readonly auditLog: AuditLogService,
     private readonly inventoryMovementsService: InventoryMovementsService,
     private readonly voucherService: VouchersService,
-  ) { }
+  ) {}
 
   async createStockReceipt(
     userId: string,
@@ -273,6 +277,7 @@ export class StocksService {
       }
 
       if (createDto.isPaid) {
+        const paymentMethod = createDto.paymentMethod ?? PaymentMethod.BANK;
         const category = await client.voucherCategory.findUnique({
           where: {
             systemTag: 'PAYMENT_MATERIAL',
@@ -291,7 +296,7 @@ export class StocksService {
             categoryId: category.id,
             content: `Thanh toán cho phiếu nhập kho ${receiptCode}`,
             amount: totalValue,
-            paymentMethod: 'BANK',
+            paymentMethod,
             transactionAt: createDto.receiptDate,
             contactName: createDto.supplierName || undefined,
             isDeductibleExpense: false,
@@ -313,6 +318,10 @@ export class StocksService {
             },
           },
           period: { select: { periodName: true } },
+          vouchers: {
+            where: { status: 'ACTIVE' },
+            select: { paymentMethod: true },
+          },
         },
       });
 
@@ -674,7 +683,10 @@ export class StocksService {
       }
 
       // Calculate and update cumulative revenue in RevenueTracker
-      if (createDto.issueType === StockIssueType.SALE && createDto.sourceDocumentType !== StockIssueDocument.INVOICE) {
+      if (
+        createDto.issueType === StockIssueType.SALE &&
+        createDto.sourceDocumentType !== StockIssueDocument.INVOICE
+      ) {
         let totalRevenue = new Decimal(0);
         for (const productEntity of products) {
           const quantity = qtyDetailMap.get(productEntity.publicId) ?? 0;
@@ -869,7 +881,10 @@ export class StocksService {
       }
 
       // Decrement cumulative revenue in RevenueTracker for SALE issue type
-      if (current.issueType === StockIssueType.SALE && current.sourceDocumentType !== 'INVOICE') {
+      if (
+        current.issueType === StockIssueType.SALE &&
+        current.sourceDocumentType !== 'INVOICE'
+      ) {
         const productIds = current.details.map((d) => d.productId);
         const products = await client.product.findMany({
           where: { id: { in: productIds } },
@@ -882,7 +897,8 @@ export class StocksService {
 
         let totalRevenue = new Decimal(0);
         for (const detail of current.details) {
-          const sellingPrice = productPriceMap.get(detail.productId) ?? new Decimal(0);
+          const sellingPrice =
+            productPriceMap.get(detail.productId) ?? new Decimal(0);
           totalRevenue = totalRevenue.add(sellingPrice.mul(detail.quantity));
         }
 
@@ -996,12 +1012,12 @@ export class StocksService {
     }
 
     if (!currentPeriod) {
-      this.log.warn('GET_SUMMARY',{
+      this.log.warn('GET_SUMMARY', {
         status: LOG_STATUS.FAILED,
         reason: 'PERIOD_NOT_FOUND',
         userId,
-      })
-      throw new NotFoundException('Financial period not found.')
+      });
+      throw new NotFoundException('Financial period not found.');
     }
 
     const [totalTrackedProducts, lowStockProducts, summaryVal] =
@@ -1160,12 +1176,14 @@ export class StocksService {
     let issueValue = new Decimal(0);
     for (const d of issueDetails) {
       issueQuantity += Number(d.quantity);
-      const unitCost = d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? new Decimal(0);
+      const unitCost =
+        d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? new Decimal(0);
       issueValue = issueValue.add(d.quantity.mul(unitCost));
     }
 
     const stockToEndPeriod = stockStartPeriod + receiptQuantity - issueQuantity;
-    const valueToEndPeriod = valueStartPeriod + receiptValue - issueValue.toNumber();
+    const valueToEndPeriod =
+      valueStartPeriod + receiptValue - issueValue.toNumber();
 
     return {
       stockStartPeriod,
@@ -1240,7 +1258,9 @@ export class StocksService {
       const upperSourceType = sourceType.trim().toUpperCase();
       if (['INVOICE', 'PRODUCTION_ORDER'].includes(upperSourceType)) {
         where.sourceDocumentType = upperSourceType as StockIssueDocument;
-      } else if (['SALE', 'PRODUCTION', 'ADJUSTMENT'].includes(upperSourceType)) {
+      } else if (
+        ['SALE', 'PRODUCTION', 'ADJUSTMENT'].includes(upperSourceType)
+      ) {
         where.issueType = upperSourceType as StockIssueType;
       }
     }
@@ -1266,15 +1286,18 @@ export class StocksService {
 
     // Fetch related invoice symbols
     const invoiceIds = issues
-      .filter((i) => i.sourceDocumentType === 'INVOICE' && i.sourceDocumentId !== null)
+      .filter(
+        (i) =>
+          i.sourceDocumentType === 'INVOICE' && i.sourceDocumentId !== null,
+      )
       .map((i) => i.sourceDocumentId as number);
 
     const invoices =
       invoiceIds.length > 0
         ? await this.prisma.invoice.findMany({
-          where: { id: { in: invoiceIds } },
-          select: { id: true, invoiceSymbol: true },
-        })
+            where: { id: { in: invoiceIds } },
+            select: { id: true, invoiceSymbol: true },
+          })
         : [];
     const invoiceMap = new Map(
       invoices.map((inv) => [inv.id, inv.invoiceSymbol]),
@@ -1325,7 +1348,9 @@ export class StocksService {
 
       const totalValue = i.details.reduce((sum, d) => {
         const qty = Number(d.quantity || 0);
-        const cost = Number(d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? 0);
+        const cost = Number(
+          d.finalWeightedUnitCost ?? d.provisionalUnitCost ?? 0,
+        );
         return sum + qty * cost;
       }, 0);
 
@@ -1408,7 +1433,11 @@ export class StocksService {
     });
   }
 
-  async unlinkInvoice(userId: string, receiptCode: string, invoicePublicId: string) {
+  async unlinkInvoice(
+    userId: string,
+    receiptCode: string,
+    invoicePublicId: string,
+  ) {
     return await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra StockReceipt tồn tại và thuộc user
       const receipt = await tx.stockReceipt.findFirst({
@@ -1511,6 +1540,10 @@ export class StocksService {
           },
         },
         period: { select: { userId: true, periodName: true } },
+        vouchers: {
+          where: { status: 'ACTIVE' },
+          select: { paymentMethod: true },
+        },
       },
     });
 
@@ -1580,7 +1613,10 @@ export class StocksService {
     });
 
     for (const d of details) {
-      const existing = result.get(d.productId) || { qty: 0, val: new Decimal(0) };
+      const existing = result.get(d.productId) || {
+        qty: 0,
+        val: new Decimal(0),
+      };
       existing.qty += Number(d.quantity);
       existing.val = existing.val.add(d.totalValue);
       result.set(d.productId, existing);
@@ -1716,12 +1752,18 @@ export class StocksService {
       const updateData: Prisma.StockReceiptUpdateInput = {};
 
       if (updateDto.note !== undefined) updateData.note = updateDto.note;
-      if (updateDto.sourceType !== undefined) updateData.sourceType = updateDto.sourceType;
-      if (updateDto.supplierName !== undefined) updateData.supplierName = updateDto.supplierName;
+      if (updateDto.sourceType !== undefined)
+        updateData.sourceType = updateDto.sourceType;
+      if (updateDto.supplierName !== undefined)
+        updateData.supplierName = updateDto.supplierName;
 
       // --- isPaid logic: sync voucher ---
-      if (updateDto.isPaid !== undefined && updateDto.isPaid !== current.isPaid) {
+      if (
+        updateDto.isPaid !== undefined &&
+        updateDto.isPaid !== current.isPaid
+      ) {
         if (updateDto.isPaid) {
+          const paymentMethod = updateDto.paymentMethod ?? PaymentMethod.BANK;
           // Tạo phiếu chi nếu chưa có
           const existingVoucher = await tx.voucher.findFirst({
             where: { stockReceiptId: current.id, status: 'ACTIVE' },
@@ -1742,23 +1784,45 @@ export class StocksService {
                 categoryId: category.id,
                 content: `Thanh toán cho phiếu nhập kho ${current.receiptCode}`,
                 amount: current.totalValue,
-                paymentMethod: 'BANK',
+                paymentMethod,
                 transactionAt: current.receiptDate.toISOString(),
-                contactName: updateDto.supplierName ?? current.supplierName ?? undefined,
+                contactName:
+                  updateDto.supplierName ?? current.supplierName ?? undefined,
                 isDeductibleExpense: true,
                 stockReceiptCode: current.receiptCode,
               },
               tx,
             );
+          } else if (existingVoucher.paymentMethod !== paymentMethod) {
+            await tx.voucher.update({
+              where: { id: existingVoucher.id },
+              data: { paymentMethod },
+            });
           }
           updateData.isPaid = true;
           updateData.paidAmount = current.totalValue;
         } else {
           // Hủy phiếu chi liên quan
-          await this.voucherService.bulkCancelByStockReceipt(tx, userId, current.id);
+          await this.voucherService.bulkCancelByStockReceipt(
+            tx,
+            userId,
+            current.id,
+          );
           updateData.isPaid = false;
           updateData.paidAmount = new Decimal(0);
         }
+      }
+
+      if (
+        updateDto.paymentMethod !== undefined &&
+        (updateDto.isPaid === undefined ||
+          updateDto.isPaid === current.isPaid) &&
+        current.isPaid
+      ) {
+        await tx.voucher.updateMany({
+          where: { stockReceiptId: current.id, status: 'ACTIVE' },
+          data: { paymentMethod: updateDto.paymentMethod },
+        });
       }
 
       if (updateDto.unlinkInvoicePublicId) {
@@ -1778,10 +1842,14 @@ export class StocksService {
           include: { details: true },
         });
         if (!inv) {
-          throw new NotFoundException('Inbound invoice not found or access denied.');
+          throw new NotFoundException(
+            'Inbound invoice not found or access denied.',
+          );
         }
         const existingLink = await tx.stockReceiptInvoice.findUnique({
-          where: { receiptId_invoiceId: { receiptId: current.id, invoiceId: inv.id } },
+          where: {
+            receiptId_invoiceId: { receiptId: current.id, invoiceId: inv.id },
+          },
         });
         if (!existingLink) {
           await tx.stockReceiptInvoice.create({
@@ -1809,9 +1877,15 @@ export class StocksService {
         where: { id: current.id },
         include: {
           period: { select: { periodName: true } },
+          vouchers: {
+            where: { status: 'ACTIVE' },
+            select: { paymentMethod: true },
+          },
           details: {
             include: {
-              product: { select: { publicId: true, productName: true, skuCode: true } },
+              product: {
+                select: { publicId: true, productName: true, skuCode: true },
+              },
             },
           },
         },
@@ -1842,7 +1916,8 @@ export class StocksService {
       const updateData: Prisma.StockIssueUpdateInput = {};
 
       if (updateDto.note !== undefined) updateData.note = updateDto.note;
-      if (updateDto.issueType !== undefined) updateData.issueType = updateDto.issueType;
+      if (updateDto.issueType !== undefined)
+        updateData.issueType = updateDto.issueType;
 
       await tx.stockIssue.update({
         where: { id: current.id },
@@ -1865,7 +1940,9 @@ export class StocksService {
           period: { select: { periodName: true } },
           details: {
             include: {
-              product: { select: { publicId: true, productName: true, skuCode: true } },
+              product: {
+                select: { publicId: true, productName: true, skuCode: true },
+              },
             },
           },
         },
@@ -1874,14 +1951,19 @@ export class StocksService {
     });
   }
 
-  async findOneIssue(userId: string, issueCode: string): Promise<StockIssueResponseDto> {
+  async findOneIssue(
+    userId: string,
+    issueCode: string,
+  ): Promise<StockIssueResponseDto> {
     const issue = await this.prisma.stockIssue.findFirst({
       where: { issueCode, userId },
       include: {
         period: { select: { periodName: true } },
         details: {
           include: {
-            product: { select: { publicId: true, productName: true, skuCode: true } },
+            product: {
+              select: { publicId: true, productName: true, skuCode: true },
+            },
           },
         },
       },
@@ -1894,10 +1976,10 @@ export class StocksService {
     return mapToDto(StockIssueResponseDto, issue);
   }
 
-  async findOneReceipt(userId: string, receiptCode: string){
+  async findOneReceipt(userId: string, receiptCode: string) {
     const receipt = await this.prisma.stockReceipt.findUnique({
       where: {
-        userId_receiptCode: {userId, receiptCode}
+        userId_receiptCode: { userId, receiptCode },
       },
       include: {
         details: {
@@ -1910,6 +1992,10 @@ export class StocksService {
               },
             },
           },
+        },
+        vouchers: {
+          where: { status: 'ACTIVE' },
+          select: { paymentMethod: true },
         },
       },
     });
@@ -1951,10 +2037,10 @@ export class StocksService {
     `;
 
     const tong_gia_tri_ton_kho = resTotalExist[0]?.ending_inventory_value ?? 0;
-    this.log.debug('GIA_TRI_TON_KHO1',{
+    this.log.debug('GIA_TRI_TON_KHO1', {
       tong_gia_tri_ton_kho,
     });
-    this.log.debug('GIA_TRI_TON_KHO2',{
+    this.log.debug('GIA_TRI_TON_KHO2', {
       tong_gia_tri_ton_kho: aggregateResult._sum.totalValue,
     });
     const totalOpeningValue = Number(
@@ -1985,7 +2071,11 @@ export class StocksService {
     }
 
     // Giá trị tồn kho đầu kì thì chỉ tính đầu kì, không phải tổng giá trị nhập, nên truyền tham số ko lấy fallback/dự phòng từ phiếu nhập kho
-    const totalOpeningValue = await this.getOpeningValue(openPeriod.id, userId, false);
+    const totalOpeningValue = await this.getOpeningValue(
+      openPeriod.id,
+      userId,
+      false,
+    );
 
     const [productHasValue, totalProduct] = await Promise.all([
       this.prisma.stockReceiptDetail.count({

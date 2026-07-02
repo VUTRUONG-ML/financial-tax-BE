@@ -5,7 +5,7 @@ import { AuditLogService } from '../core/audit-log/audit-log.service';
 import { InventoryMovementsService } from '../inventory-movements/inventory-movements.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/client';
-import { StockIssueType } from '@prisma/client';
+import { PaymentMethod, StockIssueType } from '@prisma/client';
 import { VouchersService } from '../vouchers/vouchers.service';
 
 describe('StocksService', () => {
@@ -51,6 +51,11 @@ describe('StocksService', () => {
       },
       voucherCategory: {
         findUnique: jest.fn(),
+      },
+      voucher: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
       },
       user: {
         update: jest.fn(),
@@ -376,7 +381,11 @@ describe('StocksService', () => {
         invoiceId: 200,
       });
 
-      const result = await service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId);
+      const result = await service.linkInvoice(
+        mockUserId,
+        mockReceiptCode,
+        mockInvoicePublicId,
+      );
 
       expect(prismaMock.stockReceipt.findFirst).toHaveBeenCalledWith({
         where: { receiptCode: mockReceiptCode, userId: mockUserId },
@@ -392,14 +401,16 @@ describe('StocksService', () => {
           invoiceId: 200,
         },
       });
-      expect(result.message).toContain('Linked stock receipt to invoice successfully');
+      expect(result.message).toContain(
+        'Linked stock receipt to invoice successfully',
+      );
     });
 
     it('should throw NotFoundException if stock receipt not found', async () => {
       prismaMock.stockReceipt.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId)
+        service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -422,7 +433,7 @@ describe('StocksService', () => {
       });
 
       await expect(
-        service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId)
+        service.linkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -451,10 +462,16 @@ describe('StocksService', () => {
       });
       prismaMock.stockReceiptInvoice.delete.mockResolvedValue({});
 
-      const result = await service.unlinkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId);
+      const result = await service.unlinkInvoice(
+        mockUserId,
+        mockReceiptCode,
+        mockInvoicePublicId,
+      );
 
       expect(prismaMock.stockReceiptInvoice.delete).toHaveBeenCalled();
-      expect(result.message).toContain('Unlinked stock receipt from invoice successfully');
+      expect(result.message).toContain(
+        'Unlinked stock receipt from invoice successfully',
+      );
     });
 
     it('should throw NotFoundException if link does not exist', async () => {
@@ -471,7 +488,7 @@ describe('StocksService', () => {
       prismaMock.stockReceiptInvoice.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.unlinkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId)
+        service.unlinkInvoice(mockUserId, mockReceiptCode, mockInvoicePublicId),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -485,7 +502,7 @@ describe('StocksService', () => {
       prismaMock.stockReceipt.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.reconcileReceipt(mockUserId, mockReceiptCode)
+        service.reconcileReceipt(mockUserId, mockReceiptCode),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -499,7 +516,10 @@ describe('StocksService', () => {
       });
       prismaMock.stockReceiptInvoice.findFirst.mockResolvedValue(null);
 
-      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+      const result = await service.reconcileReceipt(
+        mockUserId,
+        mockReceiptCode,
+      );
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
@@ -512,7 +532,11 @@ describe('StocksService', () => {
         receiptCode: mockReceiptCode,
         totalValue: new Decimal(1000),
         details: [
-          { productId: 1, quantity: new Decimal(10), unitCost: new Decimal(100) },
+          {
+            productId: 1,
+            quantity: new Decimal(10),
+            unitCost: new Decimal(100),
+          },
         ],
         period: { userId: mockUserId },
       });
@@ -521,13 +545,14 @@ describe('StocksService', () => {
         invoice: {
           id: 200,
           totalAmount: new Decimal(1000),
-          details: [
-            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
-          ],
+          details: [{ productId: 1, quantity: 10, unitCost: new Decimal(100) }],
         },
       });
 
-      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+      const result = await service.reconcileReceipt(
+        mockUserId,
+        mockReceiptCode,
+      );
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
@@ -539,7 +564,11 @@ describe('StocksService', () => {
         receiptCode: mockReceiptCode,
         totalValue: new Decimal(900),
         details: [
-          { productId: 1, quantity: new Decimal(9), unitCost: new Decimal(100) },
+          {
+            productId: 1,
+            quantity: new Decimal(9),
+            unitCost: new Decimal(100),
+          },
         ],
         period: { userId: mockUserId },
       });
@@ -548,13 +577,14 @@ describe('StocksService', () => {
         invoice: {
           id: 200,
           totalAmount: new Decimal(1000),
-          details: [
-            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
-          ],
+          details: [{ productId: 1, quantity: 10, unitCost: new Decimal(100) }],
         },
       });
 
-      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+      const result = await service.reconcileReceipt(
+        mockUserId,
+        mockReceiptCode,
+      );
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
@@ -566,7 +596,11 @@ describe('StocksService', () => {
         receiptCode: mockReceiptCode,
         totalValue: new Decimal(1000),
         details: [
-          { productId: 2, quantity: new Decimal(10), unitCost: new Decimal(100) },
+          {
+            productId: 2,
+            quantity: new Decimal(10),
+            unitCost: new Decimal(100),
+          },
         ],
         period: { userId: mockUserId },
       });
@@ -575,13 +609,14 @@ describe('StocksService', () => {
         invoice: {
           id: 200,
           totalAmount: new Decimal(1000),
-          details: [
-            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
-          ],
+          details: [{ productId: 1, quantity: 10, unitCost: new Decimal(100) }],
         },
       });
 
-      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+      const result = await service.reconcileReceipt(
+        mockUserId,
+        mockReceiptCode,
+      );
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
@@ -593,7 +628,11 @@ describe('StocksService', () => {
         receiptCode: mockReceiptCode,
         totalValue: new Decimal(2500),
         details: [
-          { productId: 1, quantity: new Decimal(10), unitCost: new Decimal(250) },
+          {
+            productId: 1,
+            quantity: new Decimal(10),
+            unitCost: new Decimal(250),
+          },
         ],
         period: { userId: mockUserId },
       });
@@ -602,13 +641,14 @@ describe('StocksService', () => {
         invoice: {
           id: 200,
           totalAmount: new Decimal(1000),
-          details: [
-            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
-          ],
+          details: [{ productId: 1, quantity: 10, unitCost: new Decimal(100) }],
         },
       });
 
-      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+      const result = await service.reconcileReceipt(
+        mockUserId,
+        mockReceiptCode,
+      );
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
@@ -620,7 +660,11 @@ describe('StocksService', () => {
         receiptCode: mockReceiptCode,
         totalValue: new Decimal(1010),
         details: [
-          { productId: 1, quantity: new Decimal(10), unitCost: new Decimal(101) },
+          {
+            productId: 1,
+            quantity: new Decimal(10),
+            unitCost: new Decimal(101),
+          },
         ],
         period: { userId: mockUserId },
       });
@@ -629,13 +673,14 @@ describe('StocksService', () => {
         invoice: {
           id: 200,
           totalAmount: new Decimal(1000),
-          details: [
-            { productId: 1, quantity: 10, unitCost: new Decimal(100) },
-          ],
+          details: [{ productId: 1, quantity: 10, unitCost: new Decimal(100) }],
         },
       });
 
-      const result = await service.reconcileReceipt(mockUserId, mockReceiptCode);
+      const result = await service.reconcileReceipt(
+        mockUserId,
+        mockReceiptCode,
+      );
 
       expect(result.validation.status).toBe('SUCCESS');
       expect(result.validation.warnings).toHaveLength(0);
@@ -651,18 +696,29 @@ describe('StocksService', () => {
       supplierName: 'Supplier A',
       sourceInvoiceNo: 'INV-001',
       note: 'Test receipt note',
-      products: [
-        { productPublicId: 'prod-1', quantity: 10, unitCost: 100 },
-      ],
+      products: [{ productPublicId: 'prod-1', quantity: 10, unitCost: 100 }],
     };
 
     it('should create stock receipt with note and without voucher if isPaid is false/not provided', async () => {
-      prismaMock.financialPeriod.findUnique.mockResolvedValue({ id: mockPeriodId, userId: mockUserId });
+      prismaMock.financialPeriod.findUnique.mockResolvedValue({
+        id: mockPeriodId,
+        userId: mockUserId,
+      });
       prismaMock.product.findMany.mockResolvedValue([
-        { id: 1, publicId: 'prod-1', productName: 'Prod 1', currentStock: 0, isInventoryTracked: true, productType: 'RAW_MATERIAL' },
+        {
+          id: 1,
+          publicId: 'prod-1',
+          productName: 'Prod 1',
+          currentStock: 0,
+          isInventoryTracked: true,
+          productType: 'RAW_MATERIAL',
+        },
       ]);
       prismaMock.stockReceipt.findFirst.mockResolvedValue(null);
-      prismaMock.stockReceipt.create.mockResolvedValue({ id: 100, receiptCode: 'PNK-0626-0001' });
+      prismaMock.stockReceipt.create.mockResolvedValue({
+        id: 100,
+        receiptCode: 'PNK-0626-0001',
+      });
       prismaMock.stockReceipt.findUnique.mockResolvedValue({
         id: 100,
         receiptCode: 'PNK-0626-0001',
@@ -673,7 +729,11 @@ describe('StocksService', () => {
         period: { periodName: 'June 2026' },
       });
 
-      const result = await service.createStockReceipt(mockUserId, createDto, mockPeriodId);
+      const result = await service.createStockReceipt(
+        mockUserId,
+        createDto,
+        mockPeriodId,
+      );
 
       expect(prismaMock.stockReceipt.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -686,14 +746,34 @@ describe('StocksService', () => {
     });
 
     it('should create stock receipt and automatically create a payment voucher if isPaid is true', async () => {
-      const createDtoPaid = { ...createDto, isPaid: true };
-      prismaMock.financialPeriod.findUnique.mockResolvedValue({ id: mockPeriodId, userId: mockUserId });
+      const createDtoPaid = {
+        ...createDto,
+        isPaid: true,
+        paymentMethod: PaymentMethod.CASH,
+      };
+      prismaMock.financialPeriod.findUnique.mockResolvedValue({
+        id: mockPeriodId,
+        userId: mockUserId,
+      });
       prismaMock.product.findMany.mockResolvedValue([
-        { id: 1, publicId: 'prod-1', productName: 'Prod 1', currentStock: 0, isInventoryTracked: true, productType: 'RAW_MATERIAL' },
+        {
+          id: 1,
+          publicId: 'prod-1',
+          productName: 'Prod 1',
+          currentStock: 0,
+          isInventoryTracked: true,
+          productType: 'RAW_MATERIAL',
+        },
       ]);
       prismaMock.stockReceipt.findFirst.mockResolvedValue(null);
-      prismaMock.stockReceipt.create.mockResolvedValue({ id: 100, receiptCode: 'PNK-0626-0001' });
-      prismaMock.voucherCategory.findUnique.mockResolvedValue({ id: 5, systemTag: 'PAYMENT_MATERIAL' });
+      prismaMock.stockReceipt.create.mockResolvedValue({
+        id: 100,
+        receiptCode: 'PNK-0626-0001',
+      });
+      prismaMock.voucherCategory.findUnique.mockResolvedValue({
+        id: 5,
+        systemTag: 'PAYMENT_MATERIAL',
+      });
       prismaMock.stockReceipt.findUnique.mockResolvedValue({
         id: 100,
         receiptCode: 'PNK-0626-0001',
@@ -704,7 +784,11 @@ describe('StocksService', () => {
         period: { periodName: 'June 2026' },
       });
 
-      const result = await service.createStockReceipt(mockUserId, createDtoPaid, mockPeriodId);
+      const result = await service.createStockReceipt(
+        mockUserId,
+        createDtoPaid,
+        mockPeriodId,
+      );
 
       expect(prismaMock.voucherCategory.findUnique).toHaveBeenCalledWith({
         where: { systemTag: 'PAYMENT_MATERIAL' },
@@ -716,7 +800,7 @@ describe('StocksService', () => {
           categoryId: 5,
           content: 'Thanh toán cho phiếu nhập kho PNK-0626-0001',
           amount: new Decimal(1000),
-          paymentMethod: 'BANK',
+          paymentMethod: PaymentMethod.CASH,
           transactionAt: createDto.receiptDate,
           contactName: 'Supplier A',
           isDeductibleExpense: false,
@@ -735,18 +819,29 @@ describe('StocksService', () => {
       issueType: 'PRODUCTION' as any,
       issueDate: '2026-06-25T00:00:00.000Z',
       note: 'Test issue note',
-      products: [
-        { productPublicId: 'prod-1', quantity: 5 },
-      ],
+      products: [{ productPublicId: 'prod-1', quantity: 5 }],
     };
 
     it('should create stock issue with note successfully', async () => {
-      prismaMock.financialPeriod.findUnique.mockResolvedValue({ id: mockPeriodId, userId: mockUserId });
+      prismaMock.financialPeriod.findUnique.mockResolvedValue({
+        id: mockPeriodId,
+        userId: mockUserId,
+      });
       prismaMock.product.findMany.mockResolvedValue([
-        { id: 1, publicId: 'prod-1', productName: 'Prod 1', currentStock: 10, isInventoryTracked: true, productType: 'RAW_MATERIAL' },
+        {
+          id: 1,
+          publicId: 'prod-1',
+          productName: 'Prod 1',
+          currentStock: 10,
+          isInventoryTracked: true,
+          productType: 'RAW_MATERIAL',
+        },
       ]);
       prismaMock.stockIssue.findFirst.mockResolvedValue(null);
-      prismaMock.stockIssue.create.mockResolvedValue({ id: 200, issueCode: 'PXK-0626-0001' });
+      prismaMock.stockIssue.create.mockResolvedValue({
+        id: 200,
+        issueCode: 'PXK-0626-0001',
+      });
       prismaMock.product.updateMany.mockResolvedValue({ count: 1 });
       prismaMock.stockIssue.findUnique.mockResolvedValue({
         id: 200,
@@ -756,7 +851,11 @@ describe('StocksService', () => {
         period: { periodName: 'June 2026' },
       });
 
-      const result = await service.createStockIssue(mockUserId, createDto, mockPeriodId);
+      const result = await service.createStockIssue(
+        mockUserId,
+        createDto,
+        mockPeriodId,
+      );
 
       expect(prismaMock.stockIssue.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
