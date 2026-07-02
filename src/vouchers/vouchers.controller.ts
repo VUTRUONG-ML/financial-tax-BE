@@ -18,7 +18,10 @@ import { CreateVoucherDto } from './dto/create-voucher.dto';
 import { UpdateVoucherDto } from './dto/update-voucher.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import {
+  CheckPeriod,
+  CheckPeriodResource,
+} from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('vouchers')
@@ -77,7 +80,9 @@ export class VouchersController {
   }
 
   @Patch(':voucherCode')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.VOUCHER,
+  })
   @HttpCode(HttpStatus.OK)
   async update(
     @CurrentUser('id') userId: string,
@@ -93,7 +98,9 @@ export class VouchersController {
   }
 
   @Patch(':voucherCode/cancel')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.VOUCHER,
+  })
   @HttpCode(HttpStatus.OK)
   async cancel(
     @CurrentUser('id') userId: string,
@@ -104,7 +111,9 @@ export class VouchersController {
   }
 
   @Delete(':voucherCode')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.VOUCHER,
+  })
   @HttpCode(HttpStatus.OK)
   async remove(
     @CurrentUser('id') userId: string,

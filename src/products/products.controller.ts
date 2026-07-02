@@ -20,18 +20,15 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageUploadPipe } from '../common/constants/file-upload.constants';
 import { Throttle } from '@nestjs/throttler';
-import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('products')
-@UseGuards(JwtAuthGuard, PeriodLockGuard)
+@UseGuards(JwtAuthGuard)
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   // POST /products
   @Post()
-  @CheckPeriod()
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   async create(
@@ -81,7 +78,6 @@ export class ProductsController {
 
   // PUT /products/:publicId
   @Put(':publicId')
-  @CheckPeriod()
   @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   @HttpCode(HttpStatus.OK)
@@ -97,7 +93,6 @@ export class ProductsController {
 
   // DELETE /products/:publicId
   @Delete(':publicId')
-  @CheckPeriod()
   @HttpCode(HttpStatus.OK)
   async remove(
     @CurrentUser('id') userId: string,

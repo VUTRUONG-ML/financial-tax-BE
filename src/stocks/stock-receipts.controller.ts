@@ -16,7 +16,10 @@ import { StocksService } from './stocks.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import {
+  CheckPeriod,
+  CheckPeriodResource,
+} from '../common/decorators/check-period.decorator';
 import { CreateStockReceiptDto } from './dto/create-stock-receipt.dto';
 import { UpdateStockReceiptDto } from './dto/update-stock-receipt.dto';
 import { Throttle } from '@nestjs/throttler';
@@ -70,7 +73,9 @@ export class StockReceiptsController {
   }
 
   @Patch(':receiptCode/cancel')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.STOCK_RECEIPT,
+  })
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async cancelStockReceipt(
@@ -90,7 +95,9 @@ export class StockReceiptsController {
   }
 
   @Patch(':receiptCode')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.STOCK_RECEIPT,
+  })
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async updateStockReceipt(
@@ -111,7 +118,9 @@ export class StockReceiptsController {
   }
 
   @Post(':receiptCode/link-invoice')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.STOCK_RECEIPT,
+  })
   @HttpCode(HttpStatus.OK)
   async linkInvoice(
     @CurrentUser('id') userId: string,
@@ -126,7 +135,9 @@ export class StockReceiptsController {
   }
 
   @Delete(':receiptCode/link-invoice/:invoicePublicId')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.STOCK_RECEIPT,
+  })
   @HttpCode(HttpStatus.OK)
   async unlinkInvoice(
     @CurrentUser('id') userId: string,

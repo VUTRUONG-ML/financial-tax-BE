@@ -1,4 +1,11 @@
-import { Injectable, CanActivate, ExecutionContext, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  BadRequestException,
+  HttpException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { FinancialPeriodValidationService } from '../../financial-periods/financial-period-validation.service';
 import { CHECK_PERIOD_KEY, CheckPeriodResource } from '../decorators/check-period.decorator';
@@ -31,26 +38,78 @@ export class PeriodLockGuard implements CanActivate {
       .getRequest<RequestWithUser & { financialPeriodId?: number }>();
     const user = request.user;
 
-    const checkDate = await this.resolveCheckDate(
-      metadata.resource,
-      request,
-      user.id,
-    );
+    if (!user || !user.id) {
+      this.log.warn('CHECK_PERIOD_FAILED', {
+        resource: metadata.resource,
+        reason: 'USER_NOT_FOUND',
+        method: request.method,
+        path: request.path,
+      });
+      return false;
+    }
 
-    this.log.debug('CHECK_PERIOD', {
-      resource: metadata.resource,
-      checkDate,
+    try {
+      const checkDate = await this.resolveCheckDate(
+        metadata.resource,
+        request,
+        user.id,
+      );
+
+      this.log.debug('CHECK_PERIOD', {
+        resource: metadata.resource,
+        checkDate,
+      });
+
+      // 3. Gá»i Service check
+      const period = await this.validationService.getOrCreateAndValidatePeriod(
+        user.id,
+        checkDate,
+      );
+      request.financialPeriodId = period.id;
+      return true;
+    } catch (error) {
+      this.logPeriodCheckError(error, metadata.resource, request, user.id);
+      throw error;
+    }
+  }
+
+  private logPeriodCheckError(
+    error: unknown,
+    resource: CheckPeriodResource,
+    request: any,
+    userId: string,
+  ): void {
+    const errorResponse =
+      error instanceof HttpException ? error.getResponse() : undefined;
+    const reason =
+      typeof errorResponse === 'object' &&
+      errorResponse !== null &&
+      'message' in errorResponse
+        ? (errorResponse as { message: unknown }).message
+        : error instanceof Error
+          ? error.message
+          : 'UNKNOWN_ERROR';
+
+    this.log.warn('CHECK_PERIOD_FAILED', {
+      resource,
+      reason,
+      userId,
+      method: request.method,
+      path: request.path,
+      statusCode:
+        error instanceof HttpException ? error.getStatus() : undefined,
     });
-
-    if (!user || !user.id) return false;
-
-    // 3. Gọi Service check
-    const period = await this.validationService.getOrCreateAndValidatePeriod(
-      user.id,
-      checkDate,
-    );
-    request.financialPeriodId = period.id;
-    return true;
+    this.log.debug('CHECK_PERIOD_FAILED_DETAIL', {
+      resource,
+      userId,
+      params: request.params,
+      dateFields: {
+        issueDate: request.body?.issueDate,
+        transactionAt: request.body?.transactionAt,
+        receiptDate: request.body?.receiptDate,
+      },
+      errorName: error instanceof Error ? error.name : undefined,
+    });
   }
 
   private async resolveCheckDate(
@@ -62,31 +121,52 @@ export class PeriodLockGuard implements CanActivate {
       case CheckPeriodResource.INVOICE:
         return this.resolveInvoiceDate(request, userId);
 
+      case CheckPeriodResource.STOCK_RECEIPT:
+        return this.resolveStockReceiptDate(request, userId);
+
+      case CheckPeriodResource.STOCK_ISSUE:
+        return this.resolveStockIssueDate(request, userId);
+
+      case CheckPeriodResource.VOUCHER:
+        return this.resolveVoucherDate(request, userId);
+
+      case CheckPeriodResource.PRODUCTION_ORDER:
+        return this.resolveProductionOrderDate(request, userId);
+
       case CheckPeriodResource.BODY:
       default:
         return this.resolveBodyDate(request);
     }
   }
 
-  private resolveBodyDate(request: any): Date {
+  private getBodyDate(request: any): Date | null {
     const checkDateRaw = (request.body?.issueDate ||
       request.body?.transactionAt ||
       request.body?.receiptDate) as string | undefined;
 
-    if (!checkDateRaw) {
+    return checkDateRaw
+      ? moment.tz(checkDateRaw, 'Asia/Ho_Chi_Minh').toDate()
+      : null;
+  }
+
+  private resolveBodyDate(request: any): Date {
+    const bodyDate = this.getBodyDate(request);
+
+    if (!bodyDate) {
       throw new BadRequestException(
         'Missing transaction date for period check.',
       );
     }
-    return checkDateRaw
-      ? moment.tz(checkDateRaw, 'Asia/Ho_Chi_Minh').toDate()
-      : moment().tz('Asia/Ho_Chi_Minh').toDate();
+    return bodyDate;
   }
 
   private async resolveInvoiceDate(
     request: any,
     userId: string,
   ): Promise<Date> {
+    const bodyDate = this.getBodyDate(request);
+    if (bodyDate) return bodyDate;
+
     const invoicePublicId = request.params?.invoicePublicId as string | undefined;
 
     if (!invoicePublicId) {
@@ -108,5 +188,101 @@ export class PeriodLockGuard implements CanActivate {
     }
 
     return invoice.issueDate;
+  }
+
+  private async resolveStockReceiptDate(
+    request: any,
+    userId: string,
+  ): Promise<Date> {
+    const bodyDate = this.getBodyDate(request);
+    if (bodyDate) return bodyDate;
+
+    const receiptCode = request.params?.receiptCode as string | undefined;
+    if (!receiptCode) {
+      throw new BadRequestException('Missing receiptCode.');
+    }
+
+    const receipt = await this.prisma.stockReceipt.findFirst({
+      where: { receiptCode, userId },
+      select: { receiptDate: true },
+    });
+
+    if (!receipt) {
+      throw new NotFoundException('Stock receipt not found.');
+    }
+
+    return receipt.receiptDate;
+  }
+
+  private async resolveStockIssueDate(
+    request: any,
+    userId: string,
+  ): Promise<Date> {
+    const bodyDate = this.getBodyDate(request);
+    if (bodyDate) return bodyDate;
+
+    const issueCode = request.params?.issueCode as string | undefined;
+    if (!issueCode) {
+      throw new BadRequestException('Missing issueCode.');
+    }
+
+    const issue = await this.prisma.stockIssue.findFirst({
+      where: { issueCode, userId },
+      select: { issueDate: true },
+    });
+
+    if (!issue) {
+      throw new NotFoundException('Stock issue not found.');
+    }
+
+    return issue.issueDate;
+  }
+
+  private async resolveVoucherDate(
+    request: any,
+    userId: string,
+  ): Promise<Date> {
+    const bodyDate = this.getBodyDate(request);
+    if (bodyDate) return bodyDate;
+
+    const voucherCode = request.params?.voucherCode as string | undefined;
+    if (!voucherCode) {
+      throw new BadRequestException('Missing voucherCode.');
+    }
+
+    const voucher = await this.prisma.voucher.findFirst({
+      where: { voucherCode, userId },
+      select: { transactionAt: true },
+    });
+
+    if (!voucher) {
+      throw new NotFoundException('Voucher not found.');
+    }
+
+    return voucher.transactionAt;
+  }
+
+  private async resolveProductionOrderDate(
+    request: any,
+    userId: string,
+  ): Promise<Date> {
+    const bodyDate = this.getBodyDate(request);
+    if (bodyDate) return bodyDate;
+
+    const orderCode = request.params?.orderCode as string | undefined;
+    if (!orderCode) {
+      throw new BadRequestException('Missing orderCode.');
+    }
+
+    const order = await this.prisma.internalProductionOrder.findFirst({
+      where: { orderCode, userId },
+      select: { transactionAt: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Production order not found.');
+    }
+
+    return order.transactionAt;
   }
 }

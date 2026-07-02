@@ -9,12 +9,10 @@ import {
 import { InboundInvoicesService } from './inbound-invoices.service';
 import { InvoiceSyncService } from './invoice-sync.service';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('inbound-invoices')
-@UseGuards(JwtAuthGuard, PeriodLockGuard)
+@UseGuards(JwtAuthGuard)
 export class InboundInvoicesController {
   constructor(
     private readonly inboundInvoicesService: InboundInvoicesService,
@@ -67,7 +65,6 @@ export class InboundInvoicesController {
   }
 
   @Post('trigger-sync')
-  @CheckPeriod()
   async triggerSync(@CurrentUser('id') userId: string) {
     const syncedCount = await this.invoiceSyncService.syncForUser(userId);
     return {

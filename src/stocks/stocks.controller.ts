@@ -4,17 +4,14 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import { StocksService } from './stocks.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from 'src/common/decorators/check-period.decorator';
 
 @Controller('stocks')
-@UseGuards(JwtAuthGuard, PeriodLockGuard)
+@UseGuards(JwtAuthGuard)
 export class StocksController {
   constructor(private readonly stocksService: StocksService) {}
 
@@ -28,7 +25,6 @@ export class StocksController {
     };
   }
 
-  @CheckPeriod()
   @Get('opening-summary/:periodPublicId')
   @HttpCode(HttpStatus.OK)
   async getOpeningSummary(
@@ -42,7 +38,6 @@ export class StocksController {
     };
   }
 
-  @CheckPeriod()
   @Get('opening-list/:periodPublicId')
   @HttpCode(HttpStatus.OK)
   async getOpeningList(

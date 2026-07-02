@@ -6,6 +6,7 @@ export enum CheckPeriodResource {
   STOCK_RECEIPT = 'STOCK_RECEIPT',
   STOCK_ISSUE = 'STOCK_ISSUE',
   VOUCHER = 'VOUCHER',
+  PRODUCTION_ORDER = 'PRODUCTION_ORDER',
 }
 
 export interface CheckPeriodOptions {

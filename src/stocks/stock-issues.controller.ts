@@ -15,7 +15,10 @@ import { StocksService } from './stocks.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import {
+  CheckPeriod,
+  CheckPeriodResource,
+} from '../common/decorators/check-period.decorator';
 import { CreateStockIssueDto } from './dto/create-stock-issue.dto';
 import { UpdateStockIssueDto } from './dto/update-stock-issue.dto';
 import { Throttle } from '@nestjs/throttler';
@@ -69,7 +72,9 @@ export class StockIssuesController {
   }
 
   @Patch(':issueCode/cancel')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.STOCK_ISSUE,
+  })
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async cancelStockIssue(
@@ -89,14 +94,15 @@ export class StockIssuesController {
   }
 
   @Patch(':issueCode')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.STOCK_ISSUE,
+  })
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async updateStockIssue(
     @CurrentUser('id') userId: string,
     @Param('issueCode') issueCode: string,
     @Body() updateDto: UpdateStockIssueDto,
-    @Req() req: Request & { financialPeriodId: number },
   ) {
     const result = await this.stocksService.updateStockIssue(
       userId,

@@ -113,7 +113,9 @@ export class InvoicesController {
 
   @Throttle({ medium: { limit: 3, ttl: 60000 } })
   @Patch('/:invoicePublicId/cancel')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.INVOICE,
+  })
   async cancelInvoice(
     @Param('invoicePublicId') invPublicId: string,
     @CurrentUser('id') userId: string,
@@ -131,7 +133,9 @@ export class InvoicesController {
   }
 
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.INVOICE,
+  })
   @Patch('/:invoicePublicId')
   async updateInvoice(
     @Param('invoicePublicId') invPublicId: string,
@@ -152,7 +156,9 @@ export class InvoicesController {
   }
 
   @Throttle({ medium: { limit: 10, ttl: 60000 } })
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.INVOICE,
+  })
   @Delete('/:invoicePublicId')
   async deleteInvoice(
     @Param('invoicePublicId') invPublicId: string,

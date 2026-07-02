@@ -19,7 +19,10 @@ import { GetProductionOrdersQueryDto } from './dto/get-production-orders-query.d
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import {
+  CheckPeriod,
+  CheckPeriodResource,
+} from '../common/decorators/check-period.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('internal-production-orders')
@@ -50,7 +53,9 @@ export class InternalProductionOrdersController {
   }
 
   @Patch(':orderCode/cancel')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.PRODUCTION_ORDER,
+  })
   @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async cancel(
@@ -95,7 +100,9 @@ export class InternalProductionOrdersController {
   }
 
   @Patch(':orderCode')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.PRODUCTION_ORDER,
+  })
   @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async update(
