@@ -20,7 +20,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PeriodLockGuard } from '../common/guards/period-lock.guard';
-import { CheckPeriod } from '../common/decorators/check-period.decorator';
+import { CheckPeriod, CheckPeriodResource } from '../common/decorators/check-period.decorator';
 
 @UseGuards(JwtAuthGuard, PeriodLockGuard)
 @Controller('invoices')
@@ -49,7 +49,9 @@ export class InvoicesController {
   }
 
   @Post(':invoicePublicId/publish')
-  @CheckPeriod()
+  @CheckPeriod({
+    resource: CheckPeriodResource.INVOICE,
+  })
   async publish(
     @Param('invoicePublicId') invoicePublicId: string,
     @CurrentUser('id') userId: string,

@@ -1,4 +1,20 @@
 import { SetMetadata } from '@nestjs/common';
 
+export enum CheckPeriodResource {
+  BODY = 'BODY',
+  INVOICE = 'INVOICE',
+  STOCK_RECEIPT = 'STOCK_RECEIPT',
+  STOCK_ISSUE = 'STOCK_ISSUE',
+  VOUCHER = 'VOUCHER',
+}
+
+export interface CheckPeriodOptions {
+  resource?: CheckPeriodResource;
+}
+
 export const CHECK_PERIOD_KEY = 'check_period';
-export const CheckPeriod = () => SetMetadata(CHECK_PERIOD_KEY, true);
+export const CheckPeriod = (options: CheckPeriodOptions = {}) =>
+  SetMetadata(CHECK_PERIOD_KEY, {
+    enabled: true,
+    resource: options.resource ?? CheckPeriodResource.BODY,
+  });
